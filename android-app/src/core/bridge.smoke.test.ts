@@ -73,10 +73,14 @@ describe('android bridge smoke (preload → шина → register → серви
     expect(res.ok ? '' : res.error).not.toContain('не реализовано');
   });
 
-  it('незарегистрированный домен (файлы) отвечает мягким отказом, а не падением', async () => {
+  it('незарегистрированный домен (файлы) отвечает мягким отказом с причиной, а не падением', async () => {
     const res = await h.matrica().files.pick();
     expect(res.ok).toBe(false);
-    expect(res.ok ? '' : res.error).toContain('недоступно на планшете');
+    // Промт КАРМАНА #142: отказ называет причину прямо. Раньше здесь было
+    // «недоступно на планшете: <канал>» — одинаково с «нет доступа к разделу»,
+    // и оператор с админом гадали, чего не хватает: прав или функции.
+    expect(res.ok ? '' : res.error).toContain('канал не заведён на планшете');
+    expect(res.ok ? '' : res.error).toContain('файловой системы нет');
   });
 
   it('избранное разделов: звёздочка в меню кладёт раздел в левую панель (set → get)', async () => {
@@ -105,5 +109,80 @@ describe('android bridge smoke (preload → шина → register → серви
   it('server.health ходит фейк-сервером через настоящий authAndSync-модуль', async () => {
     const res = await h.matrica().server.health();
     expect(res.ok).toBe(true);
+  });
+});
+
+/**
+ * Промт КАРМАНА #142: «ни один нужный домен не остался незаведённым в мосте
+ * планшета». Класс дефекта, который владелец диагностировал как «недостаточно
+ * прав»: домен есть в коде, раздел есть в меню, а канал в мосте не заведён —
+ * шим отвечает «недоступно на планшете», renderer печатает «Ошибка сохранения: …»,
+ * и оператор решает, что запись не уходит.
+ *
+ * Проверка бьёт по каждому домену, который до промта на планшете не был заведён,
+ * и требует: канал отвечает по-настоящему, а не отказом «не заведён».
+ */
+describe('домены, подключённые по промту #142, отвечают по-настоящему', () => {
+  let h: BridgeHarness;
+
+  beforeEach(async () => {
+    h = await startBridgeHarness();
+  });
+
+  afterEach(async () => {
+    await h.dispose();
+  });
+
+  it('ни один канал новых доменов не отвечает «не заведён на планшете»', async () => {
+    const calls: ReadonlyArray<readonly [string, () => Promise<unknown>]> = [
+      ['отчёты', () => h.matrica().reports.presetList()],
+      ['табель', () => h.matrica().timesheets.list()],
+      ['СИЗ', () => h.matrica().ppe.norms.list()],
+      ['инструменты', () => h.matrica().tools.list()],
+      ['рекламации двигателей', () => h.matrica().engineReclamations.list('e-1')],
+      ['печатные формы', () => h.matrica().printForms.templates.list()],
+      ['платежи по контрактам', () => h.matrica().contractPayments.get('c-1')],
+      ['цены на услуги', () => h.matrica().servicePricing.orders.list()],
+      ['подписи по умолчанию', () => h.matrica().signatureDefaults.list()],
+      ['чат', () => h.matrica().chat.usersList()],
+      ['ИИ-чат', () => h.matrica().aiChat.list()],
+      ['ИИ-агент', () => h.matrica().aiAgent.logEvent({ context: { tab: 'engines' }, event: { type: 'open', ts: Date.now(), tab: 'engines' } })],
+      ['экраны UI', () => h.matrica().uiScreens.list()],
+      ['критерии утиля', () => h.matrica().scrapCriterion.list()],
+      ['дети', () => h.matrica().children.list()],
+      ['организация', () => h.matrica().organization.list()],
+      ['обслуживание', () => h.matrica().maintenance.emptyCardsAnalyze()],
+      ['системные каналы', () => h.matrica().system.clockStatus()],
+    ];
+
+    const notWired: string[] = [];
+    const failed: string[] = [];
+    for (const [name, call] of calls) {
+      const res = await call();
+      const text = JSON.stringify(res ?? '');
+      if (text.includes('канал не заведён на планшете')) {
+        notWired.push(name);
+        continue;
+      }
+      const ok = (res as { ok?: unknown } | null | undefined)?.ok;
+      if (ok === false) failed.push(`${name}: ${(res as { error?: string }).error ?? 'без причины'}`);
+    }
+
+    expect(notWired, 'домен не заведён в мосте планшета — правка молча не сохранится').toEqual([]);
+    expect(failed, 'канал отвечает отказом — проверь право/данные в фикстуре').toEqual([]);
+  });
+
+  it('каналы, физически невозможные на планшете, отвечают причиной, а не отказом по разделу', async () => {
+    // Печать/PDF считаются в скрытом окне Electron — на планшете такого окна нет.
+    // Отказ обязан называть ЭТУ причину: иначе он неотличим от «нет доступа к
+    // разделу» и снова выглядит как «недостаточно прав».
+    const pdf = await h.matrica().reports.presetPdf({ presetId: 'engines' });
+    expect(pdf.ok).toBe(false);
+    expect(pdf.ok ? '' : pdf.error).toContain('на планшете не работает');
+    expect(pdf.ok ? '' : pdf.error).toContain('скрытом окне Electron');
+
+    // Выгрузка CSV — наоборот, работает (файл не пишется, отдаётся содержимое).
+    const csv = await h.matrica().reports.presetCsv({ presetId: 'engines' });
+    expect(JSON.stringify(csv)).not.toContain('канал не заведён на планшете');
   });
 });

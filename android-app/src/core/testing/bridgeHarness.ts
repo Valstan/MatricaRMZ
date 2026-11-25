@@ -22,7 +22,13 @@ export const ENGINE_NUMBER_DEF_ID = '22222222-2222-4222-8222-222222222222';
 
 const USER = { id: 'u-1', username: 'verify', fullName: 'Verify User', role: 'admin' };
 
-/** Права цехового мастера: рамка Ф2 (двигатели/дефектовка) + Ф3 (наряды, склад). */
+/**
+ * Права цехового мастера: рамка Ф2 (двигатели/дефектовка) + Ф3 (наряды, склад).
+ *
+ * Промт КАРМАНА #142: домены, подключённые к мосту планшета, должны работать и
+ * по правам — иначе смоук проверяет не «канал заведён», а «прав не хватает».
+ * Поэтому в фикстуре есть права всех подключённых доменов.
+ */
 export const PERMS: Record<string, boolean> = {
   'engines.view': true,
   'engines.edit': true,
@@ -36,6 +42,13 @@ export const PERMS: Record<string, boolean> = {
   'erp.documents.view': true,
   'erp.documents.edit': true,
   'erp.documents.post': true,
+  // Домены, подключённые по промту #142.
+  'reports.view': true,
+  'timesheet.view': true,
+  'erp.dictionary.view': true,
+  'print_forms.view': true,
+  'supply_requests.view': true,
+  'chat.use': true,
 };
 
 export type BridgeHarness = {
@@ -53,6 +66,11 @@ export type HarnessOptions = {
   routes?: (url: string, init?: RequestInit) => Response | null;
   /** Сервер недоступен (кроме логина) — для проверки офлайн-путей. */
   offlineAfterLogin?: boolean;
+  /**
+   * Выданные разделы (реплика `users ⋈ user_section_access`) — чтобы проверить
+   * отказ по разделу. Пустой список = membership не засеян → fail-open.
+   */
+  sectionMembership?: ReadonlyArray<{ login: string; sectionId: string; level: 'viewer' | 'editor' }>;
 };
 
 export async function startBridgeHarness(opts: HarnessOptions = {}): Promise<BridgeHarness> {
@@ -71,6 +89,8 @@ export async function startBridgeHarness(opts: HarnessOptions = {}): Promise<Bri
     if (extra) return extra;
     if (opts.offlineAfterLogin && loggedIn) throw new Error('offline');
     if (url.startsWith(`${API}/health`)) return Response.json({ ok: true, version: '0.0.1-test' });
+    // Список собеседников в чате: сервер отдаёт массив, а не только «ok».
+    if (url.endsWith('/chat/users')) return Response.json({ ok: true, users: [] });
     return Response.json({ ok: true });
   }) as typeof fetch;
 
@@ -92,6 +112,29 @@ export async function startBridgeHarness(opts: HarnessOptions = {}): Promise<Bri
      VALUES (?, ?, 'engine_number', 'Номер', 'text', 1, 1, 'synced')`,
     [ENGINE_NUMBER_DEF_ID, ENGINE_TYPE_ID],
   );
+
+  // Реплика «доступа по разделам»: гейт разделов читает её через
+  // `users ⋈ user_section_access`. Без неё membership = null → fail-open, и
+  // отказ «нет доступа к разделу» не проверить.
+  const membership = opts.sectionMembership ?? [];
+  if (membership.length > 0) {
+    const logins = [...new Set(membership.map((m) => m.login))];
+    for (const login of logins) {
+      const userId = `user-${login}`;
+      await adapter.run(
+        `INSERT INTO users (id, login, system_role, access_enabled, created_at, updated_at, sync_status)
+         VALUES (?, ?, 'user', 1, 1, 1, 'synced')`,
+        [userId, login],
+      );
+    }
+    for (const m of membership) {
+      await adapter.run(
+        `INSERT INTO user_section_access (id, user_id, section_id, level, created_at, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, 1, 1, 'synced')`,
+        [`access-${m.login}-${m.sectionId}`, `user-${m.login}`, m.sectionId, m.level],
+      );
+    }
+  }
 
   return {
     adapter,

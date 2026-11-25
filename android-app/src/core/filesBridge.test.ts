@@ -66,9 +66,12 @@ describe('android files bridge', () => {
     expect(res.ok && res.dataUrl).toBe('data:image/png;base64,AAAB');
   });
 
-  it('десктопные каналы (выбор файла, папки, печать) на планшете по-прежнему недоступны', async () => {
+  it('десктопные каналы (выбор файла, папки, печать) на планшете по-прежнему недоступны — и отказ называет причину', async () => {
     const pick = await h.matrica().files.pick();
     expect(pick.ok).toBe(false);
-    expect(pick.ok ? '' : pick.error).toContain('недоступно на планшете');
+    // Промт КАРМАНА #142: отказ называет причину прямо — «канал не заведён на
+    // планшете» + почему (у планшета нет файловой системы).
+    expect(pick.ok ? '' : pick.error).toContain('канал не заведён на планшете');
+    expect(pick.ok ? '' : pick.error).toContain('файловой системы нет');
   });
 });

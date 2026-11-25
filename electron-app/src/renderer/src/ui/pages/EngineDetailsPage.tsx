@@ -78,8 +78,10 @@ const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'files', label: 'Фото и документы' },
   // Паспорт двигателя (владелец 02.10.2026): пока только скан-файлы, поля и печать — позже.
   { key: 'passport', label: 'Паспорт' },
-  // Платежи остаются вне цеховой рамки планшета.
-  ...(isAndroidPlatform() ? [] : ([{ key: 'payments', label: 'Платежи' }] as { key: EngineCardTab; label: string }[])),
+  // Платежи по договору: домен `contractPayments` подключён к мосту планшета
+  // (промт КАРМАНА #142), поэтому вкладка доступна и там — по тем же правам,
+  // что на компьютере.
+  { key: 'payments', label: 'Платежи' },
   { key: 'reclamation', label: 'Рекламация' },
   { key: 'docs', label: 'Отчётные документы' },
 ];
