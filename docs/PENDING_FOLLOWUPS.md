@@ -105,7 +105,7 @@
 
 - [⏳ Прод-бэкфилл цехов программ: ждёт решения владельца (рантайм не пускает к прод-БД) 🗓 since:2026-11-24](pending/pp-backfill-workshop-na-prode-reshenie-vladeltsa.md)
 - [⏳ Данные оператора: серверная дверь починена, клиент 3.135.0 роняет pull — остались снимок машины, обновление ≥3.136.0 и приёмка 🗓 since:2026-11-23](pending/dannie-operatora-ne-uhodyat-na-server.md)
-- [⏳ Строки списка деталей застряли в отправке: клиентская копия без номера, отказов сервера нет 🗓 since:2026-11-24](pending/stroki-spiska-detaley-zastryali-v-otpravke.md)
+- [⏳ Строки списка деталей застряли в отправке: правка в v3.147.0, ждём полевую приёмку 🗓 since:2026-11-24](pending/stroki-spiska-detaley-zastryali-v-otpravke.md)
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)
 - [⏳ Промты проекта из КАРМАНА (D-190): #137 и #151 сделаны кодом, живые #138 и далее (сужение поиска, верстак, планшет) 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
 - [⏳ MiniMax-воркер на проде: воркер живой, звено включено; ждём первый ответ от MiniMax — пул Кармана пуст даже после сброса суток 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
