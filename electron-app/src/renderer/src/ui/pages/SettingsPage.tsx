@@ -482,6 +482,11 @@ export function SettingsPage(props: {
       }
       setGlobalUiDefaults((res.globalDefaults as UiControlSettings) ?? current);
       setListBehaviorStatus('Правила сохранены — действуют во всех списках программы.');
+      // Правило должно начать действовать СЕЙЧАС, а не после перезапуска клиента.
+      // Раньше здесь стояло только обещание в тексте: настройки сохранялись, но
+      // клиент их не перечитывал ⇒ «меняется в одном месте — действует везде»
+      // было неправдой до следующего входа (обработчик масштаба так и делает).
+      props.onUiControlRefresh?.();
     } catch (e) {
       setListBehaviorStatus(`Ошибка сохранения: ${formatError(e)}`);
     }
