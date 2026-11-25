@@ -181,6 +181,32 @@ describe('engineStateLabel / engineDaysOnSite — отчёт «Двигател�
     expect(engineStateLabel({ arrivalDate: T0 })).toBe('На заводе');
     expect(engineStateLabel({})).toBe('Заведён');
   });
+  it('состояние считается по этапам ремонта, а не по замороженным флагам карточки', () => {
+    // Промты КАРМАНА #133/#135: в договоре статус двигателя берётся из истории
+    // ремонта. Флаги карточки с 01.08 никто не пишет (шаг 8 unified-stages) — подпись
+    // на них отставала от факта.
+    // Этап «Приемка двигателя заказчиком» без флага ⇒ состояние «Отгружен».
+    expect(
+      engineStateLabel({ arrivalDate: T0, lastStageCode: 'accepted', lastStageAt: T0 }),
+    ).toBe('Отгружен');
+    expect(
+      engineStateLabel({ arrivalDate: T0, lastStageCode: 'shipped', lastStageAt: T0 }),
+    ).toBe('Отгружен');
+    // Этап «Приемка двигателя на завод» ⇒ «Принят».
+    expect(
+      engineStateLabel({ arrivalDate: T0, lastStageCode: 'arrival', lastStageAt: T0 }),
+    ).toBe('Принят');
+  });
+
+  it('служебный этап (создание карточки) состоянием не считается', () => {
+    // `card_created` — не этап ремонта: как и в `engineFactoryStage`, он не должен
+    // определять, где двигатель.
+    expect(
+      engineStateLabel({ arrivalDate: T0, lastStageCode: 'card_created', lastStageAt: T0 }),
+    ).toBe('На заводе');
+    expect(engineStateLabel({ lastStageCode: 'card_created', lastStageAt: T0 })).toBe('Заведён');
+  });
+
   it('фаза — двигатель «В ремонте», а не «На заводе» (этап 24.11.2026)', () => {
     // Фаза (ранг 45) выше приёмки (10) и ниже обкатки (60): движок, отмеченный
     // фазой, ремонтируется — он не «на заводе» и ещё не «готов, не отгружен».

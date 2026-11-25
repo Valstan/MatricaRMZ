@@ -175,7 +175,10 @@ export function engineStateLabel(
 ): string {
   const flags = e.statusFlags ?? {};
   if (e.isScrap) return 'Утиль';
-  const stageCode = String(e.lastStageCode ?? '').trim().toLowerCase();
+  // Служебный этап (заведение карточки) местом двигателя не является — как и в
+  // `engineFactoryStage`: он не этап ремонта, и подпись состояния не должна его считать.
+  const rawStageCode = String(e.lastStageCode ?? '').trim().toLowerCase();
+  const stageCode = isServiceStageCode(rawStageCode) ? '' : rawStageCode;
   const stageAt =
     typeof e.lastStageAt === 'number' && Number.isFinite(e.lastStageAt) && e.lastStageAt > 0 ? e.lastStageAt : null;
   const stageRank = stageAt !== null ? repairStageRank(stageCode) : 0;
