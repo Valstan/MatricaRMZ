@@ -207,6 +207,18 @@ describe('бот обмена и пересылки', () => {
     expect(r.acted).toBe(true);
   });
 
+  it('на отмену («0») бот отвечает коротко и ничего не пересылает', async () => {
+    queueByTable.set(chatMessages, [
+      [
+        { id: 'msg-4', senderUserId: 'u-1', recipientUserId: 'u-super', messageType: 'text', bodyText: '0', payloadJson: null, createdAt: Date.now(), deletedAt: null },
+      ],
+    ]);
+    const r = await runExchangeBotAction(trigger({ messageId: 'msg-4', text: '0' }));
+    expect(r.acted).toBe(true);
+    expect(sentMessages.filter((m) => m.messageType === 'file')).toHaveLength(0);
+    expect(String(sentMessages.at(-1)?.text ?? '')).toContain('отменено');
+  });
+
   it('без доступа отправителя файл не пересылает и пишет в журнал событий', async () => {
     accessAllowed.value = false;
     queueByTable.set(chatMessages, [[fileMessageRow()]]);

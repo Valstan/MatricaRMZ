@@ -34,6 +34,7 @@ import {
   buildExchangeBotQuestion,
   buildExchangeBotSentText,
   exchangeDeviceKind,
+  isExchangeBotCancel,
   parseExchangeBotChoice,
   pickExchangeBotCandidate,
   sortExchangeBotCandidates,
@@ -497,6 +498,12 @@ export async function runExchangeBotAction(trigger: ExchangeBotTrigger): Promise
   }
 
   // ── Ответ оператора: номер из списка ─────────────────────────────────────────
+  if (isExchangeBotCancel(text)) {
+    const reply = 'Бот обмена: отменено.';
+    await replyAsBot(actorId, reply);
+    return { ok: true, acted: true, reply };
+  }
+
   const choice = parseExchangeBotChoice(text);
   if (choice == null) return { ok: true, acted: false, reason: 'не ответ на вопрос бота' };
 

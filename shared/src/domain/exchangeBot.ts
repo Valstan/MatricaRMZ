@@ -107,6 +107,16 @@ export function parseExchangeBotChoice(text: string | null | undefined): number 
   return n;
 }
 
+/**
+ * Отмена ответа: оператор пишет «0».
+ *
+ * Отмена — не «не число»: на неё бот отвечает коротко («отменено»), иначе
+ * обещанное в вопросе «(0 — отмена)» осталось бы без ответа.
+ */
+export function isExchangeBotCancel(text: string | null | undefined): boolean {
+  return String(text ?? '').trim() === '0';
+}
+
 /** Взять получателя по номеру из списка. */
 export function pickExchangeBotCandidate<T extends ExchangeMachineCandidate>(
   candidates: readonly T[],
