@@ -17,7 +17,16 @@ import {
   searchWorkSheetRows,
   type SaveWorkSheetRowInput,
 } from '../../services/workSheetService.js';
-import { deleteRepairStageRow, listRepairStageRows, loadEngineStageMarks, loadRepairStageTemplates, saveRepairStageRow, transferRepairStages } from '../../services/repairStageService.js';
+import {
+  deleteRepairStageRow,
+  listDeletedRepairStageRows,
+  listRepairStageRows,
+  loadEngineStageMarks,
+  loadRepairStageTemplates,
+  restoreRepairStageRow,
+  saveRepairStageRow,
+  transferRepairStages,
+} from '../../services/repairStageService.js';
 import { assertRepairStageDeletable } from '../../services/checklistService.js';
 
 type Ok<T> = { ok: true } & T;
@@ -272,6 +281,35 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
       const allowed = await assertRepairStageDeletable(ctx.dataDb(), String(id ?? ''));
       if (!allowed.ok) return allowed;
       return await deleteRepairStageRow(ctx.dataDb(), id);
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  /**
+   * Погашенные этапы двигателя (этап следует за датой карточки): сняли дату — этап
+   * исчез из истории, но остался в базе. Показываем его с пометкой «почему исчез», чтобы
+   * оператор мог вернуть запись (право — как у снятия этапа).
+   */
+  ipcMain.handle('workSheets:stages:deleted', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'operations.view');
+    if (!gate.ok) return gate as Err;
+    try {
+      const rows = await listDeletedRepairStageRows(ctx.dataDb(), String(engineId ?? ''));
+      return { ok: true as const, rows };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workSheets:stages:restore', async (_e, id: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    // Возврат этапа — то же право, что у его снятия (дизъюнкция): строка возвращается
+    // в историю и в расчёты.
+    const gate = await requireAnyPermOrResult(ctx, ['work_sheets.edit', 'operations.edit']);
+    if (!gate.ok) return gate as Err;
+    try {
+      return await restoreRepairStageRow(ctx.dataDb(), id);
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

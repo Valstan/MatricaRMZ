@@ -17,7 +17,7 @@ import {
   getEngineAttrDefs,
 } from './engineService.js';
 import { isKnownEngineCardCode, readEngineCardStrict, saveEngineCardStrict } from './engineCardsReplica.js';
-import { ensureRepairStageRow } from './repairStageService.js';
+import { syncCardDateStageRow } from './repairStageService.js';
 
 /**
  * Единственная дверь записи карточки двигателя (E3b + пакетный приём списком).
@@ -35,7 +35,9 @@ export type EngineCardWriteDeps = {
   canWriteStageRow: boolean;
 };
 
-export type EngineCardWriteResult = { ok: true; changed: boolean } | { ok: false; error: string };
+export type EngineCardWriteResult =
+  | { ok: true; changed: boolean; warnings?: string[] }
+  | { ok: false; error: string };
 
 /**
  * Значение поля для гейта: присланное (даже пустое — это «оператор снял») либо то,
@@ -134,25 +136,37 @@ export async function saveEngineCardGated(
     // отклонённый push. Даты берём из СВЕЖЕЙ строки реплики, а не из присланных
     // полей: тогда любой сейв карточки долечивает недостающий этап, даже если саму
     // дату не трогали (иначе 78 старых движков ждали бы ручной правки даты).
-    // Тот же mark-if-absent, что у EAV-пути (`setEngineAttribute`): идемпотентно,
-    // дату существующей строки правит только «История ремонта». Best-effort:
-    // карточка уже сохранена.
+    //
+    // Этап помнит СВОЙ ИСТОЧНИК (промты КАРМАНА #133/#136, решение владельца
+    // 25.11.2026): сняли дату — этап, ею порождённый, погас; поменяли — этап пришёл к
+    // новой дате. Раньше было mark-if-absent: дата удалялась, а этап оставался навсегда.
+    // Отказ по правам больше не проглатывается молча — возвращается предупреждением,
+    // карточка его показывает (решение владельца: «дата сохранена, этап не записан»).
+    const warnings: string[] = [];
+    const fresh = await readEngineCardStrict(db, id);
+    const actor = deps.actor || 'local';
+    const dateOf = (raw: unknown): number | null =>
+      typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : null;
+    const cardDateStages: Array<{ code: string; name: string; attr: string; at: number | null }> = [
+      { code: 'arrival', name: 'Приемка двигателя на завод', attr: 'arrival_date', at: dateOf(fresh?.arrivalDate) },
+      { code: 'shipped', name: 'Отгрузка двигателя заказчику', attr: 'status_customer_sent_date', at: dateOf(fresh?.statusCustomerSentDate) },
+      { code: 'accepted', name: 'Приемка двигателя заказчиком', attr: 'status_customer_accepted_date', at: dateOf(fresh?.statusCustomerAcceptedDate) },
+    ];
     if (deps.canWriteStageRow) {
-      const fresh = await readEngineCardStrict(db, id);
-      const actor = deps.actor || 'local';
-      const stageFromDate = async (code: string, raw: unknown): Promise<void> => {
-        if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return;
+      for (const stage of cardDateStages) {
         try {
-          await ensureRepairStageRow(db, id, code, Math.trunc(raw), actor);
-        } catch {
-          /* авто-метка — не причина терять карточку */
+          const res = await syncCardDateStageRow(db, id, stage.code, stage.attr, stage.at, actor);
+          if (!res.ok) warnings.push(`Этап «${stage.name}» не записан: ${res.error}`);
+        } catch (e) {
+          warnings.push(`Этап «${stage.name}» не записан: ${String(e)}`);
         }
-      };
-      await stageFromDate('arrival', fresh?.arrivalDate);
-      await stageFromDate('shipped', fresh?.statusCustomerSentDate);
-      await stageFromDate('accepted', fresh?.statusCustomerAcceptedDate);
+      }
+    } else if (cardDateStages.some((s) => s.at !== null)) {
+      // Права нет — дата сохранилась, этап не появился. Молчать об этом нельзя:
+      // оператор увидит в истории двигателя одно, а в карточке другое.
+      warnings.push('Нет права на запись этапов: даты карточки сохранены, этапы ремонта не обновлены');
     }
-    return { ok: true, changed: saved.changed };
+    return { ok: true, changed: saved.changed, warnings };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

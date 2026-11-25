@@ -21,6 +21,7 @@
 
 import type { WorkSheetDuplicateRef } from './workSheetDuplicates.js';
 import { moscowDayKey } from './workSheetDuplicates.js';
+import type { RepairHistoryExtinguishedMark, RepairHistorySourceMark } from './repairStageCardSource.js';
 
 export const REPAIR_STAGE_CODES = [
   'card_created',
@@ -386,11 +387,23 @@ export type RepairStageRow = {
   note: string;
   /** Автор внесения (логин); null — неизвестен/служебная запись. H1: автор навсегда. */
   by: string | null;
+  /** Цех отметки (id); пусто — цех не указан. */
+  workshopId?: string;
   /**
    * Номер рекламации в очереди заездов, если строка — приёмка по рекламации
    * (материализация очереди). null — строка обычная.
    */
   reclamationQueueNo?: number | null;
+  /**
+   * След происхождения этапа: этап вырос из даты карточки (`source.attr` — атрибут).
+   * Отсутствует — этап поставлен руками (или строка старая, до появления поля): авто-связь
+   * такую строку не трогает (решение владельца 25.11.2026).
+   */
+  source?: RepairHistorySourceMark | null;
+  /**
+   * Пометка погашения (строка погашена снятием даты карточки): кто, когда, из-за какой даты.
+   */
+  extinguished?: RepairHistoryExtinguishedMark | null;
 };
 
 export type SaveRepairStageInput = {
@@ -418,6 +431,13 @@ export type SaveRepairStageInput = {
    * Автоматы флаг не передают (им mark-if-absent, гейт не касается).
    */
   confirmDefectDate?: boolean;
+  /**
+   * След происхождения этапа — передаётся авто-простановкой из даты карточки.
+   *
+   * `undefined` — поле не трогать: при правке даты вручную связь с карточкой снимается
+   * (строка перестаёт быть её копией), при правке примечания — остаётся.
+   */
+  source?: RepairHistorySourceMark | null;
   /**
    * Номер рекламации в очереди заездов, если этап — материализация приёмки по
    * рекламации. Помечает строку как порождённую очередью: по метке её можно найти и

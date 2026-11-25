@@ -63,7 +63,7 @@ import { listReclamationDefectNaturesFromQueue, loadEngineReclamationFactsMap } 
 import { readInventoryFlagRowsForOperations, readInventoryLinesVersions, type InventoryFlagRow } from './engineInventoryLinesReplica.js';
 import { listEntitiesByType, listEntitiesByTypeWithAttrs } from './entityService.js';
 import { loadScrapCriterionIndex } from './scrapCriterionService.js';
-import { ensureRepairStageRow, listRepairStageRows, stageRank } from './repairStageService.js';
+import { ensureRepairStageRow, listRepairStageRows, stageRank, syncCardDateStageRow } from './repairStageService.js';
 import type {
   RepairHistorySourceRow,
   EngineDetails,
@@ -2243,36 +2243,37 @@ export async function setEngineAttribute(
 
   // Обновляем updated_at у сущности.
   await db.update(entities).set({ updatedAt: ts, syncStatus: 'pending' }).where(eq(entities.id, engineId));
-  // Дата прихода — в этап «Приемка» (таблица 05.10.2026): mark-if-absent, дату
-  // существующих строк правит только «История ремонта». Best-effort: правка
-  // поля уже легла выше, отметку её отсутствие не отменяет.
+  // Дата прихода — в этап «Приемка» (таблица 05.10.2026). Этап помнит СВОЙ ИСТОЧНИК
+  // (промты КАРМАНА #133/#136): сняли дату — этап, ею порождённый, погас; поменяли — этап
+  // пришёл к новой дате. Раньше было mark-if-absent: дата удалялась, а этап оставался.
+  // Best-effort: правка поля уже легла выше, отметку её отсутствие не отменяет.
+  //
+  // Это EAV-путь (правка атрибута), а не путь карточки (`engineCardWrite.ts`): правило
+  // обязано работать на обоих, иначе «дата снята, этап остался» вернётся с другой стороны.
   if (code === 'arrival_date') {
     const at = typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
-    if (at !== null) {
-      try {
-        await ensureRepairStageRow(db, engineId, 'arrival', at, actor?.trim() ? actor : 'local');
-      } catch {
-        /* авто-метка — не причина терять правку */
-      }
+    try {
+      await syncCardDateStageRow(db, engineId, 'arrival', 'arrival_date', at, actor?.trim() ? actor : 'local');
+    } catch {
+      /* авто-метка — не причина терять правку */
     }
   }
   // Дата отгрузки/приёмки — в этап «Отправлен/Принят заказчиком» (09.10.2026, тот же
   // паттерн): иначе дата в карточке есть, а в истории и фильтрах двигатель числится
-  // на сборке. Mark-if-absent; дату существующего правит «История ремонта».
+  // на сборке. Этап едет за датой, как и приёмка (см. выше).
   if (code === statusDateCode('status_customer_sent') || code === statusDateCode('status_customer_accepted')) {
     const at = typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
-    if (at !== null) {
-      try {
-        await ensureRepairStageRow(
-          db,
-          engineId,
-          code === statusDateCode('status_customer_sent') ? 'shipped' : 'accepted',
-          at,
-          actor?.trim() ? actor : 'local',
-        );
-      } catch {
-        /* авто-метка — не причина терять правку */
-      }
+    try {
+      await syncCardDateStageRow(
+        db,
+        engineId,
+        code === statusDateCode('status_customer_sent') ? 'shipped' : 'accepted',
+        code === statusDateCode('status_customer_sent') ? 'status_customer_sent_date' : 'status_customer_accepted_date',
+        at,
+        actor?.trim() ? actor : 'local',
+      );
+    } catch {
+      /* авто-метка — не причина терять правку */
     }
   }
   // IMPORTANT: do NOT write audit_log on each attribute change.
