@@ -137,13 +137,11 @@ export function PrintFormsPage(props: { canEdit: boolean; canEditShared: boolean
           onChange={(e) => setSearch(e.target.value)}
           style={{ width: 260 }}
         />
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          {props.canEdit ? (
-            <Button onClick={() => setDialog({ template: null, entityKey: entityFilter === ENTITY_FILTER_ALL ? DEFAULT_PRINT_FORM_KEY : entityFilter })}>
-              + Новая форма
-            </Button>
-          ) : null}
-        </div>
+        {props.canEdit ? (
+          <Button onClick={() => setDialog({ template: null, entityKey: entityFilter === ENTITY_FILTER_ALL ? DEFAULT_PRINT_FORM_KEY : entityFilter })}>
+            + Новая форма
+          </Button>
+        ) : null}
       </div>
 
       {status ? (

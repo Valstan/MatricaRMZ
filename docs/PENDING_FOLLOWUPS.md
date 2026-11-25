@@ -54,6 +54,7 @@
 
 ## 🟡 Техдолг и отложенное
 
+- [🟡 Управляющие кнопки вправо: обход renderer — остаток (промт #141) 🗓 since:2026-11-25](pending/knopki-vpravo-obhod-renderer.md)
 - [🟡 Совет специалистов: три решения владельца (состав, обязательность, место протоколов) 🗓 since:2026-11-25](pending/sovet-specialistov-tri-resheniya-vladeltsa.md)
 
 - [✅ Кит перетаскивания: живой прогон второго пути (карточки) доведён 🗓 since:2026-11-24](pending/kit-peretaskivaniya-zhivoy-progon-vtorogo-pute.md)

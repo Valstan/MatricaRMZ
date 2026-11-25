@@ -90,12 +90,12 @@ export function PrintDocumentPreviewDialog(props: {
           gap: 10,
         }}
       >
+        {/* Кнопки — слева, рядом с названием (владелец 24.11.2026: управляющие кнопки
+            влево). `marginLeft: 'auto'` прижимала их к правому краю окна печати. */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <strong>{props.document.title}</strong>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <Button onClick={props.onClose}>Закрыть</Button>
-            <Button onClick={doPrint}>Печать / PDF</Button>
-          </div>
+          <Button onClick={props.onClose}>Закрыть</Button>
+          <Button onClick={doPrint}>Печать / PDF</Button>
         </div>
 
         <div style={{ display: 'flex', gap: 12, flex: '1 1 auto', minHeight: 0 }}>

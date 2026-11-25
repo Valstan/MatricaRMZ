@@ -153,11 +153,12 @@ export function TransferStagesDialog(props: {
         )}
       </div>
       {status ? <div className="ui-muted" data-transfer-status>{status}</div> : null}
+      {/* Подвал диалога: кнопки слева (владелец 24.11.2026, промт КАРМАНА #141).
+          Распорка уводила «Закрыть» к правому краю. */}
       <div style={{ display: 'flex', gap: 8 }}>
         <Button onClick={() => void apply()} disabled={busy || !targetId || !moving || moving.length === 0} data-transfer-confirm>
           {busy ? 'Переношу…' : 'Перенести этапы'}
         </Button>
-        <div style={{ flex: 1 }} />
         <Button variant="ghost" onClick={() => props.onClose()} disabled={busy}>
           Закрыть
         </Button>

@@ -132,7 +132,9 @@ export function AttachmentsModule(props: {
           {busy ? (
             <span style={{ fontSize: 12, color: busy.startsWith('Ошибка') ? '#b91c1c' : '#64748b' }}>{busy}</span>
           ) : null}
-          <span style={{ flex: 1 }} />
+          {/* Кнопки — слева, сразу за счётчиком (владелец 24.11.2026, промт КАРМАНА
+              #141): распорка уводила их к правому краю, на планшете они уезжали за
+              край экрана. */}
           {!isAndroid && (
             <>
               <Button

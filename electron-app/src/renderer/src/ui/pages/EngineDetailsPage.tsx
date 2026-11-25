@@ -211,7 +211,9 @@ function EngineDuplicateHint(props: {
                 type="button"
                 onClick={() => props.onOpenEngine?.(c.id)}
                 style={{
-                  marginLeft: 'auto',
+                  // Ссылка-действие — слева, рядом с номером двигателя (владелец
+                  // 24.11.2026: управляющие кнопки влево). `marginLeft: 'auto'`
+                  // прижимала её к правому краю узкой подсказки.
                   background: 'none',
                   border: 'none',
                   color: '#2563eb',
