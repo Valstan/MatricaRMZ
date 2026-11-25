@@ -80,7 +80,7 @@ description: Закрыть текущую сессию разработки —
 **Один вызов `git branch --list` — и только если кроме `main` что-то есть, работай по нему. Иначе пропусти §4.** Для каждой локальной ветки кроме `main`:
 
 - **Уже смержена в `origin/main`** (`git branch --merged origin/main` показывает её): удалить локально (`git branch -d <name>`).
-- **Смержена squash'ем** (`gh pr merge --squash --delete-branch`): `git branch --merged origin/main` её **не покажет** (merge-коммит новый, твои коммиты не предки `main`), а `git branch -d` откажется удалять («not fully merged») ⇒ сверь `git diff --stat <branch> origin/main` (в diff — только чужие файлы соседних полос ⇒ работа в `main` целиком) и удали принудительно: `git branch -D <name>`. Грабли — [M231](../../docs/gotchas/M231.md).
+- **Смержена squash'ем** (`gh pr merge --squash --delete-branch`): `git branch --merged origin/main` её **не покажет** (merge-коммит новый, твои коммиты не предки `main`), а `git branch -d` откажется удалять («not fully merged») ⇒ сверь `git diff --stat <branch> origin/main` (в diff — только чужие файлы соседних полос ⇒ работа в `main` целиком) и удали принудительно: `git branch -D <name>`. Грабли — [M232](../../docs/gotchas/M232.md).
 - **Не смержена, но без open PR**: проверить `git log main..<branch>` — есть ли уникальные коммиты.
   - Если коммитов нет — удалить.
   - Если есть un-pushed коммиты → это потенциально WIP пользователя, **не трогать**. Упомянуть в handoff: «локальная ветка X с N неотправленными коммитами».
@@ -218,7 +218,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/git_sync_check.ps1"
 
 - **`exit 0`** — дерево чистое и всё запушено → сессия закрывается, переходим к финальному отчёту.
 - **`exit 1`** — есть незакоммиченное или незапушенное → **не закрывать сессию**. Закоммитить/запушить через PR-flow (ADR-0002: ветка → push → PR → merge), затем прогнать гейт **ещё один раз**. **Один прогон на состояние, не циклом «на всякий случай»:** зелёный — закрываем; повторный прогон только после реального fix'а.
-- **Читай текст сообщения, а не только код выхода:** «uncommitted changes» — грязное дерево; «no upstream — never pushed» — ветка без живой ветки-отслеживания (после squash-merge и `--delete-branch` это **не** «работа не пушилась», а «ветка удалена после merge» — см. §4 и граблю [M231](../../docs/gotchas/M231.md)); «N local commit(s) not pushed» — правки, которых нет на GitHub.
+- **Читай текст сообщения, а не только код выхода:** «uncommitted changes» — грязное дерево; «no upstream — never pushed» — ветка без живой ветки-отслеживания (после squash-merge и `--delete-branch` это **не** «работа не пушилась», а «ветка удалена после merge» — см. §4 и граблю [M232](../../docs/gotchas/M232.md)); «N local commit(s) not pushed» — правки, которых нет на GitHub.
 
 Гейт живёт здесь, в команде, **а не в хуке**: хуки при авто-архиве не срабатывают надёжно (прямое указание директивы #010). SessionStart-хук в `.claude/settings.json` лишь предупреждает (`-Warn`) на входе в сессию — он не блокирующий.
 
