@@ -302,3 +302,4 @@
 - [Джоб chat-learning пишет корпус, которого никто не читает 🗓 since:2026-08-30 🟢](pending/dzhob-chat-learning-pishet-korpus-kotorogo-nikto-ne.md)
 - [Остатки на прод-боксе, осознанно не тронутые при обслуживании 30.08 🗓 since:2026-08-30 🟢](pending/ostatki-na-prod-bokse-osoznanno-ne-tronutye-pri.md)
 - [⏳ Аларм «очередь застряла» шумит: окно анти-флуда живёт в памяти инстанса 🗓 since:2026-11-25](pending/alyarm-zastryavshej-ocheredi-flood-mezhdu-instansami.md)
+- [⏳ Значения атрибутов попадают в БД сервера, но не в журнал — клиенты их не видят 🗓 since:2026-11-25](pending/znacheniya-atributov-ne-popadayut-v-zhurnal-sync.md)

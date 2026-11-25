@@ -103,6 +103,7 @@ import { buildAdvanceMemoSections } from '../utils/advanceMemo.js';
 import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
+import { loadCounterpartySearchOptions } from '../utils/counterpartyOptions.js';
 import { compareEngineOptions, engineOptionLabel } from '../utils/engineOptionLabel.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
@@ -1869,8 +1870,11 @@ export function ContractDetailsPage(props: {
         setCustomerOptions([]);
         return;
       }
-      const rows = await window.matrica.admin.entities.listByEntityType(type.id);
-      setCustomerOptions(mapEntityRowsToSearchOptions(rows, { fallbackToShortId: true }));
+      // Один источник со списком контрагентов (промт #146): поле выбора читает строгую
+      // таблицу ПЛЮС легаси-EAV тем же мержем, что и список. Раньше поле читало только
+      // EAV — и контрагент, чьи значения-атрибуты ещё не доехали до реплики, был в
+      // подсказках без подписи (и ненаходим по названию), хотя в списке он был.
+      setCustomerOptions(await loadCounterpartySearchOptions(String(type.id)));
     } catch {
       setCustomerOptions([]);
     }
