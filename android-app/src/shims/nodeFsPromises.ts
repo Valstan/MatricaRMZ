@@ -62,4 +62,19 @@ export async function stat(path: string): Promise<{ size: number; mtimeMs: numbe
   return info;
 }
 
-export default { readFile, writeFile, readdir, rm, stat };
+/**
+ * Временный каталог: у плоского хранилища WebView каталогов нет, поэтому
+ * «каталог» — уникальное имя, под которым никто ничего не создаст. Вызывающий
+ * код на планшете всё равно отказывает записью в файл (см. `createReadStream`).
+ */
+export async function mkdtemp(prefix: string): Promise<string> {
+  const unique = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${String(prefix ?? '')}${unique}`;
+}
+
+/** Копирования файлов на планшете нет (нет файловой системы) — отказ громкий. */
+export async function copyFile(_src: string, _dest: string): Promise<void> {
+  throw new Error('на планшете нет файловой системы — копировать файл неоткуда');
+}
+
+export default { readFile, writeFile, readdir, rm, stat, mkdtemp, copyFile };

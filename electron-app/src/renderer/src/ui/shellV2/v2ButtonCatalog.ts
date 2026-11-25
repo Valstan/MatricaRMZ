@@ -13,16 +13,18 @@ import {
 import { type ActionButtonDescriptor, type ActionButtonId, ACTION_BUTTONS, ACTION_GROUP_LABELS, ACTION_GROUP_ORDER } from './menuActions.js';
 import { isAndroidPlatform } from '../platform.js';
 
-// На Android-планшете чат-каналы моста не зарегистрированы — кнопки без функции прячем,
-// иначе «Чат» даёт пустой экран, а «Ссылка в чат» — мягкий отказ.
+// На Android-планшете скрыты только кнопки, которых на планшете ФИЗИЧЕСКИ нет:
+//   - `client_ops` — скрипты обслуживания Windows-машины (PowerShell, антивирус,
+//     брандмауэр): на планшете их не запустить, и архива со скриптами в сборке нет;
+//   - `program_feedback` — «Правка программы» готовит письмо файлом-вложением на
+//     диске и открывает почтовую программу ОС; у планшета файловой системы нет.
+//
+// Чат, ИИваныч и «Ссылка в чат» РАНЬШЕ тоже прятались (домены в мосте не были
+// заведены). По промту КАРМАНА #142 домены подключены, поэтому кнопки вернулись:
+// предлагать оператору действие, которое не сработает, — хуже, чем не предлагать.
 const ANDROID_HIDDEN_ACTIONS: ReadonlySet<ActionButtonId> = new Set<ActionButtonId>([
-  'chat',
-  'ai_chat',
-  'chat_link',
-  'program_feedback',
-  // Скрипты обслуживания — про Windows-машину (PowerShell, антивирус, брандмауэр);
-  // на планшете их не запустить, и архива в сборке нет.
   'client_ops',
+  'program_feedback',
 ]);
 
 function actionVisibleOnPlatform(id: ActionButtonId): boolean {

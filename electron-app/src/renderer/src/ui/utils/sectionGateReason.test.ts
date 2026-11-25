@@ -5,36 +5,47 @@ import { sectionGateReason, sectionGateReasonText } from './sectionGateReason.js
 // Раздел не должен исчезать молча (промт КАРМАНА #84): оператор должен
 // узнать, каким фильтром его срезали. Проверяем чистую логику — интерфейс
 // (App.tsx) только показывает её словами.
+//
+// Промт КАРМАНА #142: третий фильтр — операторский пресет меню, а не рамка
+// разделов для планшета. Правка на «не входит в операторский пресет» — иначе
+// причина звучала бы как «урезано по платформе», а это и есть прежняя жалоба.
 describe('причина среза раздела', () => {
   it('открытый раздел не имеет причины', () => {
-    expect(sectionGateReason({ allowedByRight: true, allowedByMembership: true, allowedByTabletPreset: true })).toBeNull();
+    expect(sectionGateReason({ allowedByRight: true, allowedByMembership: true, allowedByOperatorPreset: true })).toBeNull();
   });
 
   it('нет права — первая причина, даже если раздел ещё и не выдан', () => {
     expect(
-      sectionGateReason({ allowedByRight: false, allowedByMembership: false, allowedByTabletPreset: false }),
+      sectionGateReason({ allowedByRight: false, allowedByMembership: false, allowedByOperatorPreset: false }),
     ).toBe('no_right');
   });
 
   it('раздел не выдан учётной записи', () => {
     expect(
-      sectionGateReason({ allowedByRight: true, allowedByMembership: false, allowedByTabletPreset: false }),
+      sectionGateReason({ allowedByRight: true, allowedByMembership: false, allowedByOperatorPreset: false }),
     ).toBe('no_membership');
   });
 
-  it('раздел не входит в пресет клиента', () => {
+  it('раздел не входит в операторский пресет меню', () => {
     expect(
-      sectionGateReason({ allowedByRight: true, allowedByMembership: true, allowedByTabletPreset: false }),
-    ).toBe('not_in_tablet_preset');
+      sectionGateReason({ allowedByRight: true, allowedByMembership: true, allowedByOperatorPreset: false }),
+    ).toBe('not_in_operator_preset');
   });
 
   it('тексты причин различаются и читаются оператором', () => {
-    const texts = (['no_right', 'no_membership', 'not_in_tablet_preset'] as const).map(sectionGateReasonText);
+    const texts = (['no_right', 'no_membership', 'not_in_operator_preset'] as const).map(sectionGateReasonText);
     expect(new Set(texts).size, 'причины не должны звучать одинаково').toBe(3);
     for (const text of texts) {
       expect(text.length).toBeGreaterThan(5);
       expect(text).not.toMatch(/undefined|reason/i);
     }
+  });
+
+  it('причина пресета говорит про НАСТРОЙКУ, а не про планшет', () => {
+    // Прежний текст «раздел не входит в меню планшета» выглядел как «урезано по
+    // платформе» — и это и было причиной жалобы «недостаточно прав».
+    expect(sectionGateReasonText('not_in_operator_preset')).toContain('операторский пресет');
+    expect(sectionGateReasonText('not_in_operator_preset')).not.toContain('планшет');
   });
 
   /**
@@ -49,7 +60,7 @@ describe('причина среза раздела', () => {
       sectionGateReason({
         allowedByRight: true,
         allowedByMembership: false,
-        allowedByTabletPreset: false,
+        allowedByOperatorPreset: false,
         membershipSource: 'legacy_eav',
       }),
     ).toBe('no_membership_stale');
@@ -62,7 +73,7 @@ describe('причина среза раздела', () => {
       sectionGateReason({
         allowedByRight: true,
         allowedByMembership: false,
-        allowedByTabletPreset: false,
+        allowedByOperatorPreset: false,
         membershipSource: 'replica',
       }),
     ).toBe('no_membership');
@@ -73,7 +84,7 @@ describe('причина среза раздела', () => {
       sectionGateReason({
         allowedByRight: false,
         allowedByMembership: false,
-        allowedByTabletPreset: false,
+        allowedByOperatorPreset: false,
         membershipSource: 'legacy_eav',
       }),
     ).toBe('no_right');

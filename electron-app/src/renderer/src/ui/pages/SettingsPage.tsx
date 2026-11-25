@@ -6,6 +6,7 @@ import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { useTabletDevice, type UiMode } from '../hooks/useUiMode.js';
+import { useOperatorMenuPreset } from '../hooks/useOperatorMenuPreset.js';
 import { isAndroidPlatform } from '../platform.js';
 import { readChromeAutoHidePref, writeChromeAutoHidePref } from '../shell/ChromeVisibilityContext.js';
 import { useTabVisibleRef } from '../shell/TabVisibilityContext.js';
@@ -74,6 +75,9 @@ export function SettingsPage(props: {
   const [chromeAutoHide, setChromeAutoHide] = useState<boolean>(readChromeAutoHidePref);
   // «Это планшет» — машинно-локальный флаг (localStorage), применяется сразу, не через «Сохранить».
   const { isTabletDevice, setIsTabletDevice } = useTabletDevice();
+  // Операторский пресет меню — такая же машинно-локальная настройка (промт
+  // КАРМАНА #142): разделы не режутся по платформе, пресет включает оператор.
+  const { operatorMenuPreset, setOperatorMenuPreset } = useOperatorMenuPreset();
   const [pwCurrent, setPwCurrent] = useState<string>('');
   const [pwNew, setPwNew] = useState<string>('');
   const [pwRepeat, setPwRepeat] = useState<string>('');
@@ -820,6 +824,29 @@ export function SettingsPage(props: {
               <div style={{ color: 'var(--muted)', fontSize: 12 }}>
                 На планшете в шапке появляется крупная кнопка «Комп/Планшет» — переключает размер
                 интерфейса под палец. Применяется сразу и хранится на этом устройстве.
+              </div>
+            </div>
+            <div style={{ color: 'var(--muted)' }}>Операторский пресет меню</div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Button
+                  variant={operatorMenuPreset ? 'primary' : 'ghost'}
+                  onClick={() => setOperatorMenuPreset(true)}
+                >
+                  Да (только цеховые разделы)
+                </Button>
+                <Button
+                  variant={!operatorMenuPreset ? 'primary' : 'ghost'}
+                  onClick={() => setOperatorMenuPreset(false)}
+                >
+                  Нет (полное меню)
+                </Button>
+              </div>
+              <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                Пресет сужает меню до разделов «двигатели и всё, что с ними связано». Это НЕ права
+                доступа: разделы и на планшете, и на компьютере одни и те же, режет их право и
+                членство в разделе. По умолчанию пресет выключен — меню полное. Применяется сразу и
+                хранится на этом устройстве.
               </div>
             </div>
             {isAndroidPlatform() && (
