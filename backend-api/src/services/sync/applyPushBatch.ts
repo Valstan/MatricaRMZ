@@ -1427,7 +1427,15 @@ export async function applyPushBatch(
     {
       const raw = grouped.get(SyncTableName.ErpEngineInventoryLines) ?? [];
       const parsed = parseRows(SyncTableName.ErpEngineInventoryLines, raw, erpEngineInventoryLineRowSchema);
-      let rows = await filterStaleBySeqOrUpdatedAt(erpEngineInventoryLines, parsed, SyncTableName.ErpEngineInventoryLines);
+      let rows = await filterStaleBySeqOrUpdatedAt(erpEngineInventoryLines, parsed, SyncTableName.ErpEngineInventoryLines, {
+        // Отказ НАЗВАН: серверная копия новее — клиент по `lww_rejected` снимает
+        // `pending` (политика `skipReasonPolicy`), иначе строка висела бы в очереди
+        // вечно (инцидент 25.11.2026: 622 строки списка деталей на Android-машине).
+        staleReason: LWW_REJECTED_REASON,
+        // Одна устаревшая строка не имеет права блокировать push всей машины
+        // (правило M49) — иначе клиент не может уехать ни с одной правкой.
+        allowSyncConflicts: true,
+      });
       if (rows.length > 0) {
         const opIds = Array.from(new Set(rows.map((r) => String(r.operation_id))));
         const existingOps = await tx

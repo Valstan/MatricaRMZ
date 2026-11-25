@@ -41,6 +41,15 @@ describe('отказ по устареванию снимает pending, а не
     expect(cleared.get('entities')).toEqual(['e1']);
   });
 
+  it('строки списка деталей двигателя — тоже: политика таблично-независима', () => {
+    // Сервер отзывает такие строки тем же `lww_rejected` (applyPushBatch) — значит
+    // клиент снимет с них `pending`, иначе строка висела бы в очереди вечно.
+    const cleared = lwwRejectedByTable([
+      { table: 'erp_engine_inventory_lines', row_id: 'line1', reason: 'lww_rejected' },
+    ]);
+    expect(cleared.get('erp_engine_inventory_lines')).toEqual(['line1']);
+  });
+
   it('пустой ответ сервера не роняет разбор', () => {
     expect(lwwRejectedByTable([]).size).toBe(0);
   });

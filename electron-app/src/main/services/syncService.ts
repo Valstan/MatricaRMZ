@@ -5324,6 +5324,40 @@ export type RunSyncOptions = {
   };
 };
 
+/**
+ * Отправить снимок диагностики — «вне прогона синка».
+ *
+ * Снимок уходит и из локального сторожа (когда очередь застряла, а прогон
+ * синка висит или упал) — иначе парк, который не проходит цикл синка, для
+ * сервера выглядит здоровым: android-парк не прислал ни одного снимка
+ * `scope='client'`, и автолечение очередь не видело (инцидент 25.11.2026).
+ *
+ * Троттлинг — внутри отправки (раз в 10 минут), отказ логируется на сервер.
+ */
+export async function sendDiagnosticsSnapshotNow(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  clientId: string,
+  serverSeq?: number,
+): Promise<void> {
+  const seq = Number.isFinite(serverSeq) ? Number(serverSeq) : await readLastPulledServerSeq(db).catch(() => 0);
+  await sendDiagnosticsSnapshotImpl(
+    db,
+    apiBaseUrl,
+    clientId,
+    seq,
+    randomUUID(),
+    async (dbArg, apiBaseUrlArg, urlArg, initArg, optsArg) =>
+      fetchAuthed(dbArg, apiBaseUrlArg, urlArg, initArg, {
+        attempts: Number(optsArg.attempts ?? 3),
+        timeoutMs: Number(optsArg.timeoutMs ?? 60_000),
+        label: optsArg.label === 'push' ? 'push' : 'pull',
+      }),
+  ).catch((e) => {
+    logSync(`diagnostics snapshot failed err=${formatError(e)}`);
+  });
+}
+
 export async function runSync(
   db: BetterSQLite3Database,
   clientId: string,
@@ -6274,19 +6308,7 @@ export async function runSync(
       );
       emitStage('finalize', 'отправка диагностики', { service: 'diagnostics', progress: 0.85 });
       const diagStartedAt = nowMs();
-      await sendDiagnosticsSnapshotImpl(
-        db,
-        currentApiBaseUrl,
-        clientId,
-        pullJson.server_cursor,
-        syncRunId,
-        async (dbArg, apiBaseUrlArg, urlArg, initArg, optsArg) =>
-          fetchAuthed(dbArg, apiBaseUrlArg, urlArg, initArg, {
-            attempts: Number(optsArg.attempts ?? 3),
-            timeoutMs: Number(optsArg.timeoutMs ?? 60_000),
-            label: optsArg.label === 'push' ? 'push' : 'pull',
-          }),
-      ).catch(() => {});
+      await sendDiagnosticsSnapshotNow(db, currentApiBaseUrl, clientId, Number(pullJson.server_cursor ?? 0));
       const diagMs = nowMs() - diagStartedAt;
       // Ledger block sync is skipped: blocks are never read on the client and
       // downloading ~44k blocks takes ~7 minutes of network time with no benefit.

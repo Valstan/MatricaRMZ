@@ -11,12 +11,14 @@ import {
   attributeValues,
   entities,
   entityTypes,
+  erpEngineInventoryLines,
   operations,
 } from '../../database/schema.js';
 import { SettingsKey, settingsGetNumber, settingsSetNumber } from '../settingsStore.js';
 import { STUCK_PENDING_MINUTES, isStuckPending, stuckPendingCutoff } from '@matricarmz/shared';
 import type { SnapshotSection } from './types.js';
 import { nowMs } from './progressEmitter.js';
+import { logMessage } from '../logService.js';
 
 const DIAGNOSTICS_SEND_INTERVAL_MS = 10 * 60_000;
 
@@ -34,7 +36,13 @@ function hashSnapshot(count: number, maxUpdatedAt: number | null, sumUpdatedAt: 
  */
 async function stuckPendingStats(
   db: BetterSQLite3Database,
-  table: typeof entityTypes | typeof entities | typeof attributeDefs | typeof attributeValues | typeof operations,
+  table:
+    | typeof entityTypes
+    | typeof entities
+    | typeof attributeDefs
+    | typeof attributeValues
+    | typeof operations
+    | typeof erpEngineInventoryLines,
 ): Promise<{ stuckCount: number; oldestPendingAt: number | null }> {
   const cutoff = stuckPendingCutoff(nowMs(), STUCK_PENDING_MINUTES);
   const row = await db
@@ -53,7 +61,13 @@ async function stuckPendingStats(
 
 async function snapshotTable(
   db: BetterSQLite3Database,
-  table: typeof entityTypes | typeof entities | typeof attributeDefs | typeof attributeValues | typeof operations,
+  table:
+    | typeof entityTypes
+    | typeof entities
+    | typeof attributeDefs
+    | typeof attributeValues
+    | typeof operations
+    | typeof erpEngineInventoryLines,
 ): Promise<SnapshotSection> {
   const row = await db
     .select({
@@ -207,6 +221,10 @@ export async function buildDiagnosticsSnapshot(db: BetterSQLite3Database) {
     attribute_defs: await snapshotTable(db, attributeDefs),
     attribute_values: await snapshotTable(db, attributeValues),
     operations: await snapshotTable(db, operations),
+    // Строки списка деталей двигателя (E3) — своя таблица реплики. Без неё в
+    // снимке не было видно застрявшую очередь именно по ней: сервер (и автолечение)
+    // считал парк здоровым (инцидент 25.11.2026 — 622 строки на Android-машине).
+    erp_engine_inventory_lines: await snapshotTable(db, erpEngineInventoryLines),
   };
   const types = await db
     .select({ id: entityTypes.id, code: entityTypes.code })
@@ -263,5 +281,19 @@ export async function sendDiagnosticsSnapshot(
   );
   if (r.ok) {
     await settingsSetNumber(db, SettingsKey.DiagnosticsLastSentAt, now);
+  } else {
+    // Отказ отправки снимка — НЕ молчим: иначе парк, который снимки не шлёт
+    // (android-парк не шёл ни одного), выглядит для сервера здоровым, и класс
+    // «застрявшая очередь» остаётся невидимым (инцидент 25.11.2026).
+    //
+    // Троттлинг — по ПОПЫТКЕ, а не по успеху: при недоступном сервере иначе
+    // снимок пробовался бы на каждой пробе сторожа (три попытки × тик).
+    await settingsSetNumber(db, SettingsKey.DiagnosticsLastSentAt, now);
+    await logMessage(db, apiBaseUrl, 'error', 'diagnostics snapshot not sent', {
+      component: 'sync',
+      action: 'diagnostics',
+      critical: true,
+      status: r.status,
+    }).catch(() => {});
   }
 }
