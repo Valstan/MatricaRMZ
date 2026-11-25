@@ -226,7 +226,7 @@ export function MasterdataWorkshopsPage(props: { canManage: boolean; canEditRepa
   }
 
   return (
-    <div data-list-root="true" style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <h2 style={{ margin: 0 }}>Справочник цехов</h2>
         <Button variant="ghost" onClick={() => void refresh()}>Обновить</Button>
@@ -247,7 +247,10 @@ export function MasterdataWorkshopsPage(props: { canManage: boolean; canEditRepa
       </div>
 
       <ListCount total={sorted.length} shown={sorted.length} />
-      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}>
+      <div
+        data-list-root="true"
+        style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}
+      >
         <table className="list-table" style={{ width: '100%' }}>
           <thead>
             <tr>

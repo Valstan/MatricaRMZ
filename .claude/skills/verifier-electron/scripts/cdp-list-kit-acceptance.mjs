@@ -14,7 +14,8 @@
  *   - карточка инструмента (свойства инструмента) — путь перестановки через
  *     `useListReorder` (второй путь кита; первый — ПП через `useListDrag`);
  *   - справочники «Марки двигателей» и «Группы марок» — меню по объявлению действий;
- *   - настройка правил — глобальные дефолты программы (`ui:control:*`).
+ *   - правило поведения — через «Настройки → Правила списков» (единственное место,
+ *     где правило меняют) и глобальные дефолты программы (`ui:control:*`).
  *
  *   node .claude/skills/verifier-electron/scripts/cdp-list-kit-acceptance.mjs
  */
@@ -88,22 +89,65 @@ const HELPERS = `
   /** Пункты открытой группы меню (для отладки). */
   const menuItems = () => [...document.querySelectorAll('[data-list-context-menu="true"] button')]
     .map((x) => txt(x)).filter(Boolean);
-  /** Открыть страницу списка через меню программы (пункт с эмодзи — ищем по вхождению). */
+  /** Подпись пункта меню (без иконки). */
+  const labelOf = (b) => txt(b.querySelector?.('.v2-menu-btn-label') ?? b);
+  /** Снять гвард «Сохранить изменения в карточке?» (появляется асинхронно, уже после
+   *  клика по меню ⇒ ищем на каждой итерации ожидания).
+   *  ВНИМАНИЕ: кнопка в программе называется «Не сохранять» (не «Не сохранить») —
+   *  ищем по /не сохра/i, иначе гвард молча блокирует переход на следующую страницу. */
+  const dismissGuard = async () => {
+    const el = [...document.querySelectorAll('button, [role="button"]')]
+      .map((b) => ({ b, t: txt(b) }))
+      .filter((x) => /не\\s+сохра/i.test(x.t))
+      .sort((x, y) => x.t.length - y.t.length)[0]?.b;
+    if (!el) return false;
+    for (const t of ['mousedown', 'mouseup', 'click']) el.dispatchEvent(new MouseEvent(t, { bubbles: true }));
+    await wait(1200);
+    return true;
+  };
+  /** Открыть страницу списка через меню программы.
+   *  МЕНЮ — аккордеон: раскрыта максимум одна секция, а свёрнутая секция не рендерит
+   *  свои пункты вовсе. Поэтому пункт ищем, раскрывая секции по очереди. */
   const openMenuPage = async (label) => {
-    const find = () => [...document.querySelectorAll('.v3-menu-overlay button')].filter(visible)
-      .find((b) => txt(b).replace(/^[▸▾]\\s*/, '').includes(label));
-    let item = find();
-    if (!item) {
+    const findItem = () => {
+      const buttons = [...document.querySelectorAll('.v3-menu-overlay .v2-menu-btn')].filter(visible);
+      return buttons.find((b) => labelOf(b) === label) ?? buttons.find((b) => labelOf(b).includes(label));
+    };
+    const clickItem = async (item) => {
+      for (const t of ['mousedown', 'mouseup', 'click']) item.dispatchEvent(new MouseEvent(t, { bubbles: true }));
+      await wait(2500);
+      // Карточка могла остаться с несохранёнными правками — тогда программа спрашивает
+      // «Сохранить изменения в карточке?» и на новую страницу не пускает. Отвечаем
+      // «Не сохранить»: правки фикстуры нам не нужны, а застрявший диалог молча
+      // оставлял бы смоук на прошлой вкладке. Ищем по ВХОЖДЕНИЮ: в кнопке может быть
+      // иконка, и тогда точного совпадения текста нет. ВНИМАНИЕ: кнопка в программе
+      // называется «Не сохранять» (не «Не сохранить») — см. dismissGuard выше.
+      const guard = [...document.querySelectorAll('button, [role="button"], a, div')]
+        .filter(visible)
+        .filter((b) => /не\s+сохра/i.test(txt(b)))
+        .sort((a, b) => txt(a).length - txt(b).length)[0];
+      if (guard) {
+        for (const t of ['mousedown', 'mouseup', 'click']) guard.dispatchEvent(new MouseEvent(t, { bubbles: true }));
+        await wait(2500);
+      }
+      await wait(3000);
+    };
+    if (!document.querySelector('.v3-menu-overlay')) {
       const rail = [...document.querySelectorAll('button, [role="button"]')].filter(visible)
         .find((b) => txt(b).includes('МЕНЮ'));
       rail?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      await wait(1500);
-      item = find();
+      await wait(2000);
     }
-    if (!item) return false;
-    for (const t of ['mousedown', 'mouseup', 'click']) item.dispatchEvent(new MouseEvent(t, { bubbles: true }));
-    await wait(5000);
-    return true;
+    let item = findItem();
+    if (item) { await clickItem(item); return true; }
+    const headers = [...document.querySelectorAll('.v3-menu-overlay .v2-section-header')].filter(visible);
+    for (const h of headers) {
+      h.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(800);
+      item = findItem();
+      if (item) { await clickItem(item); return true; }
+    }
+    return false;
   };
 `;
 
@@ -248,17 +292,20 @@ async function main() {
      // Вторая марка — чтобы контур было чем выделять (одна строка — не рамка).
      const types = await call(() => window.matrica.admin.entityTypes.list().catch(() => []), 15000);
      const bt = (types || []).find((t) => String(t.code ?? '') === 'engine_brand');
+     let brandId = null;
      if (bt) {
        const made = await call(() => window.matrica.admin.entities.create(String(bt.id)), 15000);
        if (made && made.ok && made.id) {
-         await call(() => window.matrica.admin.entities.setAttr(String(made.id), 'name', 'СМОУК-МАРКА', String(bt.id)), 15000).catch(() => null);
+         brandId = String(made.id);
+         await call(() => window.matrica.admin.entities.setAttr(brandId, 'name', 'СМОУК-МАРКА', String(bt.id)), 15000).catch(() => null);
        }
      }
      const openedByMenu = await openMenuPage('Марки двигателей');
      if (!openedByMenu) return { ok: false, reason: 'в меню нет пункта «Марки двигателей»' };
      for (let i = 0; i < 40; i++) {
+       await dismissGuard();
        const rows = [...document.querySelectorAll('[data-list-root="true"] [data-list-row="true"][data-list-row-key]')].filter((r) => visible(r));
-       if (rows.length >= 2) return { ok: true, rows: rows.length };
+       if (rows.length >= 2) return { ok: true, rows: rows.length, brandId };
        await wait(2000);
      }
      const rows = [...document.querySelectorAll('[data-list-row="true"][data-list-row-key]')].filter((r) => visible(r));
@@ -292,18 +339,18 @@ async function main() {
   await shot(ws, '3-lasso');
 
   // 6. КРИТЕРИЙ 4 — клик мимо списка снимает выделение.
+  //    Целимся в точку ВЫШЕ списка, но событие шлём на body: иначе клик попадает
+  //    либо в React-обработчик (переход на другую вкладку), либо внутрь корня списка
+  //    (там клик по правилам кита выделение НЕ гасит).
   const outside = await evaluate(
     ws,
     `${HELPERS}
      const before = document.querySelectorAll('[data-list-selected="true"]').length;
-     const spot = [...document.querySelectorAll('h1, h2, h3, .v3-tab-strip, header, section')].filter(visible)[0];
-     const target = spot ?? document.body;
-     const r = target.getBoundingClientRect();
-     const opts = { bubbles: true, button: 0, clientX: r.left + 3, clientY: r.top + 3 };
-     target.dispatchEvent(new MouseEvent('mousedown', opts));
-     target.dispatchEvent(new MouseEvent('mouseup', opts));
-     target.dispatchEvent(new MouseEvent('click', opts));
-     await wait(900);
+     const root = document.querySelector('.v3-tab-pane[data-pane-active="1"] [data-list-root="true"]');
+     const r = root ? root.getBoundingClientRect() : { left: 10, top: 40 };
+     const opts = { bubbles: true, button: 0, clientX: Math.max(2, Math.floor(r.left + 20)), clientY: Math.max(2, Math.floor(r.top - 12)) };
+     for (const t of ['mousedown', 'mouseup', 'click']) document.body.dispatchEvent(new MouseEvent(t, opts));
+     await wait(1000);
      const after = document.querySelectorAll('[data-list-selected="true"]').length;
      return { ok: true, before, after };`,
     60000,
@@ -311,14 +358,31 @@ async function main() {
   note(Number(outside.before) > 0 && Number(outside.after) === 0, 'критерий 4: клик мимо списка снял выделение', outside);
 
   // 7. КРИТЕРИЙ 5 — меню = то, что список умеет.
+  //    «Марки двигателей» удалять нельзя ⇒ пункта «Удалить» нет вовсе;
+  //    «Группы марок» удаляются ⇒ пункт есть. Пустой список нечем проверять,
+  //    поэтому группу заводят фикстурой (путь продукта: admin-сущности).
   const menu = await evaluate(
     ws,
     `${HELPERS}
+     const types = await call(() => window.matrica.admin.entityTypes.list().catch(() => []), 15000);
+     const gt = (types || []).find((t) => String(t.code ?? '') === 'engine_brand_group');
+     let groupId = null;
+     if (gt) {
+       const made = await call(() => window.matrica.admin.entities.create(String(gt.id)), 15000);
+       if (made && made.ok && made.id) {
+         groupId = String(made.id);
+         await call(() => window.matrica.admin.entities.setAttr(groupId, 'name', 'СМОУК-ГРУППА', String(gt.id)), 15000).catch(() => null);
+       }
+     }
      const openTab = async (label) => {
        const opened = await openMenuPage(label);
        if (!opened) return [];
        for (let i = 0; i < 30; i++) {
-         const rows = [...document.querySelectorAll('[data-list-root="true"] [data-list-row="true"][data-list-row-key]')].filter((r) => visible(r));
+         await dismissGuard();
+         // ТОЛЬКО активная панель: скрытые панели вкладок остаются в DOM
+         // (visibility:hidden), и без этого фильтра «список марок» отдавал
+         // строки чужой страницы.
+         const rows = [...document.querySelectorAll('.v3-tab-pane[data-pane-active="1"] [data-list-root="true"] [data-list-row="true"][data-list-row-key]')].filter((r) => visible(r));
          if (rows.length) return rows;
          await wait(2000);
        }
@@ -332,69 +396,148 @@ async function main() {
        return menuItems();
      };
      const brands = await openTab('Марки двигателей');
-     if (!brands.length) return { ok: false, reason: 'список марок не открылся' };
+     if (!brands.length) return { ok: false, reason: 'список марок не открылся', groupId };
      const brandsMenu = await readMenu(brands);
      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
      await wait(400);
      const groups = await openTab('Группы марок');
-     if (!groups.length) return { ok: false, reason: 'список групп марок не открылся' };
+     if (!groups.length) return { ok: false, reason: 'список групп марок не открылся', groupId, brandsMenu };
      const groupsMenu = await readMenu(groups);
-     return { ok: true, brandsMenu, groupsMenu };`,
-    180000,
+     return { ok: true, groupId, brandsMenu, groupsMenu };`,
+    300000,
   );
   await shot(ws, '4-menu-groups');
+  note(menu.ok, 'критерий 5: оба списка открылись, у каждого есть меню', { reason: menu.reason ?? null });
   note(
     Array.isArray(menu.brandsMenu) && !menu.brandsMenu.some((t) => t === 'Удалить'),
     'критерий 5: в меню марок двигателей пункта «Удалить» нет вовсе',
-    { brandsMenu: menu.brandsMenu },
+    { brandsMenu: menu.brandsMenu ?? null },
   );
   note(
     Array.isArray(menu.groupsMenu) && menu.groupsMenu.some((t) => t === 'Удалить'),
     'критерий 5: в меню групп марок «Удалить» есть — список умеет удалять',
-    { groupsMenu: menu.groupsMenu },
+    { groupsMenu: menu.groupsMenu ?? null },
   );
 
   // 8. КРИТЕРИЙ 6 — одна настройка на всю программу.
+  //    Проверяем ЧЕРЕЗ ПУТЬ ПРОДУКТА: «Настройки → Правила списков» — единственное
+  //    место, где правило вообще меняют. Обещание «меняется в одном месте — действует
+  //    во всех списках» проверяем в двух частях:
+  //      (1) клиент применяет новое правило СРАЗУ, без перезапуска;
+  //      (2) выключенное правило выключает контур в ДРУГОМ списке программы.
+  //    Раньше проверка шла через API, а клиент настройки не перечитывает сам ⇒
+  //    красный результат означал бы дефект продукта, а не драйвера.
   const setting = await evaluate(
     ws,
     `${HELPERS}
      const before = await call(() => window.matrica.settings.uiControlGet(), 20000);
-     const vars = () => {
-       const cs = getComputedStyle(document.documentElement);
-       return {
-         dragVisual: cs.getPropertyValue('--ui-list-drag-visual').trim(),
-         keyboardMove: cs.getPropertyValue('--ui-list-keyboard-move').trim(),
-         lasso: cs.getPropertyValue('--ui-list-lasso').trim(),
-         contextMenu: cs.getPropertyValue('--ui-list-context-menu').trim(),
-       };
-     };
-     const varsBefore = vars();
-     const rules = (before && (before.uiSettings?.listBehavior ?? before.listBehavior ?? before)) || null;
-     // Выключаем правило «контур» глобально и смотрим, что оно дошло до программы.
-     let flipped = null;
-     if (before && typeof before === 'object') {
-       const settings = before.uiSettings ?? before;
-       const next = { ...settings, listBehavior: { ...(settings.listBehavior ?? {}), lasso: false } };
-       const res = await call(() => window.matrica.settings.uiControlSetGlobal({ uiSettings: next }), 25000).catch((e) => ({ err: String(e) }));
-       await wait(2500);
-       flipped = vars();
-       // Возвращаем как было — стенд не оставляем с выключенным правилом.
-       const back = { ...settings, listBehavior: { ...(settings.listBehavior ?? {}), lasso: true } };
-       await call(() => window.matrica.settings.uiControlSetGlobal({ uiSettings: back }), 25000).catch(() => null);
-       await wait(2000);
-     }
-     return { ok: true, rules, varsBefore, flipped, varsAfter: vars() };`,
-    120000,
+     const rules = before?.globalDefaults?.listBehavior ?? before?.listBehavior ?? null;
+     return { ok: Boolean(rules), rules, version: before?.uiDefaultsVersion ?? null };`,
+    60000,
   );
   note(
     Boolean(setting.rules) && Object.keys(setting.rules ?? {}).length > 0,
     'критерий 6: правила списков приходят из одного источника (глобальные дефолты)',
     { rules: setting.rules },
   );
+
+  // Общие куски для двух шагов ниже: переключатель правила в Настройках.
+  const SETTINGS_HELPERS = `
+    const lassoVar = () => getComputedStyle(document.documentElement).getPropertyValue('--ui-list-lasso').trim();
+    const LABEL = 'Выделение контуром (Ctrl + рамка)';
+    const findToggle = () => {
+      const span = [...document.querySelectorAll('span')].find((s) => txt(s) === LABEL);
+      const row = span?.parentElement ?? null;
+      return row ? [...row.querySelectorAll('button')].find((b) => visible(b)) ?? null : null;
+    };
+    const openSettings = async () => {
+      await call(() => window.matrica.app.navigateDeepLink({ kind: 'app_link', tab: 'settings' }), 20000);
+      for (let i = 0; i < 25; i++) {
+        await dismissGuard();
+        if (findToggle()) return true;
+        await wait(1000);
+      }
+      return false;
+    };
+    const clickToggle = async () => {
+      const btn = findToggle();
+      if (!btn) return null;
+      const was = txt(btn);
+      for (const t of ['mousedown', 'mouseup', 'click']) btn.dispatchEvent(new MouseEvent(t, { bubbles: true }));
+      for (let i = 0; i < 30; i++) {
+        if (document.body.innerText.includes('Правила сохранены')) break;
+        await wait(500);
+      }
+      return was;
+    };
+  `;
+
+  const live = await evaluate(
+    ws,
+    `${HELPERS}
+     ${SETTINGS_HELPERS}
+     if (!await openSettings()) return { ok: false, reason: 'Настройки не открылись' };
+     const before = lassoVar();
+     const was = await clickToggle();
+     let after = lassoVar();
+     for (let i = 0; i < 20 && after === before; i++) { await wait(500); after = lassoVar(); }
+     return { ok: true, before, after, was };`,
+    240000,
+  );
   note(
-    setting.flipped ? setting.flipped.lasso === '0' : false,
-    'критерий 6: выключение правила в одном месте действует во всей программе',
-    { varsBefore: setting.varsBefore, flipped: setting.flipped, varsAfter: setting.varsAfter },
+    Boolean(live.ok) && live.before === '1' && live.after === '0',
+    'критерий 6: правило, выключенное в Настройках, применяется в живом клиенте сразу',
+    { before: live.before ?? null, after: live.after ?? null, button: live.was ?? null, reason: live.reason ?? null },
+  );
+
+  const everywhere = await evaluate(
+    ws,
+    `${HELPERS}
+     // Другая страница со списком — «Марки двигателей». С выключенным правилом
+     // Ctrl + рамка НЕ выделяет строки (при включённом — выделяет: критерий 3).
+     const opened = await openMenuPage('Марки двигателей');
+     if (!opened) return { ok: false, reason: 'список марок не открылся' };
+     let rows = [];
+     for (let i = 0; i < 30; i++) {
+       await dismissGuard();
+       rows = [...document.querySelectorAll('.v3-tab-pane[data-pane-active="1"] [data-list-root="true"] [data-list-row="true"][data-list-row-key]')].filter((r) => visible(r));
+       if (rows.length >= 2) break;
+       await wait(2000);
+     }
+     if (rows.length < 2) return { ok: false, reason: 'в списке марок меньше двух строк', rows: rows.length };
+     const first = rows[0].getBoundingClientRect();
+     const last = rows[rows.length - 1].getBoundingClientRect();
+     rows[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, ctrlKey: true, clientX: first.left + 5, clientY: first.top + 5 }));
+     await wait(200);
+     document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, button: 0, ctrlKey: true, clientX: last.right - 5, clientY: last.bottom - 5 }));
+     await wait(200);
+     document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0, ctrlKey: true, clientX: last.right - 5, clientY: last.bottom - 5 }));
+     await wait(900);
+     const selected = document.querySelectorAll('[data-list-selected="true"]').length;
+     return { ok: true, rows: rows.length, selected };`,
+    240000,
+  );
+  note(
+    Boolean(everywhere.ok) && Number(everywhere.selected) === 0,
+    'критерий 6: выключенное правило действует во всей программе (контур выключен и в другом списке)',
+    { rows: everywhere.rows ?? null, selected: everywhere.selected ?? null, reason: everywhere.reason ?? null },
+  );
+
+  const restore = await evaluate(
+    ws,
+    `${HELPERS}
+     ${SETTINGS_HELPERS}
+     if (!await openSettings()) return { ok: false, reason: 'Настройки не открылись' };
+     const was = await clickToggle();
+     let after = lassoVar();
+     for (let i = 0; i < 20 && after !== '1'; i++) { await wait(500); after = lassoVar(); }
+     return { ok: after === '1', was, after };`,
+    240000,
+  );
+  note(
+    Boolean(restore.ok),
+    'критерий 6: правило возвращено как было (стенд не остаётся с выключенным контуром)',
+    { button: restore.was ?? null, after: restore.after ?? null, reason: restore.reason ?? null },
   );
 
   // 9. Уборка фикстуры.
@@ -403,6 +546,8 @@ async function main() {
     `${HELPERS}
      const toolId = ${JSON.stringify(fixture.toolId)};
      const propIds = ${JSON.stringify((fixture.propIds ?? []).map((p) => p.propertyId))};
+     const brandId = ${JSON.stringify(opened.brandId ?? null)};
+     const groupId = ${JSON.stringify(menu.groupId ?? null)};
      let ok = true;
      const t = await call(() => window.matrica.tools.delete(toolId), 20000).catch(() => null);
      if (!t || !t.ok) ok = false;
@@ -410,8 +555,14 @@ async function main() {
        const r = await call(() => window.matrica.tools.properties.delete(id), 15000).catch(() => null);
        if (!r || !r.ok) ok = false;
      }
-     return { ok };`,
-    60000,
+     // Фикстуры справочников — тоже убираем: стенд не должен зарастать дымом.
+     for (const id of [brandId, groupId]) {
+       if (!id) continue;
+       const d = await call(() => window.matrica.admin.entities.softDelete(id), 15000).catch(() => null);
+       if (!d || !d.ok) ok = false;
+     }
+     return { ok, brandId, groupId };`,
+    90000,
   );
   note(cleanup.ok, 'фикстура убрана', cleanup);
 
