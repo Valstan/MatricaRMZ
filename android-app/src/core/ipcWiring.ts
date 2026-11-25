@@ -2,10 +2,16 @@
 // реализации ~100 методов реюзаем НАСТОЯЩИЕ ipc/register/*-модули и preload
 // Electron-клиента: электрон-шим даёт in-process ipcMain/ipcRenderer-шину, здесь
 // собирается IpcContext и регистрируются домены android-рамки (план
-// docs/plans/android-tablet-client-2026-08.md, Ф2). Домены вне рамки (печать, чат,
-// AI, отчёты, бэкапы) не регистрируются — их каналы отвечают мягким «недоступно
-// на планшете» (см. ipcRenderer.invoke в шиме). Вложения — исключение: у них свой
-// узкий мост (filesBridge.ts), потому что десктопный построен вокруг путей на диске.
+// docs/plans/android-tablet-client-2026-08.md, Ф2).
+//
+// Промт КАРМАНА #142 (зачитка владельца 25.11.2026): «планшетная версия — полный
+// функционал, все модули; версия для компьютера — копия планшетной». Значит список
+// доменов десктопа и планшета должен совпадать, кроме оговорённого списка
+// исключений — и исключение обязано называть причину (см. `core/tabletDomains.ts`).
+// Домены, физически невозможные на планшете (файлы на диске, бэкапы, установщик
+// обновления, перенос на десктоп, скрипты Windows-машины, почта), объявлены там
+// же и НЕ регистрируются: иначе они ответили бы «недоступно на планшете» без
+// причины — а это ровно тот неверный диагноз, который поставил владелец.
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { ipcMain } from 'electron';
@@ -15,24 +21,42 @@ import type { IpcContext } from '../../../electron-app/src/main/ipc/ipcContext.j
 import { installSectionIpcGate } from '../../../electron-app/src/main/ipc/sectionGate.js';
 import { createInProcessEngineListSource } from '../../../electron-app/src/main/services/engineListInProcess.js';
 import { registerAdminIpc } from '../../../electron-app/src/main/ipc/register/admin.js';
+import { registerAiAgentIpc } from '../../../electron-app/src/main/ipc/register/aiAgent.js';
+import { registerAiChatIpc } from '../../../electron-app/src/main/ipc/register/aiChat.js';
 import { registerAuthAndSyncIpc } from '../../../electron-app/src/main/ipc/register/authAndSync.js';
 import { registerChangesIpc } from '../../../electron-app/src/main/ipc/register/changes.js';
+import { registerChatIpc } from '../../../electron-app/src/main/ipc/register/chat.js';
 import { registerChecklistsIpc } from '../../../electron-app/src/main/ipc/register/checklists.js';
+import { registerChildrenIpc } from '../../../electron-app/src/main/ipc/register/children.js';
+import { registerContractPaymentsIpc } from '../../../electron-app/src/main/ipc/register/contractPayments.js';
 import { registerContractsIpc } from '../../../electron-app/src/main/ipc/register/contracts.js';
 import { registerDraftsIpc } from '../../../electron-app/src/main/ipc/register/drafts.js';
 import { registerEmployeesIpc } from '../../../electron-app/src/main/ipc/register/employees.js';
 import { registerEngineActTemplatesIpc } from '../../../electron-app/src/main/ipc/register/engineActTemplates.js';
+import { registerEngineReclamationsIpc } from '../../../electron-app/src/main/ipc/register/engineReclamations.js';
 import { registerEnginesOpsAuditIpc } from '../../../electron-app/src/main/ipc/register/enginesOpsAudit.js';
 import { registerEngineBulkIntakeIpc } from '../../../electron-app/src/main/ipc/register/engineBulkIntake.js';
 import { registerEngineCardsIpc } from '../../../electron-app/src/main/ipc/register/engineCards.js';
 import { registerErpIpc } from '../../../electron-app/src/main/ipc/register/erp.js';
 import { registerLoggingIpc } from '../../../electron-app/src/main/ipc/register/logging.js';
+import { registerMaintenanceIpc } from '../../../electron-app/src/main/ipc/register/maintenance.js';
 import { registerNotesIpc } from '../../../electron-app/src/main/ipc/register/notes.js';
+import { registerOrganizationIpc } from '../../../electron-app/src/main/ipc/register/organization.js';
 import { registerPartsIpc } from '../../../electron-app/src/main/ipc/register/parts.js';
+import { registerPpeIpc } from '../../../electron-app/src/main/ipc/register/ppe.js';
+import { registerPrintFormsIpc } from '../../../electron-app/src/main/ipc/register/printForms.js';
 import { registerProductionProgramIpc } from '../../../electron-app/src/main/ipc/register/productionProgram.js';
-import { registerSettingsIpc } from '../../../electron-app/src/main/ipc/register/settings.js';
+import { registerReportsIpc } from '../../../electron-app/src/main/ipc/register/reports.js';
+import { registerScrapCriterionIpc } from '../../../electron-app/src/main/ipc/register/scrapCriterion.js';
 import { registerSectionFavoritesIpc } from '../../../electron-app/src/main/ipc/register/sectionFavorites.js';
+import { registerServicePricingIpc } from '../../../electron-app/src/main/ipc/register/servicePricing.js';
+import { registerSettingsIpc } from '../../../electron-app/src/main/ipc/register/settings.js';
+import { registerSignatureDefaultsIpc } from '../../../electron-app/src/main/ipc/register/signatureDefaults.js';
 import { registerSupplyRequestsIpc } from '../../../electron-app/src/main/ipc/register/supplyRequests.js';
+import { registerSystemIpc } from '../../../electron-app/src/main/ipc/register/system.js';
+import { registerTimesheetsIpc } from '../../../electron-app/src/main/ipc/register/timesheets.js';
+import { registerToolsIpc } from '../../../electron-app/src/main/ipc/register/tools.js';
+import { registerUiScreensIpc } from '../../../electron-app/src/main/ipc/register/uiScreens.js';
 import { registerWarehouseLocationsIpc } from '../../../electron-app/src/main/ipc/register/warehouseLocations.js';
 import { registerWorkOrderSignatureCaptionsIpc } from '../../../electron-app/src/main/ipc/register/workOrderSignatureCaptions.js';
 import { registerWorkOrderTemplatesIpc } from '../../../electron-app/src/main/ipc/register/workOrderTemplates.js';
@@ -42,6 +66,7 @@ import { registerWorkshopsIpc } from '../../../electron-app/src/main/ipc/registe
 
 import { getAndroidPlatformHooks } from '../shims/platform.js';
 import { registerAndroidFilesIpc } from './filesBridge.js';
+import { TABLET_CHANNEL_RULES } from './tabletDomains.js';
 import type { AndroidCore } from './boot.js';
 
 export function wireIpcForAndroid(core: AndroidCore): IpcContext {
@@ -141,7 +166,58 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
   // Вложения: свой узкий мост поверх REST (десктопный files.ts построен вокруг
   // путей на диске и на планшете неприменим).
   registerAndroidFilesIpc(ctx);
+
+  // ── Полнота планшетной версии (промт КАРМАНА #142) ────────────────────────
+  //
+  // Домены, которых на планшете не было (отчёты, табель, СИЗ, инструменты,
+  // рекламации двигателей, печатные формы, платежи по контрактам, цены на
+  // услуги, подписи по умолчанию, чат, ИИ-агент, почта, экспорт, файловый
+  // поиск, бэкапы, обслуживание, обновление, экраны UI, перенос на десктоп,
+  // критерии утиля, дети, организация) — владелец видел это как «недостаточно
+  // прав», а на самом деле канал просто не был заведён в мосте: шим отвечал
+  // «недоступно на планшете», renderer печатал «Ошибка сохранения: …», и
+  // оператор решал, что запись не уходит.
+  //
+  // Ниже — домены, которые на планшете работают. Те, что физически невозможны
+  // (файлы на диске, бэкапы, установщик обновления, перенос на десктоп, почта,
+  // выгрузка 1С), объявлены исключениями в `core/tabletDomains.ts` — с
+  // причиной, а не молча.
+  //
+  // ⚠ Регистрация идёт ДО снятия гейта разделов (`restoreIpcHandle`): иначе
+  // новые домены прошли бы мимо «доступа по разделам», и на планшете стало бы
+  // видно то, что на компьютере скрыто (заказ владельца от 24.11: «уровни
+  // доступа по пользователям на планшете такие же, как на компьютере»).
+  registerReportsIpc(ctx);
+  registerTimesheetsIpc(ctx);
+  registerPpeIpc(ctx);
+  registerToolsIpc(ctx);
+  registerEngineReclamationsIpc(ctx);
+  registerPrintFormsIpc(ctx);
+  registerContractPaymentsIpc(ctx);
+  registerServicePricingIpc(ctx);
+  registerSignatureDefaultsIpc(ctx);
+  registerChatIpc(ctx);
+  registerAiAgentIpc(ctx);
+  registerAiChatIpc(ctx);
+  registerUiScreensIpc(ctx);
+  registerScrapCriterionIpc(ctx);
+  registerChildrenIpc(ctx);
+  registerOrganizationIpc(ctx);
+  registerMaintenanceIpc(ctx);
+  registerSystemIpc(ctx);
   restoreIpcHandle();
+
+  // Каналы ЗАРЕГИСТРИРОВАННЫХ доменов, которые на планшете физически не
+  // работают (печать/PDF считаются в скрытом окне Electron; синх часов —
+  // служба времени Windows). Их отказ обязан называть причину, а не выглядеть
+  // как «нет доступа»: перекрываем ПОСЛЕ снятия гейта разделов, иначе отказ по
+  // разделу замаскировал бы настоящую причину.
+  for (const rule of TABLET_CHANNEL_RULES) {
+    ipcMain.handle(rule.channel, async () => ({
+      ok: false as const,
+      error: `на планшете не работает: ${rule.channel} — ${rule.reason}`,
+    }));
+  }
 
   // Каналы, живущие в electron-app/src/main/index.ts (не портируется целиком).
   ipcMain.handle('app:ping', async () => 'pong');

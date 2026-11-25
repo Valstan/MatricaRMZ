@@ -15,7 +15,12 @@ export function isOfflineSyncError(error: unknown): boolean {
     lower === 'offline' ||
     lower === 'error: offline' ||
     lower.startsWith('error: offline\n') ||
-    lower.includes('\nerror: offline\n')
+    lower.includes('\nerror: offline\n') ||
+    // «нужна сеть: …» — та же причина, названная словами (промт КАРМАНА #142:
+    // отказ должен называть причину прямо — «нужна сеть», а не «offline»).
+    lower.startsWith('нужна сеть') ||
+    lower.startsWith('error: нужна сеть') ||
+    lower.includes('\nerror: нужна сеть')
   );
 }
 

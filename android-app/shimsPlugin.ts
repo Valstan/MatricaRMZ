@@ -40,6 +40,9 @@ export function androidShims(opts: { target: 'browser' | 'vitest' }): ShimPlugin
       if (browser && source === 'node:fs/promises') return resolve(shimsDir, 'nodeFsPromises.ts');
       if (browser && source === 'node:fs') return resolve(shimsDir, 'nodeFs.ts');
       if (browser && source === 'node:path') return resolve(shimsDir, 'nodePath.ts');
+      if (browser && source === 'node:url') return resolve(shimsDir, 'nodeUrl.ts');
+      if (browser && source === 'node:child_process') return resolve(shimsDir, 'nodeChildProcess.ts');
+      if (browser && source === 'node:net') return resolve(shimsDir, 'nodeNet.ts');
       if (browser && (source === 'node:os' || source === 'os')) return resolve(shimsDir, 'nodeOs.ts');
       // Relative-импорты платформенных модулей ИЗ портированных main-сервисов —
       // без подмены они резолвятся в electron-версии (node:fs / better-sqlite3 / cipher).
@@ -51,6 +54,11 @@ export function androidShims(opts: { target: 'browser' | 'vitest' }): ShimPlugin
         // Watchdog — внешний десктоп-процесс; его handshake шимится и в vitest:
         // electron-шим app не имеет getPath, реальный модуль упал бы fire-and-forget'ом.
         if (source.endsWith('/watchdogHandshakeService.js')) return resolve(shimsDir, 'watchdogHandshake.ts');
+        // Локальный ИИ-агент (MiniMax на машине оператора) и файловый сервис
+        // десктопа: на планшете их нет — профиль на диске, дочерние процессы,
+        // TCP-мост. Шим переводит ИИ-чат на сервер (см. localMiniMaxService.ts).
+        if (source.endsWith('/localMiniMaxService.js')) return resolve(shimsDir, 'localMiniMaxService.ts');
+        if (source.endsWith('/fileService.js')) return resolve(shimsDir, 'fileService.ts');
         // Sidecar-копия сессии (%APPDATA%) — десктопный механизм на sync node:fs;
         // в браузерном бандле его нет, на планшете reset и так перекрыт портом.
         // Шимится и в vitest: там node:fs настоящий, а `app.getPath` шима отдаёт

@@ -17,7 +17,8 @@ export type SectionGateReason =
   | 'no_membership'
   /** Раздел не выдан — но клиент смотрит в замороженное зеркало и НЕ ЗНАЕТ, выдан ли он. */
   | 'no_membership_stale'
-  | 'not_in_tablet_preset';
+  /** Раздел есть, но не входит в операторский пресет меню (настройка оператора). */
+  | 'not_in_operator_preset';
 
 /**
  * Причина, по которой раздел не открывается; `null` — раздел открыт.
@@ -39,20 +40,26 @@ export function sectionGateReason(args: {
   allowedByRight: boolean;
   /** Раздел есть после фильтра членства в разделах. */
   allowedByMembership: boolean;
-  /** Раздел есть после пресета клиента (планшетной рамки). */
-  allowedByTabletPreset: boolean;
+  /**
+   * Раздел есть после операторского пресета меню (явной настройки оператора).
+   *
+   * Раньше здесь была рамка разделов для Android — то есть раздел резался ПО
+   * ПЛАТФОРМЕ, и это выглядело для оператора как «недостаточно прав». Сейчас
+   * пресет включает оператор сам (Настройки), а по умолчанию он выключен.
+   */
+  allowedByOperatorPreset: boolean;
   /**
    * Откуда взят membership. `undefined`/`replica` — авторитетный источник;
    * `legacy_eav` — замороженное зеркало (ответ не авторитетен).
    */
   membershipSource?: SectionMembershipSource;
 }): SectionGateReason | null {
-  if (args.allowedByTabletPreset) return null;
+  if (args.allowedByOperatorPreset) return null;
   if (!args.allowedByRight) return 'no_right';
   if (!args.allowedByMembership) {
     return args.membershipSource === 'legacy_eav' ? 'no_membership_stale' : 'no_membership';
   }
-  return 'not_in_tablet_preset';
+  return 'not_in_operator_preset';
 }
 
 /** Словами для оператора — почему раздел не открывается. */
@@ -66,8 +73,8 @@ export function sectionGateReasonText(reason: SectionGateReason): string {
       // Правда вместо лжи: «не выдан» уводило бы людей искать выдачу прав, которой
       // может и быть — просто клиент смотрит в замороженное зеркало (нужен синк).
       return 'данные о доступах на этом устройстве не обновлены (нужен синх)';
-    case 'not_in_tablet_preset':
-      return 'раздел не входит в меню планшета';
+    case 'not_in_operator_preset':
+      return 'раздел не входит в операторский пресет меню (настройка «Операторский пресет меню»)';
     default:
       return 'раздел недоступен';
   }

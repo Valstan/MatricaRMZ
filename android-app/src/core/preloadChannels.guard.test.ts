@@ -25,6 +25,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { TABLET_CHANNEL_RULES, TABLET_DOMAIN_EXCEPTIONS } from './tabletDomains.js';
+
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../..');
 const preloadPath = resolve(repoRoot, 'electron-app/src/preload/index.ts');
@@ -343,5 +345,50 @@ describe('поверхность каналов планшета', () => {
       }
     }
     expect(uncovered, 'шим electron не покрывает импорты модулей карточек').toEqual([]);
+  });
+
+  /**
+   * Гейт паритета КАНАЛОВ (промт КАРМАНА #142).
+   *
+   * Каждый канал preload, который зовёт renderer, обязан быть либо зарегистрирован
+   * в мосте планшета, либо перекрыт мостом осознанно (канал зарегистрированного
+   * домена, но физически не работает — печать/PDF, служба времени Windows), либо
+   * объявлен исключением с причиной.
+   *
+   * Третий случай — и есть тот самый дефект, который владелец диагностировал как
+   * «недостаточно прав»: канал не заведён, шим отвечает «недоступно на планшете»
+   * без причины, и оператор решает, что правок не хватает.
+   */
+  it('каждый канал preload либо заведён в мосте, либо перекрыт с причиной', () => {
+    const uncovered: string[] = [];
+    for (const channel of preload) {
+      if (bridge.has(channel)) continue;
+      const coveredByRule = TABLET_CHANNEL_RULES.some((r) => r.channel === channel);
+      const coveredByException = TABLET_DOMAIN_EXCEPTIONS.some((e) =>
+        e.channelPrefixes.some((p) => channel === p || channel.startsWith(p)),
+      );
+      if (coveredByRule || coveredByException) continue;
+      uncovered.push(channel);
+    }
+    expect(
+      uncovered,
+      'каналы preload не заведены в мосте планшета и не объявлены исключением — на планшете они «недоступно» без причины',
+    ).toEqual([]);
+  });
+
+  it('каналы, объявленные исключением, действительно не заведены (иначе исключение устарело)', () => {
+    const stale: string[] = [];
+    for (const e of TABLET_DOMAIN_EXCEPTIONS) {
+      for (const prefix of e.channelPrefixes) {
+        if (prefix.endsWith(':')) {
+          for (const channel of bridge) {
+            if (channel.startsWith(prefix)) stale.push(channel);
+          }
+        } else if (bridge.has(prefix)) {
+          stale.push(prefix);
+        }
+      }
+    }
+    expect(stale, 'канал объявлен исключением, но он заведён в мосте — уберите исключение').toEqual([]);
   });
 });

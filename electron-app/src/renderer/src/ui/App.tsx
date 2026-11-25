@@ -98,8 +98,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
-import { type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, MENU_TAB_LABELS, TAB_VISUALS } from './layout/Tabs.js';
-import { isAndroidPlatform } from './platform.js';
+import { type MenuTabId, type TabId, type TabsLayoutPrefs, MENU_TAB_LABELS, TABLET_OPERATOR_TABS, TAB_VISUALS } from './layout/Tabs.js';
 import { useChromeVisibility } from './shell/ChromeVisibilityContext.js';
 import { SHELL_NOTICE_MS, type ShellNotice, type ShellNoticeTone } from './shell/shellNotice.js';
 import { deriveUiCaps } from './auth/permissions.js';
@@ -139,6 +138,7 @@ import {
 } from './hooks/columnLayoutStore.js';
 import { useListColumnsMode } from './hooks/useListColumnsMode.js';
 import { useUiMode, useTabletDevice } from './hooks/useUiMode.js';
+import { useOperatorMenuPreset } from './hooks/useOperatorMenuPreset.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
 import { useNoteReminderWatcher } from './hooks/useNoteReminderWatcher.js';
 import { checkAssemblyDuplicate, formatEngineGateLabel } from './utils/assemblyDuplicateGate.js';
@@ -1273,6 +1273,10 @@ export function App() {
   const { isTabletDevice } = useTabletDevice();
   const { uiMode, isTabletUi, setUiMode, toggle: toggleUiMode } = useUiMode();
   const tabletActive = isTabletDevice && isTabletUi;
+  // Операторский пресет меню — явная настройка, не урезание по платформе
+  // (промт КАРМАНА #142). Выключена по умолчанию: меню полное и на планшете,
+  // и на компьютере.
+  const { operatorMenuPreset } = useOperatorMenuPreset();
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
   // V2 shell («Резиновый»): per-user выбор оболочки + личные настройки 3-колоночного макета.
   const [shellPrefs, setShellPrefs] = useState<UiShellPrefs | null>(null);
@@ -1316,7 +1320,7 @@ export function App() {
   useEffect(() => {
     if (!authStatus.loggedIn) return;
     if (collapsedSectionsStoredRef.current || collapsedSections.length > 0) return;
-    const btns = buildV2Buttons(sectionGatedTabs, menuLabels, DEFAULT_UI_SHELL_PREFS.v2.buttonLayout, tabletActive && userRole !== 'superadmin');
+    const btns = buildV2Buttons(sectionGatedTabs, menuLabels, DEFAULT_UI_SHELL_PREFS.v2.buttonLayout, operatorPresetOn);
     const ids = btns.sections.map((s) => s.id);
     if (ids.length > 0) setCollapsedSections(ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3163,8 +3167,11 @@ export function App() {
       ? { ...capsRaw, canEditMasterData: true }
       : capsRaw;
   const viewMode = backupMode?.mode === 'backup';
-  // Android v1: чат и AI скрыты платформой (план android-tablet-client §Решения 4).
-  const canChat = !!authStatus.permissions?.['chat.use'] && !isAndroidPlatform();
+  // Чат и ИИваныч — по праву `chat.use`, как на компьютере. Раньше платформа
+  // прятала их на планшете (домены в мосте не были заведены); по промту
+  // КАРМАНА #142 домены подключены, и правила доступа у планшета и компьютера
+  // должны быть одни и те же (заказ владельца от 24.11).
+  const canChat = !!authStatus.permissions?.['chat.use'];
   const canChatExport = !!authStatus.permissions?.['chat.export'];
   const canChatAdminView = !!authStatus.permissions?.['chat.admin.view'];
   // Журнал действий: выдаваемое право (решение владельца 2026-08-19). У супер-админа
@@ -3275,10 +3282,14 @@ export function App() {
         return !sectionId || sectionMembership[sectionId] != null;
       })
     : availableTabs;
-  // Android-планшет: меню сужено до рамки владельца (это не права — узость
-  // клиента v1; права/section-гейт выше уже применены).
-  const sectionGatedTabs = isAndroidPlatform()
-    ? sectionGatedTabsFull.filter((t) => ANDROID_TABS.includes(t))
+  // Операторский пресет меню — ОТДЕЛЬНАЯ НАСТРОЙКА (Настройки → «Операторский
+  // пресет меню»), а не урезание по платформе. Промт КАРМАНА #142: «планшетная
+  // версия — полный функционал, все модули; версия для компьютера — копия
+  // планшетной». Рамки `ANDROID_TABS` больше нет: разделы режет только право и
+  // членство в разделе — те же, что на компьютере.
+  const operatorPresetOn = operatorMenuPreset && userRole !== 'superadmin';
+  const sectionGatedTabs = operatorPresetOn
+    ? sectionGatedTabsFull.filter((t) => TABLET_OPERATOR_TABS.includes(t))
     : sectionGatedTabsFull;
   const sectionGatedTabsKey = sectionGatedTabs.join('|');
   // Раздел могут срезать три фильтра, и оператор видел только следствие: раздел
@@ -3289,7 +3300,7 @@ export function App() {
     const reason = sectionGateReason({
       allowedByRight: availableTabs.includes(t),
       allowedByMembership: sectionGatedTabsFull.includes(t),
-      allowedByTabletPreset: sectionGatedTabs.includes(t),
+      allowedByOperatorPreset: sectionGatedTabs.includes(t),
       membershipSource: sectionMembershipSource,
     });
     return reason ? sectionGateReasonText(reason) : null;
@@ -7609,9 +7620,10 @@ export function App() {
               onClockSync={() => void syncClockNow()}
               onClockOpenSettings={() => void openClockSettings()}
               onRestartApp={
-              // На планшете перезапуск приложения не работает (нет канала system.restart) —
-              // кнопку там не показываем, чтобы не предлагать действие, которое не сработает.
-              isAndroidPlatform() ? undefined : () => void restartApp()
+              // Канал `system:restart` на планшете заведён (промт КАРМАНА #142):
+              // там это перезагрузка WebView — ровно то, что нужно после сноса
+              // реплики. Раньше домен не был подключён, и кнопку прятали.
+              () => void restartApp()
             }
               updateProgress={updateProgress}
               updateReady={updateState?.state === 'downloaded'}
@@ -7622,7 +7634,7 @@ export function App() {
               }
               availableTabs={sectionGatedTabs}
               sectionGateNotes={sectionGateNotes}
-              tabletOperatorMenu={tabletActive && userRole !== "superadmin"}
+              tabletOperatorMenu={operatorPresetOn}
               // Планшетный режим: левое меню уезжает за край после паузы
               // (владелец 23.11.2026). На десктопе полоса постоянна.
               railAutoHide={tabletActive}

@@ -72,7 +72,11 @@ export async function fetchWithRetry(url: string, init: RequestInit, opts: Retry
   let lastErr: unknown = null;
   for (let attempt = 1; attempt <= opts.attempts; attempt++) {
     if (!opts.allowOffline && !net.isOnline()) {
-      throw new Error('offline');
+      // Отказ называет причину прямо: «нужна сеть» — а не «offline», который
+      // оператор не понимает (промт КАРМАНА #142: причина отказа должна быть
+      // названа словами). Классификатор офлайна такой текст узнаёт (см.
+      // sync/syncErrorClassifier.ts).
+      throw new Error('нужна сеть: устройство не в сети');
     }
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(new Error('timeout')), opts.timeoutMs);
@@ -91,7 +95,17 @@ export async function fetchWithRetry(url: string, init: RequestInit, opts: Retry
       clearTimeout(timer);
     }
   }
-  throw lastErr ?? new Error('fetch failed');
+  throw new Error(`нужна сеть: ${networkErrorText(lastErr)}`);
+}
+
+/** Причина сетевого сбоя — одной строкой, без технического мусора. */
+function networkErrorText(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err ?? '');
+  const text = raw.trim();
+  if (!text) return 'сервер не ответил';
+  if (/timeout|aborted/i.test(text)) return 'сервер не ответил вовремя';
+  if (/failed to fetch|load failed|network/i.test(text)) return 'соединение с сервером не установлено';
+  return text.slice(0, 200);
 }
 
 function parseContentRangeInfo(header: string): { start: number; end: number; total: number | null } | null {

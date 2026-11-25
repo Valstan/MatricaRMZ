@@ -10,6 +10,7 @@
 // нет — false, и authService сам уходит в fail-closed (сессия только в памяти,
 // перелогин после рестарта) — правило то же, что на десктопе без keyring.
 
+import { tabletChannelRefusalReason } from '../core/tabletDomains.js';
 import { getAndroidPlatformHooks } from './platform.js';
 
 export const net = {
@@ -49,6 +50,11 @@ export const app = {
   },
   exit(_code?: number): void {
     // На Android процесс не завершаем — relaunch-хук решает сам.
+  },
+  // Тот же контракт, что у `exit`: процесс на Android не закрывает себя — перезапуск
+  // решает платформенный хук (пересоздание WebView/Activity).
+  quit(): void {
+    // no-op
   },
   getVersion(): string {
     return getAndroidPlatformHooks().appVersion();
@@ -102,13 +108,24 @@ export const ipcRenderer = {
   async invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     const handler = ipcHandlers.get(channel);
     if (!handler) {
-      // Незарегистрированный канал (раздел вне android-рамки) — громко в лог,
+      // Незарегистрированный канал (домен вне рамки android-клиента) — громко в лог,
       // мягко в UI: тот же контракт, что у спайк-моста Ф0.
+      //
+      // Промт КАРМАНА #142: отказ должен НАЗЫВАТЬ причину. Раньше все отказы выглядели
+      // одинаково («недоступно на планшете: <канал>»), и оператор с админом гадали,
+      // чего не хватает — прав или функции. Теперь у каждого канала есть причина
+      // (см. core/tabletDomains.ts), и она в ответе.
       if (!missedChannels.has(channel)) {
         missedChannels.add(channel);
         console.warn(`[electron-shim] no IPC handler: ${channel}`);
       }
-      return { ok: false, error: `недоступно на планшете: ${channel}` };
+      const reason = tabletChannelRefusalReason(channel);
+      return {
+        ok: false,
+        error: reason
+          ? `канал не заведён на планшете: ${channel} — ${reason}`
+          : `канал не заведён на планшете: ${channel}`,
+      };
     }
     return handler(ipcEvent, ...args);
   },
@@ -131,6 +148,87 @@ export const ipcRenderer = {
 export const shell = {
   showItemInFolder(_fullPath: string): void {
     throw new Error('на планшете нет файловой системы — показывать файл негде');
+  },
+};
+
+/**
+ * Нативные диалоги на планшете невозможны (нет файловой системы), но модули,
+ * которые их тянут, должны собираться: иначе сборка APK падает на rollup
+ * («dialog is not exported by …»). Поэтому диалог — заглушка, которая честно
+ * отменяет выбор.
+ *
+ * Каналы, где отмена бессмысленна (выгрузка переписки в файл, отправка файла
+ * из локальной папки), мост перекрывает явным отказом с причиной — см.
+ * `core/tabletDomains.ts`.
+ */
+export const dialog = {
+  async showSaveDialog(..._args: unknown[]): Promise<{ canceled: true; filePath: string }> {
+    return { canceled: true, filePath: '' };
+  },
+  async showOpenDialog(..._args: unknown[]): Promise<{ canceled: true; filePaths: string[] }> {
+    return { canceled: true, filePaths: [] };
+  },
+  async showMessageBox(..._args: unknown[]): Promise<{ response: number }> {
+    return { response: 1 };
+  },
+  showErrorBox(_title: string, _content: string): void {
+    // Диалогового окна на планшете нет — ошибку оператору покажет интерфейс.
+  },
+};
+
+/**
+ * Буфер обмена: на десктопе это системный буфер, на планшете — тоже системный,
+ * но Electron-API к нему нет. Оставляем поверхность, чтобы модуль, который её
+ * тянет, собирался; читает пустое, пишет — в никуда.
+ */
+export const clipboard = {
+  availableFormats(): string[] {
+    return [];
+  },
+  readBuffer(_format?: string): Uint8Array {
+    return new Uint8Array(0);
+  },
+  readImage(): { isEmpty: () => boolean } {
+    return { isEmpty: () => true };
+  },
+  readText(): string {
+    return '';
+  },
+  writeText(_text: string): void {
+    // no-op
+  },
+  writeImage(_image: unknown): void {
+    // no-op
+  },
+};
+
+/**
+ * Растровые изображения: на десктопе Electron декодирует их нативно, на
+ * планшете декодировать нечем (файловой системы нет). Поверхность оставлена,
+ * чтобы портированный модуль собирался; картинка всегда пустая.
+ */
+const EMPTY_IMAGE = {
+  isEmpty: () => true,
+  getSize: () => ({ width: 0, height: 0 }),
+  resize: () => EMPTY_IMAGE,
+  crop: () => EMPTY_IMAGE,
+  toPNG: () => new Uint8Array(0),
+  toDataURL: () => '',
+  toBitmap: () => new Uint8Array(0),
+};
+
+export const nativeImage = {
+  createFromPath(_path: string): typeof EMPTY_IMAGE {
+    return EMPTY_IMAGE;
+  },
+  createFromDataURL(_dataUrl: string): typeof EMPTY_IMAGE {
+    return EMPTY_IMAGE;
+  },
+  createFromBuffer(_buffer: unknown): typeof EMPTY_IMAGE {
+    return EMPTY_IMAGE;
+  },
+  createEmpty(): typeof EMPTY_IMAGE {
+    return EMPTY_IMAGE;
   },
 };
 
@@ -160,5 +258,10 @@ const fakeWindow = {
 export const BrowserWindow = {
   getAllWindows(): Array<typeof fakeWindow> {
     return [fakeWindow];
+  },
+  // Нативных окон у WebView нет: «окно» для диалогов всегда отсутствует, и
+  // вызывающий код обязан это пережить (диалог отменяется).
+  getFocusedWindow(): null {
+    return null;
   },
 };

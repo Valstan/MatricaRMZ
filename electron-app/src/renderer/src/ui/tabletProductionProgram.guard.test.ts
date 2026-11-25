@@ -41,11 +41,20 @@ function tabList(source: string, name: string): string[] {
 }
 
 describe('производственная программа на планшете', () => {
-  it('раздел есть в обоих фильтрах меню — иначе его срежет один из них', () => {
-    expect(tabList(TABS, 'ANDROID_TABS'), 'раздел ПП не попал в ANDROID_TABS').toContain('production_program');
-    expect(tabList(TABS, 'TABLET_OPERATOR_TABS'), 'раздел ПП не попал в TABLET_OPERATOR_TABS').toContain(
-      'production_program',
-    );
+  it('раздел есть в операторском пресете — иначе его срежет пресет', () => {
+    // Промт КАРМАНА #142: рамки разделов для Android больше нет (разделы
+    // режет только право и членство в разделе), но операторский пресет — если
+    // его включил оператор — Production Program в себе держать должен.
+    expect(tabList(TABS, 'TABLET_OPERATOR_TABS')).toContain('production_program');
+  });
+
+  it('рамки разделов по платформе больше нет — планшет показывает те же разделы', () => {
+    // Прежде эффективное меню Android = ANDROID_TABS ∩ TABLET_OPERATOR_TABS.
+    // Теперь платформенной рамки нет вовсе: раздел на планшете режут только
+    // право и членство в разделе — те же, что на компьютере.
+    expect(tabList(TABS, 'ANDROID_TABS'), 'рамка разделов для Android должна быть убрана').toEqual([]);
+    expect(APP, 'меню всё ещё режется по платформе').not.toContain('ANDROID_TABS.includes');
+    expect(APP, 'меню не должно зависеть от платформы').not.toMatch(/isAndroidPlatform\(\)\s*\?[^;]*filter/);
   });
 
   it('домены ПП и «Договоры» зарегистрированы в мосте планшета', () => {
@@ -107,12 +116,12 @@ describe('раздел не исчезает молча', () => {
     expect(APP, 'оболочка не получает причины среза').toContain('sectionGateNotes={sectionGateNotes}');
   });
 
-  it('раздел клиента попадает и в пресет рамки, и в пресет оператора — иначе его срежет пересечение', () => {
-    const androidTabs = tabList(TABS, 'ANDROID_TABS');
+  it('раздел клиента попадает в операторский пресет — иначе его срежет пресет', () => {
+    // Промт КАРМАНА #142: пресет остался отдельной сущностью (его включает
+    // оператор), но платформенной рамки больше нет. Значит проверяем одно:
+    // раздел производственной программы в пресете есть.
     const operatorTabs = tabList(TABS, 'TABLET_OPERATOR_TABS');
-    for (const tab of androidTabs) {
-      expect(operatorTabs, `раздел ${tab} есть в ANDROID_TABS, но его нет в TABLET_OPERATOR_TABS`).toContain(tab);
-    }
+    expect(operatorTabs).toContain('production_program');
   });
 });
 
