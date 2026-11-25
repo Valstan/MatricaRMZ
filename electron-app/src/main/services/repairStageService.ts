@@ -660,7 +660,12 @@ export async function restoreRepairStageRow(
     return { ok: false, error: 'Такой этап уже есть в истории ремонта — возвращать нечего' };
   }
   const { kind: _kind, ...rest } = meta;
-  const nextMeta = buildRepairHistoryMeta({ ...rest, extinguished: null });
+  // Возвращённый этап перестаёт быть КОПИЕЙ даты карточки: решение оператора «факт есть»
+  // делает его самостоятельной записью. По тому же правилу, что и ручная правка
+  // (решение владельца 25.11.2026: «авто-связь снимается, когда оператор вмешался руками»).
+  // Иначе кнопка «Вернуть» была бы пустой: следующий же сейв карточки (а дата там всё
+  // ещё пустая) погасил бы этап обратно — и снятую дату он бы не восстановил.
+  const nextMeta = buildRepairHistoryMeta({ ...rest, source: null, extinguished: null });
   await upsertOperation(db, {
     id: rowId,
     engineId: String(existing.engineEntityId ?? ''),
