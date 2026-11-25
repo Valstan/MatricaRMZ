@@ -1,4 +1,4 @@
-import { mapEntityRowsToSearchOptions, type SearchableSelectOption } from './selectOptions.js';
+import { type SearchableSelectOption } from './selectOptions.js';
 
 /**
  * ОДИН источник контрагентов для поля выбора и для списка (промт КАРМАНА #146).
@@ -163,6 +163,3 @@ export function counterpartySearchOptionsFromRows(
     merged,
   });
 }
-
-/** Переиспользуем общий маппинг EAV-строк (подпись + поисковый текст) — без второго места. */
-export { mapEntityRowsToSearchOptions };
