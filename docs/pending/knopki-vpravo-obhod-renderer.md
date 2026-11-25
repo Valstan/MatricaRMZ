@@ -91,6 +91,30 @@ HTML из модели (`openPrintPreview` + `buildEngineReclamationPrintModel`)
 `ListPrintDialog.tsx:302`, `RepairStageTemplateDialog.tsx:346`, `StageMapDialog.tsx:48`,
 `WorkSheetTypeEditorDialog.tsx:312`, `ClientOpsDialog.tsx:150`.
 
+### Партия 5 — смоуки: оверлей приветствия не гасится (16 скриптов)
+
+Найдено при приёмке партии #141: смоук `cdp-history-buttons-left.mjs` отработал «зелёно»,
+а **все три снимка показывали окно приветствия релиза**, а не карточку. Кнопка закрытия
+называется «За работу! (Enter)», а скрипты искали её **точным** сравнением
+`x.textContent.trim() === 'За работу!'` ⇒ оверлей оставался. DOM за оверлеем живой, поэтому
+**замеры были верными** — расходились только картинки (грабля [M233](../gotchas/M233.md)).
+
+Свой смоук #141 починен (гашение по началу подписи + проверка отсутствия
+`.release-welcome-overlay` до снимка). Остальные 16 — список на владельца:
+
+| Файл:строка | Как ищет |
+|---|---|
+| `scripts/cdp-bom-brand-group-bind.mjs:126`, `cdp-bom-card-simplified.mjs:96`, `cdp-bom-default-brand-render.mjs:116`, `cdp-nomenclature-parent-position.mjs:122` | `textContent.trim()===t` по списку `['За работу!','Позже']` |
+| `scripts/cdp-employee-picker-rank.mjs:389`, `cdp-engine-act-number.mjs:102`, `cdp-engine-act-tabs.mjs:272`, `cdp-engine-conduct-buttons.mjs:422`, `cdp-manual-entry-undo.mjs:131`, `cdp-stage-returns-row.mjs:130` | `textContent.trim()===t` по списку `['За работу!','Позже','Отклонить','Закрыть']` |
+| `scripts/cdp-children.mjs:95`, `cdp-contract-card-header.mjs:111`, `cdp-file-search.mjs:104`, `cdp-rail-defaults-tab-star.mjs:106`, `cdp-timesheet-and-icons.mjs:107`, `cdp-toolbar-panel.mjs:110` | `txt(x) === 'За работу!'` |
+| `scripts/cdp-ppe-card-kind.mjs:313` | список `.includes(trim())` — то же самое |
+
+**Лечение одно на все:** искать по началу подписи (`t.startsWith('За работу')`) и после
+гашения **проверять, что оверлея нет** (`document.querySelector('.release-welcome-overlay')`),
+иначе снимок снова покажет чужой экран. Уже сделанные правильно (образец) —
+`cdp-print-forms.mjs:294`, `cdp-client-ops-launch.mjs:178`, `cdp-ppe-card-kind.mjs:179`
+(там `startsWith` + отдельный список точных подписей).
+
 ## Как закрывать
 
 1. **Партия 2** — по группам: снять распорку / `marginLeft:'auto'`, ряд оставить с переносом
@@ -101,9 +125,16 @@ HTML из модели (`openPrintPreview` + `buildEngineReclamationPrintModel`)
 3. **Партия 4** — по вкусу: «Закрыть» в шапке модалки читается как «заголовок окна».
 4. **Приёмка каждой партии** — живой смоук на 1024 px: ни одна управляющая кнопка не уходит
    за правый край и ряд не требует горизонтальной прокрутки. Драйвер — `.claude/skills/verifier-electron/scripts/cdp-*.mjs`.
+5. **Партия 5** (смоуки) — по списку выше: гашение оверлея по началу подписи + проверка, что
+   оверлея нет, до снимка. Правка механическая, по одному файлу, приёмка — перегон любого
+   смоука на стенде и **просмотр снимка глазами** (не только «PASS» в логе).
 
 ## Грабли
 
+- **Скриншот — не ассерт, и его надо смотреть глазами.** Смоук #141 был «зелёным», а все три
+  снимка показывали оверлей приветствия (кнопка «За работу! (Enter)» не находилась точным
+  сравнением). Замеры из DOM при этом были верными — расходились только картинки.
+  Грабля [M233](../gotchas/M233.md), список 16 скриптов — в партии 5.
 - **Печать не трогать.** Печатные формы собирают свой HTML (`openPrintPreview`), правка
   раскладки панелей на печать не влияет — но и наоборот: печать «переедет», если полезть
   в модель печати.
