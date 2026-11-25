@@ -114,7 +114,7 @@
 - [⏳ Планшет — доступ как на компьютере (#111/#113/#115): доставка выдачи и снятия раздела починена (четыре обрыва, найдены замером) — осталась приёмка глазами владельца 🗓 since:2026-11-24](pending/planshet-celhovye-razdely-obem-porta.md)
 - [⏳ Дубли сотрудников: остаток — штатка с ПДО и приёмка на парке (запрет по полному ключу сделан) 🗓 since:2026-11-09](pending/dubli-sotrudnikov-ostatok-zapret-po-polnomu-klyuchu-shtatka-s-pdo.md)
 - [⏳ Рекламация в истории ремонта: код сделан (3.117.0, 3.118.0 и 3.123.0) — осталась приёмка на парке 🗓 since:2026-11-09](pending/reklamaatsiya-v-istorii-remonta.md)
-- [⏳ Клиент не отправлял атрибуты нового сотрудника — симптом снят, причина не найдена 🗓 since:2026-11-16](pending/klient-ne-otpravlyaet-atributy-novogo-sotrudnika.md)
+- [⏳ Клиент не отправлял атрибуты нового сотрудника — причина найдена, класс лечится 🗓 since:2026-11-16](pending/klient-ne-otpravlyaet-atributy-novogo-sotrudnika.md)
 - [⏳ «Поиск по файлам»: вёрстка, названия вместо id, сверка с карточкой, .xls — выкат v3.131.0 сделан, ждёт приёмки 🗓 since:2026-11-16](pending/poisk-po-failam-dorabotka-priemka.md)
 - [⏳ СИЗ: карточка смывающих средств — остаток по образцу №43 (свидетельство, способ выдачи, расписка) 🗓 since:2026-11-14](pending/siz-kartochka-smyvayushchih-sredstv.md)
 - [⏳ Панель фильтров: плашки не наезжают, панель сворачивается кнопкой — приёмка на парке (PR #1693, промт КАРМАНА #106) 🗓 since:2026-11-12](pending/panel-filtrov-spoilera-net-plashki-plavayushchie-priemka.md)
@@ -301,3 +301,4 @@
 - [Эскалация ИИваныча меняет состав tools — это стоит всего префикс-кэша 🗓 since:2026-08-30 🟡](pending/eskalatsiya-iivanycha-menyaet-sostav-tools-eto-stoit.md)
 - [Джоб chat-learning пишет корпус, которого никто не читает 🗓 since:2026-08-30 🟢](pending/dzhob-chat-learning-pishet-korpus-kotorogo-nikto-ne.md)
 - [Остатки на прод-боксе, осознанно не тронутые при обслуживании 30.08 🗓 since:2026-08-30 🟢](pending/ostatki-na-prod-bokse-osoznanno-ne-tronutye-pri.md)
+- [⏳ Аларм «очередь застряла» шумит: окно анти-флуда живёт в памяти инстанса 🗓 since:2026-11-25](pending/alyarm-zastryavshej-ocheredi-flood-mezhdu-instansami.md)

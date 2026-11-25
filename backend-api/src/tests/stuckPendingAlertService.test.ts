@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const chatSent: string[] = [];
 const roomSent: string[] = [];
+const roomSenders: string[] = [];
 const events: Array<Record<string, unknown>> = [];
 
 vi.mock('../services/chatMessageService.js', () => ({
@@ -10,8 +11,9 @@ vi.mock('../services/chatMessageService.js', () => ({
     return { ok: true as const };
   }),
   ensureMonitoringRoom: vi.fn(async () => 'room-1'),
-  postChatMessageToRoom: vi.fn(async (args: { text: string }) => {
+  postChatMessageToRoom: vi.fn(async (args: { text: string; senderUserId?: string }) => {
     roomSent.push(String(args?.text ?? ''));
+    roomSenders.push(String(args?.senderUserId ?? ''));
     return { ok: true as const };
   }),
 }));
@@ -28,6 +30,7 @@ vi.mock('../services/employeeAuthService.js', () => ({
     for (const login of logins) out[login.trim().toLowerCase()] = 'Иванов Иван Иванович';
     return out;
   }),
+  getSuperadminUserId: vi.fn(async () => 'u-super'),
 }));
 
 import {
@@ -54,6 +57,7 @@ describe('аларм застрявшей очереди', () => {
   beforeEach(() => {
     chatSent.length = 0;
     roomSent.length = 0;
+    roomSenders.length = 0;
     events.length = 0;
     resetStuckPendingAlertCooldown();
   });
@@ -145,5 +149,31 @@ describe('аларм застрявшей очереди', () => {
     });
     expect(second.alerted).toBe(false);
     expect(roomSent).toHaveLength(1);
+  });
+
+  // Тревога — событие системы, а не письмо оператора: отправляем её от владельца
+  // комнаты. От имени оператора её отбивал гейт членства в комнате
+  // (`sync_policy_denied: chat_room_member`) — отчёт не доходил ни до кого
+  // (инцидент PC63, 25.11.2026: 14 тревог за день, все мимо комнаты).
+  it('в комнату тревога идёт от владельца комнаты, а не от оператора', async () => {
+    await raiseStuckPendingAlert({
+      actor: actor(),
+      clientId: 'c-1',
+      stuck,
+      trigger: 'auto',
+      detectedAt: NOW,
+    });
+    expect(roomSenders[0]).toBe('u-super');
+  });
+
+  it('если тревогу поднял сам супер-админ — она идёт от него', async () => {
+    await raiseStuckPendingAlert({
+      actor: { id: 'u-super', username: 'valstan', role: 'superadmin' },
+      clientId: 'c-2',
+      stuck,
+      trigger: 'auto',
+      detectedAt: NOW,
+    });
+    expect(roomSenders[0]).toBe('u-super');
   });
 });
