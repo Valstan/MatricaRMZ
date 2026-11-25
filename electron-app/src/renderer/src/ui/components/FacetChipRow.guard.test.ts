@@ -1,24 +1,31 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-// Плавающие плашки выбранных значений фильтра (владелец 12.11.2026): «плавающие плашки
-// наезжают друг на друга… прочитать невозможно, что выбрано, и отключить невозможно».
+// Плашки выбранных значений фильтра (владелец 12.11.2026 → 25.11.2026).
+//
+// 12.11.2026 плашки висели плавающим слоем под своей кнопкой и наезжали друг на друга:
+// «прочитать невозможно, что выбрано, и отключить невозможно». Тогда их отвели в общий ряд под
+// кнопками, а место в ряду считала отдельная раскладка (`utils/facetChipLayout.ts`).
+//
+// 25.11.2026 (промт КАРМАНА #151) плашки переехали В РЯД ПАНЕЛИ — рядом с кнопкой
+// сворачивания и «Сбросить фильтры»: [сворачивание] [сброс] [плашки]. Ряд один и переносится,
+// если в экран не влезает. Привязки к кнопке-родителю больше нет — плашки идут обычным
+// потоком, поэтому и раскладка с замером не нужны.
 //
 // Ловится это молча: панель рисуется, плашки на месте, а наезжают они только тогда, когда
-// выбрано несколько значений в СОСЕДНИХ ступенях. Поэтому сторож держит не картинку, а
-// устройство: плашки стоят общим рядом, позиции считает отдельный модуль, и у каждого
-// модуля есть свои тесты на раскладку (`facetChipLayout.test.ts`).
+// выбрано несколько значений в СОСЕДНИХ ступенях. Сторож держит устройство: плашки — в ряду
+// панели, потоком, без плавающего слоя.
 function src(rel: string): string {
-  return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
 }
 
 const FILTER = src('./FacetFilter.tsx');
-const LAYOUT = src('../utils/facetChipLayout.ts');
+const LAYOUT_PATH = fileURLToPath(new URL('../utils/facetChipLayout.ts', import.meta.url));
 
-describe('плашки выбранных значений стоят общим рядом и не наезжают', () => {
-  it('плашки живут в отдельной строке, а не плавающим слоем под кнопкой', () => {
+describe('плашки выбранных значений стоят в ряду панели и не наезжают', () => {
+  it('плашки живут в ряду панели, а не плавающим слоем под кнопкой', () => {
     expect(FILTER).toContain('data-facet-chip-row');
     expect(FILTER).toContain('data-facet-chip-group={facet.id}');
     // Прежний вид — плавающий слой под кнопкой, из-за которого плашки соседних ступеней
@@ -27,25 +34,26 @@ describe('плашки выбранных значений стоят общим
     expect(FILTER, 'плавающий слой под кнопкой вернулся бы').not.toContain("transform: 'translateX(-50%)'");
   });
 
-  it('позиции плашек считает отдельный модуль с честными тестами', () => {
-    expect(FILTER).toContain('layoutFacetChipGroups(groups, available)');
-    expect(LAYOUT).toContain('export function layoutFacetChipGroups');
-    expect(LAYOUT).toContain('export const FACET_CHIP_GROUP_GAP');
+  it('группа плашек идёт потоком: ни абсолютного позиционирования, ни замера', () => {
+    // Замер и раскладка по кнопкам-родителям больше не нужны: плашки стоят в ряду панели и
+    // переносятся, а не висят по координатам.
+    const group = FILTER.slice(FILTER.indexOf('data-facet-chip-group'), FILTER.indexOf('data-facet-chip-group') + 700);
+    expect(group, 'плашки вернулись в плавающий слой').not.toContain('position: \'absolute\'');
+    expect(FILTER, 'замер плашек вернулся бы').not.toContain('layoutFacetChipGroups');
+    expect(FILTER, 'замер плашек вернулся бы').not.toContain('measureChipRow');
+    expect(FILTER, 'модуль раскладки вернулся бы').not.toContain('FACET_CHIP_ROW_HEIGHT');
   });
 
-  it('группа тянется к своей кнопке, но не наезжает на соседнюю', () => {
-    // Желаемое место — центр кнопки-родителя; дальше — раздвиг вправо при нехватке места.
-    expect(LAYOUT).toContain('const desired = group.parentCenter - width / 2;');
-    expect(LAYOUT).toContain('pos[i] = Math.max(pos[i]!, pos[i - 1]! + widths[i - 1]! + gap);');
+  it('модуль раскладки удалён — он больше не нужен', () => {
+    // Модуль был чистой функцией с честными тестами, но после переезда плашек в ряд панели
+    // его вызывать некому: мёртвый код в проекте не оставляем.
+    expect(existsSync(LAYOUT_PATH), 'модуль раскладки плашек остался мёртвым').toBe(false);
   });
 
-  it('план считается после отрисовки: иначе плашки прыгают при первом показе', () => {
-    expect(FILTER).toContain('React.useLayoutEffect(() => {');
-    expect(FILTER).toContain('const plan = layoutFacetChipGroups(groups, available);');
-  });
-
-  it('в одну строку плашки ужимаются, но не до нечитаемой ширины', () => {
-    expect(FILTER).toContain('const FACET_CHIP_MIN_WIDTH = 90;');
+  it('ряд панели переносится, а плашка ужимается многоточием, но остаётся читаемой', () => {
     expect(FILTER).toContain('const FACET_CHIP_MAX_WIDTH = 200;');
+    expect(FILTER).toContain("textOverflow: 'ellipsis'");
+    // Ряд плашек и ряд панели — один и тот же ряд: перенос на вторую строку.
+    expect(FILTER).toContain("flexWrap: 'wrap'");
   });
 });

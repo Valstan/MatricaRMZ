@@ -50,6 +50,7 @@ import { loadCounterpartySources } from '../utils/counterpartyOptions.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { FacetFilter } from '../components/FacetFilter.js';
+import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
 import {
   applyCounterpartyFacets,
   COUNTERPARTY_FACETS,
@@ -566,6 +567,11 @@ export function CounterpartiesPage(props: {
         )}
         <ToolbarPin>
           <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v, pageIndex: 0 })} placeholder="Поиск по всем данным контрагента…" />
+        </ToolbarPin>
+        {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,
+            промт КАРМАНА #151). */}
+        <ToolbarPin>
+          <FacetPanelToggle usageKey="list:counterparties" />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => { toggleSearchMode(); patchState({ pageIndex: 0 }); }} />

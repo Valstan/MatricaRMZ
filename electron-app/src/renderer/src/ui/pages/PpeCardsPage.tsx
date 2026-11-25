@@ -19,6 +19,7 @@ import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from
 import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { FacetFilter } from '../components/FacetFilter.js';
+import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
 import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ListCount } from '../components/ListCount.js';
 import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
@@ -571,6 +572,11 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
             onChange={(v) => patchState({ query: v })}
             placeholder="Поиск по ФИО и табельному…"
           />
+        </ToolbarPin>
+        {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,
+            промт КАРМАНА #151). */}
+        <ToolbarPin>
+          <FacetPanelToggle usageKey="list:ppe-cards" />
         </ToolbarPin>
         <Button variant="ghost" onClick={() => void load()} disabled={loading}>
           Обновить

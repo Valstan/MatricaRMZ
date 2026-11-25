@@ -39,6 +39,7 @@ import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from
 
 
 import { FacetFilter } from '../components/FacetFilter.js';
+import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
 import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
 
 
@@ -934,6 +935,11 @@ export function WorkSheetsPage(props: {
         </Button>
         <ToolbarPin>
           <ToolbarSearchField value={ui.query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по этапам работ…" />
+        </ToolbarPin>
+        {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,
+            промт КАРМАНА #151). */}
+        <ToolbarPin>
+          <FacetPanelToggle usageKey="list:workSheets:ui" />
         </ToolbarPin>
         <ToolbarPin>
           <EngineQrScanButton onEngineNumber={(n) => patchState({ query: n })} />

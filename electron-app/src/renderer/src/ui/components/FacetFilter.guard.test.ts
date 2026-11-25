@@ -15,6 +15,8 @@ function src(rel: string): string {
 
 const FILTER = src('./FacetFilter.tsx');
 const ENGINE_FILTER = src('./EngineFacetFilter.tsx');
+const TOGGLE = src('./FacetPanelToggle.tsx');
+const STORE = src('../hooks/facetPanelStore.ts');
 
 const HOSTS: ReadonlyArray<{ name: string; source: string; usageKey: string }> = [
   { name: 'EnginesPage', source: src('../pages/EnginesPage.tsx'), usageKey: 'list:engines' },
@@ -36,6 +38,17 @@ const HOSTS: ReadonlyArray<{ name: string; source: string; usageKey: string }> =
     name: 'WorkSheetsReportPage',
     source: src('../pages/reports/WorkSheetsReportPage.tsx'),
     usageKey: 'report:workSheets:ui',
+  },
+];
+
+/** Экраны, где панель фильтров есть, а верхней панели управляющих кнопок — нет. */
+const EXTRA_HOSTS: ReadonlyArray<{ name: string; source: string; usageKey: string }> = [
+  { name: 'CounterpartiesPage', source: src('../pages/CounterpartiesPage.tsx'), usageKey: 'list:counterparties' },
+  { name: 'ChildrenPage', source: src('../pages/ChildrenPage.tsx'), usageKey: 'list:children' },
+  {
+    name: 'OrganizationPage',
+    source: src('../pages/OrganizationPage.tsx'),
+    usageKey: 'organization:event-selection',
   },
 ];
 
@@ -66,7 +79,7 @@ describe('фильтры списков — рейтинг ступеней', ()
   it('ряд кнопок строится по рейтингу на момент появления панели, а не под курсором', () => {
     // Порядок и состав ряда считаются по СНИМКУ счёта: щелчок внутри панели счёт копит, но
     // ряд под курсором не перетасовывается. Снимок снимается при появлении панели и при смене
-    // набора ступеней (раньше — в момент «открытия» по кнопке «Фильтры», которой больше нет).
+    // набора ступеней.
     expect(FILTER).toMatch(
       /const at = Date\.now\(\);\n\s*setRating\(\{ usage: usageRef\.current, at \}\);/,
     );
@@ -148,27 +161,11 @@ describe('панель фильтров — вид по заказу владе�
     expect(FILTER).toContain('clearFacet(props.selection, facetId)');
   });
 
-  it('выбранное значение — плашка в общем ряду, цветом той же ступени', () => {
+  it('выбранное значение — плашка в ряду панели, цветом той же ступени', () => {
     expect(FILTER).toContain('data-facet-chip={`${facet.id}:${option.value}`}');
     expect(FILTER).toContain('background: tone.tint');
-    // Плашки вынесены в ОБЩИЙ ряд под кнопками (владелец 12.11.2026): пока каждая висела
-    // плавающим слоем под своей кнопкой, плашки соседних ступеней наезжали друг на друга —
-    // «прочитать невозможно, что выбрано, и отключить невозможно».
-    expect(FILTER).toContain('data-facet-chip-row');
     expect(FILTER).toContain('data-facet-chip-group={facet.id}');
     expect(FILTER).toContain('data-facet-column={facet.id}');
-  });
-
-  it('плашки стоят общим рядом и не раздвигают кнопку родителя (владелец 12.11.2026)', () => {
-    // Длинное название выбранного значения разводило соседние кнопки, и общий ряд
-    // фильтров «расползался в ширину». Теперь плашки живут в отдельной строке под кнопками,
-    // а место в ней считает отдельный модуль (`facetChipLayout.ts`) — с честными тестами.
-    expect(FILTER).toContain("position: 'absolute'");
-    expect(FILTER, 'прежнее прижатие к центру кнопки вернулось бы').not.toContain("transform: 'translateX(-50%)'");
-    expect(FILTER).toContain('FACET_CHIP_ROW_HEIGHT');
-    expect(FILTER).toContain('layoutFacetChipGroups(groups, available)');
-    // Поток по ширине у плашек закрыт — все плашки ступени в одну строку.
-    expect(FILTER).toContain("flexWrap: 'nowrap'");
   });
 
   it('выбранное в меню — синее с белыми буквами, под курсором — серое', () => {
@@ -182,24 +179,80 @@ describe('панель фильтров — вид по заказу владе�
 // фильтров будет всегда открыта и активна и видна под панелью управляющих кнопок карточки или
 // списка… прозрачность выпадающего меню фильтров убери… при нажатии на плашку фильтра он
 // активировался и деактивировался».
-describe('панель фильтров — по заказу владельца 12.11.2026 (третья правка)', () => {
-  it('старая кнопка «Фильтры» в тулбаре не вернулась', () => {
-    // Владелец 12.11.2026: «убери кнопку „Фильтры“ отовсюду». Позже (24.11.2026) вернулось
-    // ДРУГОЕ — сворачивание самой панели, отдельной кнопкой у самой панели (см. блок ниже).
-    // Кнопка в тулбаре, открывающая панель поверх экрана, возвращаться не должна.
-    expect(FILTER, 'кнопка «Фильтры» вернулась бы в тулбар').not.toContain('FacetToggleButton');
-    expect(FILTER).not.toContain('data-facet-toggle');
-    expect(ENGINE_FILTER, 'кнопка «Фильтры» вернулась бы в тулбар').not.toContain('EngineFacetToggleButton');
-    for (const host of HOSTS) {
-      expect(host.source, `${host.name}: кнопка «Фильтры» вернулась в тулбар`).not.toContain('FacetToggleButton');
-      expect(host.source, `${host.name}: кнопка «Фильтры» вернулась в тулбар`).not.toContain('data-facet-toggle');
+//
+// ⚠️ **Разворот 25.11.2026 (промт КАРМАНА #151):** кнопка «Фильтры» ВЕРНУЛАСЬ в верхнюю панель
+// управляющих кнопок и открывает/сворачивает панель; свёрнутая панель исчезает с экрана целиком.
+// Ниже сторож держит новое решение — старое запрещение снято решением владельца, а не «на всякий
+// случай».
+describe('панель фильтров — кнопка «Фильтры» в тулбаре (владелец 25.11.2026)', () => {
+  it('кнопка есть в верхней панели управляющих кнопок на всех экранах с панелью', () => {
+    // Панель фильтров стоит на одиннадцати экранах: девять с верхней панелью управляющих
+    // кнопок и два без неё (дети, организационный модуль). Кнопка нужна везде: свёрнутая панель
+    // исчезает целиком, и добраться до неё иначе нечем.
+    expect(TOGGLE).toContain('data-facet-toggle');
+    expect(TOGGLE).toContain('export function FacetPanelToggle(');
+    for (const host of [...HOSTS, ...EXTRA_HOSTS]) {
+      expect(host.source, `${host.name}: кнопки «Фильтры» нет`).toContain('<FacetPanelToggle');
+      expect(host.source, `${host.name}: ключ панели не тот`).toContain(`usageKey="${host.usageKey}"`);
     }
   });
 
-  it('панель стоит под тулбаром на всех восьми экранах', () => {
+  it('кнопка закреплена: в меню переполнения «⋯» она не уедет', () => {
+    // Закрепление — обёрткой `ToolbarPin` (признак ставится разметкой, а не типом компонента).
+    for (const host of HOSTS) {
+      const at = host.source.indexOf('<FacetPanelToggle');
+      expect(at, `${host.name}: кнопки «Фильтры» нет`).toBeGreaterThan(-1);
+      const before = host.source.slice(Math.max(0, at - 200), at);
+      expect(before, `${host.name}: кнопка «Фильтры» не закреплена`).toContain('<ToolbarPin>');
+    }
+  });
+
+  it('кнопка и панель читают ОДНО состояние — свой у каждой не заводим', () => {
+    // `useListUiState` читает состояние один раз при монтировании и на внешние изменения не
+    // подписан: кнопка переключила бы своё, панель — своё, и они разошлись бы. Общий стор с
+    // подпиской — единственный способ, при котором нажатие «Фильтры» открывает панель.
+    expect(STORE).toContain('export function useFacetPanelState(');
+    expect(STORE).toContain('export function subscribeFacetPanel(');
+    expect(STORE).toContain('export function toggleFacetPanel(');
+    expect(FILTER).toContain("from '../hooks/facetPanelStore.js'");
+    expect(TOGGLE).toContain("from '../hooks/facetPanelStore.js'");
+    expect(FILTER).toContain('const panel = useFacetPanelState(props.usageKey);');
+    expect(TOGGLE).toContain('useFacetPanelState(props.usageKey)');
+    // Своего состояния раскрытости ни у страницы, ни у компонента.
+    expect(FILTER, 'панель вернулась к состоянию списка без подписки').not.toContain(
+      "import { useListUiState }",
+    );
+    for (const host of [...HOSTS, ...EXTRA_HOSTS]) {
+      expect(host.source, `${host.name}: у экрана своё состояние раскрытости панели`).not.toContain('facetsOpen');
+      expect(host.source, `${host.name}: у экрана своё состояние раскрытости панели`).not.toContain(
+        'facetPanelExpanded',
+      );
+    }
+  });
+
+  it('счётчик активных ступеней — на кнопке: свёрнутая панель исчезает, а признак отбора остаётся', () => {
+    // Ловушка «почему тут не все?» (письмо владельцу 12.11.2026): без числа на кнопке оператор
+    // не поймёт, почему список короче.
+    expect(TOGGLE).toContain('Фильтры{activeCount > 0 ? ` (${activeCount})` : \'\'}');
+    expect(FILTER).toContain('setFacetPanelActiveCount(props.usageKey, activeCount);');
+    expect(STORE).toContain('export function setFacetPanelActiveCount(');
+  });
+
+  it('подписка и запись встают на ОДИН ключ (поймано живьём 25.11.2026)', () => {
+    // Подписка считала ключ от уже посчитанного и встала на «…:facetPanel:facetPanel», а запись —
+    // на «…:facetPanel» ⇒ уведомление уходило в пустоту: кнопка сворачивала панель (стор
+    // писал), а панель оставалась на экране. Ключ считается В ОДНОМ месте — из сырого usageKey.
+    expect(STORE).toContain('return subscribeFacetPanel(usageKey, setState);');
+    const subscribe = STORE.slice(
+      STORE.indexOf('export function subscribeFacetPanel('),
+      STORE.indexOf('export function subscribeFacetPanel(') + 600,
+    );
+    expect(subscribe, 'подписка считает ключ иначе, чем запись').toContain('facetPanelKey(usageKey)');
+  });
+
+  it('панель стоит под тулбаром на всех восьми экранах с верхней панелью', () => {
     expect(FILTER, 'у панели не должно быть пропа раскрытости').not.toContain('open: boolean;');
     expect(ENGINE_FILTER, 'у обёртки не должно быть пропа раскрытости').not.toContain('open: boolean;');
-    // Панель стоит под тулбаром на всех восьми экранах.
     for (const host of HOSTS) {
       expect(host.source, `${host.name}: панель фильтров не отрисована`).toMatch(/<(FacetFilter|EngineFacetFilter)/);
     }
@@ -227,60 +280,84 @@ describe('панель фильтров — по заказу владельца
   });
 });
 
-// Владелец 24.11.2026 (промт КАРМАНА #106): «нужно сделать скрытие панели фильтров: кнопка
-// скрытия и раскрытия панели фильтров. По умолчанию панель фильтров всегда развёрнута, но если
-// она мешает, то нужна кнопка свернуть панель, чтобы освободить место под рабочую область
-// списка или карточки».
+// Владелец 25.11.2026 (промт КАРМАНА #151): «кнопка „Фильтры“ в верхней панели управляющих
+// кнопок; кнопка „Сбросить фильтры“ уезжает вместе с панелью; свёрнутая панель исчезает совсем».
 //
-// Это СОЗНАТЕЛЬНЫЙ разворот решения 12.11.2026 («панель всегда открыта, кнопки „Фильтры“ нет
-// нигде»). Сторож ниже держит новое поведение — старое «свернуть нечем» больше не запрещается,
-// но и не возвращается тайком.
-describe('панель фильтров — сворачивается по кнопке (владелец 24.11.2026)', () => {
-  it('кнопка сворачивания есть, с признаком раскрытости и состоянием по умолчанию «развёрнута»', () => {
+// Это СОЗНАТЕЛЬНЫЙ разворот решений 12.11.2026 («панель всегда открыта, кнопки „Фильтры“ нет
+// нигде») и 24.11.2026 («при свёрнутой панели отбор остаётся видимым»). Сторож ниже держит новое
+// поведение.
+describe('панель фильтров — сворачивается кнопкой в тулбаре (владелец 25.11.2026)', () => {
+  it('кнопка сворачивания есть, со знаком-треугольником и подсказкой', () => {
     expect(FILTER).toContain('data-facet-collapse');
     expect(FILTER).toContain('aria-expanded={expanded}');
-    expect(FILTER).toContain('patchPanelState({ expanded: !expanded })');
-    // По умолчанию панель РАЗВЁРНУТА — так просил владелец.
-    expect(FILTER).toContain('{ expanded: true }');
+    // Знак — треугольник вверх: «нажмёшь — свернётся» (владелец 25.11.2026).
+    expect(FILTER).toContain('▲');
+    expect(FILTER).not.toContain("'▼'");
+    expect(FILTER).toContain('title="Свернуть панель фильтров — освободит место под список"');
   });
 
-  it('раскрытость живёт в состоянии списка — своя у каждого списка', () => {
-    expect(FILTER).toContain('useListUiState<{ expanded: boolean }>');
-    expect(FILTER).toContain("props.usageKey ?? 'facets'}:facetPanel");
+  it('кнопка сворачивания НЕ разворачивает обратно: обратно — кнопка «Фильтры» в тулбаре', () => {
+    expect(FILTER).toContain('onClick={() => panel.setExpanded(false)}');
+    expect(FILTER, 'разворачивание осталось бы в панели — а её нет').not.toContain('setExpanded(!expanded)');
+    expect(FILTER, 'старое состояние списка вернулось бы').not.toContain('patchPanelState');
   });
 
-  it('содержимое скрывается атрибутом hidden на ДОЧЕРНЕМ узле (M78) и не размонтируется', () => {
-    // На корне панели инлайновый `display: 'grid'` — он перебил бы `hidden` (M78).
-    expect(FILTER).toContain('display: \'grid\'');
-    expect(FILTER).toContain('<div data-facet-panel-body hidden={!expanded}>');
-    // Содержимое не размонтируется: рейтинг ступеней и открытое меню должны пережить
-    // сворачивание (иначе панель «забывает» свой вид и открытое меню).
-    expect(FILTER, 'панель размонтирует содержимое вместо скрытия').not.toContain('if (!expanded) return null;');
-    expect(FILTER, 'ранний выход из рендера вернул бы старую ловушку').not.toContain(
-      'if (!props.open) return null;',
+  it('свёрнутая панель исчезает с экрана ЦЕЛИКОМ', () => {
+    // Ни рамки, ни кнопки «Сбросить фильтры», ни плашек выбранных значений — иначе панель
+    // занимала бы место под себя, но ничего не говорила бы (владелец 25.11.2026).
+    expect(FILTER).toContain('if (!expanded) return null;');
+    expect(FILTER, 'панель пряталась бы атрибутом, а не исчезала').not.toContain('hidden={!expanded}');
+    // Ранний выход — после всех хуков, иначе React ругался бы на разное число вызовов.
+    const early = FILTER.indexOf('if (!expanded) return null;');
+    const hooks = FILTER.lastIndexOf('React.useEffect', early);
+    expect(hooks, 'ранний выход встал перед хуками').toBeGreaterThan(-1);
+  });
+
+  it('отбор сворачивание не теряет: он живёт в состоянии списка, а не в панели', () => {
+    // Панель исчезает, но выбор ступеней — в состоянии списка (его держит страница), поэтому
+    // после обратного открытия те же ступени и значения.
+    expect(FILTER).toContain('props.selection');
+    expect(FILTER).toContain('props.onChangeSelection');
+    // Сворачивание не трогает отбор: кнопка сворачивания меняет только раскрытость.
+    expect(FILTER).toContain('onClick={() => panel.setExpanded(false)}');
+    const collapseBlock = FILTER.slice(
+      FILTER.indexOf('data-facet-collapse'),
+      FILTER.indexOf('data-facet-collapse') + 400,
     );
+    expect(collapseBlock, 'кнопка сворачивания не должна сбрасывать отбор').not.toContain('onReset');
   });
 
-  it('при свёрнутой панели отбор остаётся видимым: плашки и счётчик', () => {
-    // Ловушка «почему тут не все?» (письмо владельцу 12.11.2026): отбор, который надо ещё
-    // открыть, и значение, которое снимается не тем же щелчком, каким выбран, — это не отбор,
-    // а ловушка. Значит свёрнутая панель обязана показывать выбранные значения и их счёт.
-    expect(FILTER).toContain('data-facet-chip-row');
-    expect(FILTER).toContain('data-facet-panel-bar');
+  it('открытая панель — один ряд: сворачивание, сброс, плашки', () => {
+    const markup = FILTER.slice(FILTER.indexOf('data-engine-facets'));
+    const collapse = markup.indexOf('{renderCollapseButton()}');
+    const reset = markup.indexOf('{renderResetButton()}');
+    const chips = markup.indexOf('{renderChipRow()}');
+    expect(collapse, 'кнопка сворачивания в разметке не найдена').toBeGreaterThan(-1);
+    expect(reset, 'кнопка сброса в разметке не найдена').toBeGreaterThan(-1);
+    expect(chips, 'ряд плашек в разметке не найден').toBeGreaterThan(-1);
+    // Порядок в РАЗМЕТКЕ: сперва сворачивание, потом «Сбросить фильтры», потом плашки
+    // (владелец 25.11.2026).
+    expect(collapse, 'сворачивание должно быть первым в ряду').toBeLessThan(reset);
+    expect(reset, 'сброс — вторым в ряду').toBeLessThan(chips);
+    // Все три — в одном ряду панели (`data-facet-panel-bar`), а плашки не стоят отдельной
+    // строкой под ступенями.
+    const bar = markup.slice(markup.indexOf('data-facet-panel-bar'));
+    expect(bar.indexOf('{renderCollapseButton()}')).toBeGreaterThan(-1);
+    expect(bar.indexOf('{renderResetButton()}')).toBeGreaterThan(-1);
+    expect(bar.indexOf('{renderChipRow()}')).toBeGreaterThan(-1);
+    expect(markup.indexOf('{renderChipRow()}')).toBeLessThan(markup.indexOf('data-facet-panel-body'));
+  });
+
+  it('ряд переносится, если не влезает в экран', () => {
+    expect(FILTER).toContain("flexWrap: 'wrap'");
+    const bar = FILTER.slice(FILTER.indexOf('data-facet-panel-bar'), FILTER.indexOf('data-facet-panel-bar') + 400);
+    expect(bar).toContain("flexWrap: 'wrap'");
+  });
+
+  it('сброс по-прежнему снимает ВСЕ ступени, счётчик активных — на месте', () => {
+    expect(FILTER).toContain('onClick={props.onReset}');
     expect(FILTER).toContain('Сбросить фильтры{activeCount > 0 ? ` (${activeCount})` : \'\'}');
-    // Порядок в РАЗМЕТКЕ: ряд панели (кнопка + выход из фильтра) → сворачиваемое содержимое →
-    // ряд плашек. Ряд панели и ряд плашек живут ВНЕ скрываемого содержимого: иначе сворачивать
-    // было бы нечем, а отбор стал бы невидимым (ловушка «почему тут не все?»).
-    const markup = FILTER.slice(FILTER.indexOf('data-engine-facets'), FILTER.indexOf('data-engine-facets') + 2200);
-    expect(markup.indexOf('data-facet-panel-bar')).toBeGreaterThan(-1);
-    expect(markup.indexOf('data-facet-panel-bar')).toBeLessThan(markup.indexOf('data-facet-panel-body'));
-    expect(markup.indexOf('data-facet-panel-body')).toBeLessThan(markup.indexOf('renderChipRow()'));
-  });
-
-  it('свёрнутая панель не меряет пустые прямоугольники кнопок', () => {
-    // У скрытых кнопок прямоугольник пустой — раскладка плашек вышла бы мусорной. При
-    // свёрнутой панели плашки идут обычным потоком, без привязки к кнопкам.
-    expect(FILTER).toContain('if (!expanded) return;');
-    expect(FILTER).toContain("position: 'static' as const");
+    // Сброс одной ступени живёт в её меню.
+    expect(FILTER).toContain('data-facet-menu-reset={facet.id}');
   });
 });

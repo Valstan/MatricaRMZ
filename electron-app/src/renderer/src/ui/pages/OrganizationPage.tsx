@@ -22,6 +22,7 @@ import {
 
 import { Button } from '../components/Button.js';
 import { FacetFilter } from '../components/FacetFilter.js';
+import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -474,7 +475,12 @@ function EventDialog(props: {
         </label>
 
         <div style={{ display: 'grid', gap: 8 }}>
-          <div style={{ fontWeight: 700 }}>Отбор: кого зовём</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 700 }}>Отбор: кого зовём</span>
+            {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,
+                промт КАРМАНА #151): панель стоит внутри карточки, а не под тулбаром. */}
+            <FacetPanelToggle usageKey="organization:event-selection" />
+          </div>
           <FacetFilter<ChildFacetRow>
             facets={CHILD_FACETS as readonly FacetDescriptor<ChildFacetRow>[]}
             rows={rows}
