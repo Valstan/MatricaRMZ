@@ -183,12 +183,10 @@ export function PrintFormsDialog(props: {
               Править форму
             </Button>
           ) : null}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <Button onClick={props.onClose}>Закрыть</Button>
-            <Button onClick={doPrint} disabled={loading}>
-              Печать / PDF
-            </Button>
-          </div>
+          <Button onClick={props.onClose}>Закрыть</Button>
+          <Button onClick={doPrint} disabled={loading}>
+            Печать / PDF
+          </Button>
         </div>
 
         {status ? <div style={{ fontSize: 12, color: 'var(--success, #047857)' }}>{status}</div> : null}

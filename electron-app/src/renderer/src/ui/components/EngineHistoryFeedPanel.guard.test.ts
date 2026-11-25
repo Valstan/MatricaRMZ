@@ -247,9 +247,10 @@ describe('вверху только две кнопки, инлайн-полей
     expect(PANEL).toContain("whiteSpace: 'nowrap'");
   });
 
-  it('правка даты — крайняя слева, удаление — крайнее справа (владелец 02.10.2026)', () => {
+  it('правка даты — в строке, кнопки несут data-атрибуты', () => {
     // Кнопка ✎ жила внутри ячейки события и уезжала под название; ✕ сидел в безымянной
-    // колонке. Теперь у таблицы пустые крайние заголовки, а кнопки несут data-атрибуты.
+    // колонке. Теперь у таблицы безымянная колонка только слева, а кнопки несут
+    // data-атрибуты (их находят смоуки).
     expect(PANEL).toContain("['', 'Дата'");
     expect(PANEL).toContain('data-repair-stage-edit-date={item.id}');
     expect(PANEL).toContain('data-repair-stage-remove={item.id}');
@@ -356,5 +357,73 @@ describe('служебная отметка о заведении карточк
     // а стоит в «Записано» вместо даты исполнения.
     expect(PANEL).toContain('item.service');
     expect(PANEL).toContain('formatMoscowDate(new Date(item.at))');
+  });
+});
+
+// Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #118; на вкладке
+// «История ремонта» — промт #141). Жалоба владельца: «на планшете справа некоторые
+// кнопки уходят за край экрана, и приходится прокручивать».
+//
+// Ломается это тихо: кнопка уехала за край — оператор её не видит и не может
+// записать этап. Поэтому сторож держит три вещи:
+//
+//  1) в шапке ленты нет пустой распорки перед кнопками (она уводила их вправо);
+//  2) в подвалах форм («Отмена»/«Применить», «Отмена»/«Сохранить») — тоже;
+//  3) кнопки действий над записью лежат в ЛЕВОЙ группе строки, а не в безымянной
+//     колонке справа.
+//
+// Метки `data-repair-stage-form-open`, `data-repair-history-add`, `data-transfer-open`
+// остаются на месте: по ним смоуки находят кнопки.
+describe('управляющие кнопки влево (владелец 24.11.2026)', () => {
+  /** Блок исходника между двумя маркерами — чтобы проверять нужный ряд, а не весь файл. */
+  function between(src: string, from: string, to: string): string {
+    const a = src.indexOf(from);
+    const b = a >= 0 ? src.indexOf(to, a + from.length) : -1;
+    return a >= 0 && b > a ? src.slice(a, b) : '';
+  }
+
+  /** Первая ячейка строки ленты — там, где живут кнопки действий над записью. */
+  function firstCell(src: string): string {
+    const row = src.indexOf('<tr key={item.id}');
+    const td = row >= 0 ? src.indexOf('<td', row) : -1;
+    const end = td >= 0 ? src.indexOf('</td>', td) : -1;
+    return td >= 0 && end > td ? src.slice(td, end) : '';
+  }
+
+  it('в шапке ленты кнопки идут сразу за заголовком — распорки нет', () => {
+    const header = between(PANEL, "emojiAttrs('История ремонта')", '{/* Перенос этапов при перебивке номера');
+    expect(header, 'шапка ленты не найдена — сторож молчит, а кнопки опять уедут вправо').not.toBe('');
+    expect(header, 'в шапке ленты снова пустая распорка — она уводит кнопки к правому краю').not.toContain(
+      "<div style={{ flex: 1 }} />",
+    );
+    // Заголовок и счётчик — первыми, кнопки — сразу за ними.
+    expect(header.indexOf('data-repair-history-add')).toBeGreaterThan(-1);
+    expect(header.indexOf('data-repair-history-add')).toBeLessThan(header.indexOf('data-repair-stage-form-open'));
+    expect(header.indexOf('data-repair-stage-form-open')).toBeLessThan(header.indexOf('data-transfer-open'));
+  });
+
+  it('в панели нет ни одной пустой распорки, уводящей кнопки вправо', () => {
+    // Распорка — это пустой div с flex: 1. Поля ввода с `flex: 1` — не распорка:
+    // они тянутся по ширине, а кнопки не уводят.
+    expect(PANEL, 'в панели ленты снова есть пустая распорка перед кнопками').not.toContain(
+      "<div style={{ flex: 1 }} />",
+    );
+  });
+
+  it('кнопки действий над записью — в левой группе строки, а не в колонке справа', () => {
+    const cell = firstCell(PANEL);
+    expect(cell, 'первая ячейка строки ленты не найдена').not.toBe('');
+    expect(cell, 'правка этапа уехала из левой группы строки').toContain('data-repair-stage-edit-date={item.id}');
+    expect(cell, 'снятие этапа уехало из левой группы строки').toContain('data-repair-stage-remove={item.id}');
+    expect(cell, 'правка ручной записи уехала из левой группы строки').toContain('data-manual-edit={item.id}');
+    expect(cell, 'снятие ручной записи уехало из левой группы строки').toContain('data-manual-remove={item.id}');
+    // Безымянной колонки справа больше нет — иначе кнопки снова уедут за край.
+    expect(PANEL, 'у ленты снова появилась безымянная колонка справа').not.toContain("'Кто', '']");
+  });
+
+  it('метки, по которым смоуки находят кнопки, на месте', () => {
+    expect(PANEL).toContain('data-repair-stage-form-open');
+    expect(PANEL).toContain('data-repair-history-add');
+    expect(PANEL).toContain('data-transfer-open');
   });
 });

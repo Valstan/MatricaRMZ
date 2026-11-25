@@ -119,7 +119,7 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
           style={{ width: 260 }}
         />
         <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchSimilar} />
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
           {props.canEdit
             ? WORK_ORDER_TEMPLATE_KINDS.map((k) => (
                 <Button key={k} onClick={() => openCreate(k)} title={`Создать шаблон: ${WORK_ORDER_KIND_LABELS[k]}`}>

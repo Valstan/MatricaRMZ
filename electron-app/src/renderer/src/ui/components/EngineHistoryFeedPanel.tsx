@@ -527,10 +527,28 @@ export function EngineHistoryFeedPanel(props: {
 
   return (
     <div data-engine-history-feed style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+      {/* Ряд кнопок — слева (владелец 24.11.2026, промт КАРМАНА #118; досрочно —
+          промт #141). Здесь стояла пустая распорка, а кнопки — ЗА ней: они уезжали к
+          правому краю, а на планшете (1024 px) уезжали за край экрана. Распорки в
+          шапке больше нет: заголовок, счётчик и кнопки идут подряд слева, а не
+          растягиваются по ширине. Порядок кнопок зафиксирован (действие по умолчанию →
+          этап → перенос), чтобы ряд не «прыгал», когда права меняются. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 700 }} {...emojiAttrs('История ремонта')}>История ремонта</span>
         <span className="ui-muted">{feed.length > 0 ? `${feed.length} событий` : 'событий пока нет'}</span>
-        <div style={{ flex: 1 }} />
+        {canEditManual && (
+          <Button
+            variant="ghost"
+            data-repair-history-add
+            onClick={() => {
+              resetDraft();
+              setAddingStage(false);
+              setAddingManual(true);
+            }}
+          >
+            Добавить запись
+          </Button>
+        )}
         {props.canEdit && (
           <Button
             variant="ghost"
@@ -543,19 +561,6 @@ export function EngineHistoryFeedPanel(props: {
             }}
           >
             Добавить этап ремонта
-          </Button>
-        )}
-        {canEditManual && (
-          <Button
-            variant="ghost"
-            data-repair-history-add
-            onClick={() => {
-              resetDraft();
-              setAddingStage(false);
-              setAddingManual(true);
-            }}
-          >
-            Добавить запись
           </Button>
         )}
         {canTransfer && (
@@ -623,8 +628,9 @@ export function EngineHistoryFeedPanel(props: {
             </div>
           </div>
           <Input value={stageNote} disabled={busy} placeholder="Примечание (необязательно)" onChange={(e) => setStageNote(e.target.value)} />
+          {/* Подвал формы: кнопки слева (владелец 24.11.2026). Распорка уводила
+              «Отмена»/«Применить» к правому краю — на планшете они уезжали за край. */}
           <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{ flex: 1 }} />
             <Button variant="ghost" onClick={() => setAddingStage(false)}>
               Отмена
             </Button>
@@ -758,8 +764,8 @@ export function EngineHistoryFeedPanel(props: {
           </div>
           <Input value={draftNote} onChange={(e) => setDraftNote(e.target.value)} placeholder="Комментарий — что произошло, всё важное об этом событии" />
 
+          {/* Подвал формы: кнопки слева (владелец 24.11.2026) — без распорки. */}
           <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{ flex: 1 }} />
             <Button variant="ghost" onClick={() => setAddingManual(false)}>
               Отмена
             </Button>
@@ -790,7 +796,7 @@ export function EngineHistoryFeedPanel(props: {
           <table style={{ borderCollapse: 'collapse', width: 'max-content', maxWidth: '100%' }} data-history-feed-table>
             <thead>
               <tr>
-                {['', 'Дата', 'Записано', 'Тип', 'Событие', 'Цех', 'Причина и примечание', 'Кто', ''].map((h, i) => (
+                {['', 'Дата', 'Записано', 'Тип', 'Событие', 'Цех', 'Причина и примечание', 'Кто'].map((h, i) => (
                   <th
                     key={`${i}-${h}`}
                     {...emojiAttrs(h)}
@@ -807,23 +813,67 @@ export function EngineHistoryFeedPanel(props: {
                 const canFixDate = props.canEdit && item.editable && !(item.sheetRowId && props.onOpenWorkSheet);
                 return (
                   <tr key={item.id} data-history-feed-row={item.id} data-history-feed-kind={item.kind}>
+                    {/* Кнопки действий над записью — в ЛЕВОЙ группе строки (владелец
+                        24.11.2026: управляющие кнопки влево; промт КАРМАНА #141). Раньше
+                        снятие этапа и правка ручной записи стояли в безымянной колонке
+                        справа — на планшете эти кнопки уезжали за край экрана. Сама строка
+                        осталась на месте: правка по-прежнему делается в строке ленты. */}
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
-                      {canFixDate &&
-                        (editingDate?.id === item.id ? (
-                          <Button variant="ghost" title="Отмена" onClick={() => setEditingDate(null)}>
-                            ✕
-                          </Button>
-                        ) : (
+                      <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                        {canFixDate &&
+                          (editingDate?.id === item.id ? (
+                            <Button variant="ghost" title="Отмена" onClick={() => setEditingDate(null)}>
+                              ✕
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              disabled={busy}
+                              title="Править этап: дата, цех, примечание"
+                              data-repair-stage-edit-date={item.id}
+                              onClick={() => setEditingDate({ id: item.id, code: item.stageCode, value: toInputDate(item.at), workshopId: item.workshopId, workshopName: item.workshopName ?? '', note: item.note, repeat: item.pass >= 2, repeatReason: item.repeatReason })}
+                            >
+                              ✎
+                            </Button>
+                          ))}
+                        {props.canEdit && item.editable && (
                           <Button
                             variant="ghost"
-                            disabled={busy}
-                            title="Править этап: дата, цех, примечание"
-                            data-repair-stage-edit-date={item.id}
-                            onClick={() => setEditingDate({ id: item.id, code: item.stageCode, value: toInputDate(item.at), workshopId: item.workshopId, workshopName: item.workshopName ?? '', note: item.note, repeat: item.pass >= 2, repeatReason: item.repeatReason })}
+                            // Пока строка правится, снять этап нельзя: рядом уже стоит
+                            // «Отмена» правки, и два одинаковых крестика путают.
+                            disabled={busy || editingDate?.id === item.id}
+                            title="Убрать этап"
+                            data-repair-stage-remove={item.id}
+                            onClick={() => void removeStage(item.id, item.title)}
                           >
-                            ✎
+                            ✕
                           </Button>
-                        ))}
+                        )}
+                        {canEditManual && item.kind === 'manual' && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              disabled={busy}
+                              title="Править запись"
+                              data-manual-edit={item.id}
+                              onClick={() =>
+                                setEditingManual({ id: item.id, action: item.title, date: toInputDate(item.at > 0 ? item.at : null), workshopId: item.workshopId, workshopName: item.workshopName ?? '', note: item.note })
+                              }
+                            >
+                              ✎
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              disabled={busy}
+                              title="Убрать запись"
+                              data-manual-remove={item.id}
+                              onClick={() => void removeManual(item.id, item.title)}
+                            >
+                              ✕
+                            </Button>
+                          </>
+                        )}
+                      </span>
                     </td>
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
                       {/* Служебная отметка (заведение карточки) — не событие ремонта:
@@ -1032,31 +1082,6 @@ export function EngineHistoryFeedPanel(props: {
                     </td>
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }} data-history-feed-by={item.id}>
                       {item.by ? <span className="ui-muted">{item.by}</span> : null}
-                    </td>
-                    <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
-                      {props.canEdit && item.editable && (
-                        <Button variant="ghost" disabled={busy} title="Убрать этап" data-repair-stage-remove={item.id} onClick={() => void removeStage(item.id, item.title)}>
-                          ✕
-                        </Button>
-                      )}
-                      {canEditManual && item.kind === 'manual' && (
-                        <>
-                          <Button
-                            variant="ghost"
-                            disabled={busy}
-                            title="Править запись"
-                            data-manual-edit={item.id}
-                            onClick={() =>
-                              setEditingManual({ id: item.id, action: item.title, date: toInputDate(item.at > 0 ? item.at : null), workshopId: item.workshopId, workshopName: item.workshopName ?? '', note: item.note })
-                            }
-                          >
-                            ✎
-                          </Button>
-                          <Button variant="ghost" disabled={busy} title="Убрать запись" data-manual-remove={item.id} onClick={() => void removeManual(item.id, item.title)}>
-                            ✕
-                          </Button>
-                        </>
-                      )}
                     </td>
                   </tr>
                 );

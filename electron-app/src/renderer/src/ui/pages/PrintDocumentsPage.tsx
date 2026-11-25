@@ -138,9 +138,7 @@ export function PrintDocumentsPage(props: { canEdit: boolean }) {
             {SCOPE_TITLES[s]}
           </Button>
         ))}
-        <div style={{ marginLeft: 'auto' }}>
-          {props.canEdit ? <Button onClick={() => setFilling(true)}>+ Создать документ</Button> : null}
-        </div>
+        {props.canEdit ? <Button onClick={() => setFilling(true)}>+ Создать документ</Button> : null}
       </div>
 
       {status ? (
