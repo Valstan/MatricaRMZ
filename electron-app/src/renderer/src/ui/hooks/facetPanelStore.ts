@@ -83,6 +83,12 @@ export function setFacetPanelActiveCount(usageKey: string | undefined, activeCou
   write(key, { ...prev, activeCount });
 }
 
+/**
+ * Подписка на состояние панели. Ключ — **сырой** `usageKey`, как у всех остальных функций
+ * модуля: ключ считается внутри (`facetPanelKey`). Если сюда передать уже посчитанный ключ,
+ * подписка встанет на ДРУГОЙ ключ, чем запись, — и панель не получит уведомления (поймано
+ * на живом смоуке 25.11.2026: кнопка сворачивала панель, а та не исчезала).
+ */
 export function subscribeFacetPanel(
   usageKey: string | undefined,
   listener: (state: FacetPanelState) => void,
@@ -99,11 +105,11 @@ export function subscribeFacetPanel(
 /** Хук для кнопки тулбара и для самой панели: одно состояние на обоих. */
 export function useFacetPanelState(usageKey?: string) {
   const key = facetPanelKey(usageKey);
-  const [state, setState] = React.useState<FacetPanelState>(() => readStored(key));
+  const [state, setState] = React.useState<FacetPanelState>(() => readFacetPanelState(usageKey));
 
   React.useEffect(() => {
-    setState(readStored(key));
-    return subscribeFacetPanel(key, setState);
+    setState(readFacetPanelState(usageKey));
+    return subscribeFacetPanel(usageKey, setState);
   }, [key]);
 
   return {

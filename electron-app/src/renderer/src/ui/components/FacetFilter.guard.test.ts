@@ -238,6 +238,18 @@ describe('панель фильтров — кнопка «Фильтры» в �
     expect(STORE).toContain('export function setFacetPanelActiveCount(');
   });
 
+  it('подписка и запись встают на ОДИН ключ (поймано живьём 25.11.2026)', () => {
+    // Подписка считала ключ от уже посчитанного и встала на «…:facetPanel:facetPanel», а запись —
+    // на «…:facetPanel» ⇒ уведомление уходило в пустоту: кнопка сворачивала панель (стор
+    // писал), а панель оставалась на экране. Ключ считается В ОДНОМ месте — из сырого usageKey.
+    expect(STORE).toContain('return subscribeFacetPanel(usageKey, setState);');
+    const subscribe = STORE.slice(
+      STORE.indexOf('export function subscribeFacetPanel('),
+      STORE.indexOf('export function subscribeFacetPanel(') + 600,
+    );
+    expect(subscribe, 'подписка считает ключ иначе, чем запись').toContain('facetPanelKey(usageKey)');
+  });
+
   it('панель стоит под тулбаром на всех восьми экранах с верхней панелью', () => {
     expect(FILTER, 'у панели не должно быть пропа раскрытости').not.toContain('open: boolean;');
     expect(ENGINE_FILTER, 'у обёртки не должно быть пропа раскрытости').not.toContain('open: boolean;');

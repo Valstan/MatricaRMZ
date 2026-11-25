@@ -106,6 +106,10 @@ async function shot(ws, name) {
 /** Настоящая мышь: курсор в центр элемента (hover, а не синтетический клик). */
 async function hover(ws, box) {
   if (!box) return false;
+  // Сначала уводим мышь в угол: если курсор УЖЕ стоит над элементом, Chromium не шлёт
+  // mouseenter (движения не было) — и меню не открылось бы при вполне рабочей панели.
+  await send(ws, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2, buttons: 0 });
+  await sleep(250);
   await send(ws, 'Input.dispatchMouseEvent', {
     type: 'mouseMoved',
     x: Math.round(box.x + box.w / 2),
@@ -324,7 +328,13 @@ async function main() {
          const c = vis('[data-facet-collapse]')[0];
          const r = vis('[data-facet-reset]')[0];
          if (!c || !r) return null;
-         return c.parentElement === r.parentElement && c.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING;
+         if (c.parentElement !== r.parentElement) return false;
+         return Boolean(c.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING);
+       })(),
+       barOrder: (() => {
+         const bar = vis('[data-facet-panel-bar]')[0] ?? null;
+         if (!bar) return null;
+         return [...bar.children].map((el) => el.getAttribute('data-facet-collapse') != null ? 'сворачивание' : el.getAttribute('data-facet-reset') != null ? 'сброс' : el.getAttribute('data-facet-chip-row') != null ? 'плашки' : 'прочее');
        })(),
        collapseText: txt(vis('[data-facet-collapse]')[0]),
        resetText: txt(vis('[data-facet-reset]')[0]),
@@ -335,6 +345,7 @@ async function main() {
   note(row.collapseFirst === true, 'в ряду панели сперва сворачивание, потом «Сбросить фильтры»', {
     collapseText: row.collapseText,
     resetText: row.resetText,
+    barOrder: row.barOrder,
   });
   note(/▲/.test(row.collapseText ?? ''), 'знак сворачивания — треугольник вверх', {
     collapseText: row.collapseText,
@@ -432,14 +443,39 @@ async function main() {
   );
   await shot(ws, '2-hover-menu');
 
+  // ── 3b. Меню ступени, где варианты ЕСТЬ ─────────────────────────────────────────────
+  // На минимальных фикстурах стенда у первых ступеней («Заказчик») значений нет — выбирать
+  // нечего, и смоук краснел бы на пустом меню. Поэтому открываем ту ступень, где варианты
+  // есть (щелчок прикалывает меню — оно остаётся открытым для следующих шагов).
+  const withValues = await evaluate(
+    ws,
+    `const cells = [...vis('[data-facet-field]')].filter(painted).filter(hoverable);
+     for (const c of cells) {
+       click(c); await wait(600);
+       const m = vis('[data-facet-menu]')[0] ?? null;
+       const vals = m ? m.querySelectorAll('[data-facet-value]').length : 0;
+       if (vals > 0) return { facet: c.getAttribute('data-facet-field'), values: vals };
+     }
+     return null;`,
+  );
+  note(withValues != null, 'меню ступени со значениями открыто', withValues);
+
   // ── 4. Выбор значения: отбор применяется, значение помечено выбранным ───────────────
   const picked = await evaluate(
     ws,
     `const m = vis('[data-facet-menu]')[0];
      if (!m) return { skip: 'меню закрыто' };
-     const vals = [...m.querySelectorAll('[data-facet-value]')];
-     if (vals.length === 0) return { skip: 'в меню нет вариантов' };
-     const v = vals[0];
+     const all = [...m.querySelectorAll('[data-facet-value]')];
+     if (all.length === 0) return { skip: 'в меню нет вариантов' };
+     // Значение с НЕНУЛЕВЫМ счётом: у значения, которому не осталось ни одной строки, плашка
+     // не рисуется (вариантов ступени больше нет) — и проверять было бы нечего.
+     const countOf = (v) => {
+       const spans = v.querySelectorAll('span');
+       const n = Number(spans[spans.length - 1]?.textContent ?? '0');
+       return Number.isFinite(n) ? n : 0;
+     };
+     const v = all.find((x) => countOf(x) > 0) ?? null;
+     if (!v) return { skip: 'в меню нет варианта с ненулевым счётом' };
      const before = shown();
      click(v); await wait(1200);
      const after = shown();
@@ -481,10 +517,25 @@ async function main() {
       ws,
       `const m = vis('[data-facet-menu]')[0] ?? null;
        if (!m) return { skip: 'меню второй ступени не открылось' };
+       const countOf = (v) => {
+         const spans = v.querySelectorAll('span');
+         const n = Number(spans[spans.length - 1]?.textContent ?? '0');
+         return Number.isFinite(n) ? n : 0;
+       };
+       // Ищем значение, которого ещё НЕ выбрано: щелчок по уже выбранному снял бы его
+       // (а снятое значение — это уже не отбор, и плашек не было бы).
+       const already = ${JSON.stringify(picked.skip ? '' : (picked.value ?? ''))};
        const vals = [...m.querySelectorAll('[data-facet-value]')];
-       if (vals.length === 0) return { skip: 'в меню второй ступени нет вариантов' };
-       click(vals[0]); await wait(1200);
-       return { facet: m.getAttribute('data-facet-menu') };`,
+       // Второе значение — ДРУГОЕ, чем уже выбранное: щелчок по уже выбранному снял бы его
+       // (а снятое значение — это уже не отбор, и плашек не было бы). Счёт не обязателен:
+       // значение без строк всё равно показывается плашкой (со счётом 0) — плашка должна
+       // быть на месте и в этом случае.
+       const v = vals.find((x) => x.getAttribute('data-facet-value') !== already && countOf(x) > 0)
+              ?? vals.find((x) => x.getAttribute('data-facet-value') !== already)
+              ?? null;
+       if (!v) return { skip: 'в меню второй ступени нет ДРУГОГО варианта' };
+       click(v); await wait(1200);
+       return { facet: m.getAttribute('data-facet-menu'), value: v.getAttribute('data-facet-value') };`,
     );
     note(!secondPick.skip, `значение выбрано во второй ступени (${secondPick.facet ?? secondPick.skip})`, secondPick);
   }
@@ -700,13 +751,18 @@ async function main() {
        break;
      }
      const panel = document.querySelector('[data-engine-facets]');
-     const listRoot = vis('[data-list-root="true"]')[0] ?? document.querySelector('[data-list-root="true"]');
+     const scroller = panel ? panel.closest('.v3-tab-content') : null;
+     // data-list-root — это КОЛОНКА страницы (тулбар + панель + список), её верх не меняется.
+     // Двигается ТАБЛИЦА: её верх поднимается на освободившееся место.
+     const tableEl = document.querySelector('[data-list-root="true"] table');
+     const listRoot = tableEl ?? vis('[data-list-root="true"]')[0] ?? document.querySelector('[data-list-root="true"]');
      const h = (el) => Math.round(el?.getBoundingClientRect().height ?? 0);
      const top = (el) => Math.round(el?.getBoundingClientRect().top ?? 0);
      const before = {
        panelH: h(panel),
        listTop: top(listRoot),
        listH: h(listRoot),
+       scrollH: scroller ? scroller.scrollHeight : null,
        chips: document.querySelectorAll('[data-facet-chip]').length,
        pickedFacet,
      };
@@ -724,6 +780,7 @@ async function main() {
        panelH: h(document.querySelector('[data-engine-facets]')),
        listTop: top(listRoot),
        listH: h(listRoot),
+       scrollH: scroller ? scroller.scrollHeight : null,
      };
      // Разворачивает панель кнопка «Фильтры» в верхней панели управляющих кнопок.
      const toggleBtn = vis('[data-facet-toggle]')[0] ?? null;
@@ -760,12 +817,16 @@ async function main() {
       'вместе с панелью исчезло и открытое меню ступени',
       { menuVisible: collapsed.menuVisible },
     );
-    // Место освобождается ВЫСОТОЙ рабочей области: её верх стоит на месте (панель выше),
-    // а растягивается список — то самое «место под список», о котором просил владелец.
+    // Место освобождается: список либо ВЫРОС (панель была в колонке flex), либо ПОДНЯЛСЯ
+    // (панель была в прокручиваемом содержимом — тогда освобождается высота прокрутки).
     note(
-      collapsed.listH > before.listH,
-      'рабочая область списка выросла — освободившееся место занял он',
-      { before: before.listH, after: collapsed.listH },
+      collapsed.listH > before.listH || collapsed.listTop < before.listTop,
+      'освободившееся место занял список (вырос или поднялся)',
+      {
+        beforeH: before.listH, afterH: collapsed.listH,
+        beforeTop: before.listTop, afterTop: collapsed.listTop,
+        beforeScroll: before.scrollH, afterScroll: collapsed.scrollH,
+      },
     );
     note(back.panelInDom > 0 && back.fieldsVisible > 0, 'кнопка «Фильтры» в тулбаре вернула панель', back);
     note(back.chips === before.chips, 'отбор пережил сворачивание (те же значения)', {
