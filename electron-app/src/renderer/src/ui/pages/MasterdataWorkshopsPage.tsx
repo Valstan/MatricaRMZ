@@ -5,6 +5,23 @@ import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { WorkshopTemplateDialog } from '../components/WorkshopTemplateDialog.js';
+// Кит списков (промт КАРМАНА #67): правила — из общего источника, меню — из объявления действий.
+import { useListSelection } from '../hooks/useListSelection.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
+import {
+  buildCopyRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  isListEditingTarget,
+  listCopyAction,
+  listDeleteAction,
+  listPrintAction,
+  printRowsPreview,
+  resolveMenuRows,
+  type ListContextColumn,
+} from '../utils/listContextActions.js';
 
 type WorkshopRow = {
   id: string;
@@ -53,6 +70,52 @@ export function MasterdataWorkshopsPage(props: { canManage: boolean; canEditRepa
     [rows],
   );
 
+  // Кит списка: выделение, контур и меню — по общим правилам программы (D-248).
+  // Правила поведения берутся из общего источника, а не из настроек страницы.
+  const sortedIds = useMemo(() => sorted.map((row) => row.id), [sorted]);
+  const selection = useListSelection(sortedIds);
+  const listBehavior = useListBehaviorSettings();
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
+  /** Строки для печати/копирования — с учётом несохранённой правки: на экране и в буфере одно и то же. */
+  const rowById = useMemo(() => {
+    const map = new Map<string, WorkshopRow>();
+    for (const row of rows) {
+      const draft = drafts[row.id];
+      map.set(
+        row.id,
+        draft
+          ? { ...row, code: draft.code, name: draft.name, isActive: draft.isActive, displayOrder: draft.displayOrder }
+          : row,
+      );
+    }
+    return map;
+  }, [rows, drafts]);
+
+  const contextColumns = useMemo<ListContextColumn<WorkshopRow>[]>(
+    () => [
+      { title: 'Код', value: (row) => row.code },
+      { title: 'Название', value: (row) => row.name },
+      { title: 'Активен', value: (row) => (row.isActive ? 'да' : 'нет') },
+      { title: 'Порядок', value: (row) => String(row.displayOrder) },
+      { title: 'warehouseId', value: (row) => `workshop_${row.code.trim()}` },
+    ],
+    [],
+  );
+
+  function printRows(items: WorkshopRow[]) {
+    printRowsPreview({
+      title: items.length > 1 ? `Выделенные цеха (${items.length})` : `Цех: ${items[0]?.name || '(без названия)'}`,
+      sectionTitle: 'Справочник цехов',
+      rows: items,
+      columns: contextColumns,
+    });
+  }
+
+  async function copyRows(items: WorkshopRow[]) {
+    await copyRowsToClipboard(items, contextColumns);
+    setStatus(buildCopyRowsStatus(items.length));
+  }
+
   function patchDraft(id: string, patch: Partial<DraftRow>) {
     const base = rows.find((r) => r.id === id);
     if (!base) return;
@@ -95,20 +158,38 @@ export function MasterdataWorkshopsPage(props: { canManage: boolean; canEditRepa
     }
   }
 
-  async function deleteRow(id: string) {
-    if (!props.canManage) return;
-    if (!confirm('Удалить цех? (soft-delete; запись скроется из списка)')) return;
+  /**
+   * Удаление цехов — и кнопкой в строке, и пунктом меню кита (одно действие, два входа).
+   * Пачкой спрашиваем подтверждение один раз: оператор удаляет выделенное и ждёт один ответ.
+   */
+  async function removeRows(ids: string[]) {
+    if (!props.canManage || ids.length === 0) return;
+    const question =
+      ids.length > 1
+        ? `Удалить цеха (${ids.length})? (soft-delete; записи скроются из списка)`
+        : 'Удалить цех? (soft-delete; запись скроется из списка)';
+    if (!confirm(question)) return;
     setStatus('Удаляю...');
-    try {
-      const res = await window.matrica.workshops.delete(id);
-      if (!res.ok) {
-        setStatus(`Ошибка: ${res.error}`);
-        return;
+    let failed = 0;
+    let lastError = '';
+    for (const id of ids) {
+      try {
+        const res = await window.matrica.workshops.delete(id);
+        if (!res.ok) {
+          failed += 1;
+          lastError = res.error;
+        }
+      } catch (e) {
+        failed += 1;
+        lastError = String(e);
       }
-      await refresh();
-    } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
     }
+    await refresh();
+    setStatus(failed > 0 ? `Ошибка: не удалось удалить строк: ${failed}${lastError ? ` (${lastError})` : ''}` : '');
+  }
+
+  async function deleteRow(id: string) {
+    await removeRows([id]);
   }
 
   async function createNew() {
@@ -145,7 +226,7 @@ export function MasterdataWorkshopsPage(props: { canManage: boolean; canEditRepa
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
+    <div data-list-root="true" style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <h2 style={{ margin: 0 }}>Справочник цехов</h2>
         <Button variant="ghost" onClick={() => void refresh()}>Обновить</Button>
@@ -192,7 +273,21 @@ export function MasterdataWorkshopsPage(props: { canManage: boolean; canEditRepa
                 const draft = getRow(base.id);
                 const dirty = drafts[base.id] !== undefined;
                 return (
-                  <tr key={base.id}>
+                  <tr
+                    key={base.id}
+                    data-list-selected={selection.isSelected(base.id) ? 'true' : undefined}
+                    // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+                    data-list-row="true"
+                    data-list-row-key={base.id}
+                    onContextMenu={(e) => {
+                      // Правый клик по полю ввода — нативное меню оператора (вставить из буфера), не меню списка.
+                      if (isListEditingTarget(e.target)) return;
+                      const result = selection.onRowContextMenu(e, base.id);
+                      if (!result.openMenu) return;
+                      setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+                    }}
+                    onClick={() => selection.onRowPrimaryAction(base.id)}
+                  >
                     <RowNumberCell n={i + 1} />
                     <td>
                       <Input
@@ -262,6 +357,40 @@ export function MasterdataWorkshopsPage(props: { canManage: boolean; canEditRepa
           workshopName={templateDialog.workshopName}
           canEdit={props.canEditRepairTemplates}
           onClose={() => setTemplateDialog(null)}
+        />
+      ) : null}
+
+      {/* Выделение контуром (Ctrl + рамка) — слой кита, включается общей настройкой. */}
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
+      {menu ? (
+        <ListContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildListContextMenuItems({
+            rows: resolveMenuRows(menu.targetIds, rowById),
+            bulk: menu.bulk,
+            getId: (row) => row.id,
+            onSelect: selection.toggleSelect,
+            onClearSelection: selection.clearSelection,
+            hasSelection: selection.selectedCount > 0,
+            // Список ОБЪЯВЛЯЕТ свои действия (промт КАРМАНА #67): печать, копирование,
+            // удаление цеха — и «Сохранить», только когда строка правлена.
+            actions: [
+              listPrintAction({ available: true, print: printRows }),
+              listCopyAction({ available: true, copy: copyRows }),
+              listDeleteAction<WorkshopRow>({ available: props.canManage, remove: removeRows, getId: (row) => row.id }),
+              {
+                id: 'save-workshop',
+                label: 'Сохранить',
+                available: !menu.bulk && menu.targetIds.some((id) => drafts[id] !== undefined),
+                scope: 'single',
+                run: (items) => {
+                  void saveRow(items[0]!.id);
+                },
+              },
+            ],
+          })}
+          onClose={() => setMenu(null)}
         />
       ) : null}
     </div>

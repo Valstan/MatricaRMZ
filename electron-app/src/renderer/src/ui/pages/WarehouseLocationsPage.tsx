@@ -13,6 +13,21 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
+// Кит списков (промт КАРМАНА #67): правила — из общего источника, меню — из объявления действий.
+import { useListSelection } from '../hooks/useListSelection.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
+import {
+  buildCopyRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  listCopyAction,
+  listPrintAction,
+  printRowsPreview,
+  resolveMenuRows,
+  type ListContextColumn,
+} from '../utils/listContextActions.js';
 
 type WorkshopMap = Map<string, string>;
 
@@ -25,6 +40,25 @@ type LocationBucket = {
   totalAvailable: number;
   items: WarehouseStockListItem[];
 };
+
+/**
+ * Строка списка для кита: локация или позиция внутри неё.
+ *
+ * Ключ строки устойчивый (не позиция в списке): локация — по warehouseId, позиция —
+ * по паре «локация + номенклатура». Иначе выделение контуром после смены фильтра
+ * указывало бы на другую строку.
+ */
+type LocationRow =
+  | { kind: 'location'; key: string; warehouseId: string; label: string; totalQty: number; totalAvailable: number }
+  | { kind: 'item'; key: string; warehouseId: string; item: WarehouseStockListItem };
+
+function locationKey(warehouseId: string): string {
+  return `loc:${warehouseId}`;
+}
+
+function itemKey(warehouseId: string, itemId: string): string {
+  return `item:${warehouseId}:${itemId}`;
+}
 
 function classifyLocation(warehouseId: string): 'system' | 'workshop' | 'default' | 'other' {
   if (warehouseId === WAREHOUSE_LOCATION_DEFAULT) return 'default';
@@ -149,6 +183,83 @@ export function WarehouseLocationsPage(props: { onOpenReport?: (presetId: string
     [rows],
   );
   const shownLocations = Object.keys(buckets).length;
+
+  // Кит списка: выделение, контур и меню — по общим правилам программы (D-248).
+  const rowById = useMemo(() => {
+    const map = new Map<string, LocationRow>();
+    for (const bucket of Object.values(buckets)) {
+      const key = locationKey(bucket.warehouseId);
+      map.set(key, {
+        kind: 'location',
+        key,
+        warehouseId: bucket.warehouseId,
+        label: bucket.label,
+        totalQty: bucket.totalQty,
+        totalAvailable: bucket.totalAvailable,
+      });
+      for (const item of bucket.items) {
+        const itemRowKey = itemKey(bucket.warehouseId, String(item.id));
+        map.set(itemRowKey, { kind: 'item', key: itemRowKey, warehouseId: bucket.warehouseId, item });
+      }
+    }
+    return map;
+  }, [buckets]);
+
+  /** На экране: локации + позиции развёрнутых локаций (свёрнутые позиции в DOM не лежат). */
+  const visibleRowIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const bucket of Object.values(buckets)) {
+      ids.push(locationKey(bucket.warehouseId));
+      if (!expandedLoc[bucket.warehouseId]) continue;
+      for (const item of bucket.items) ids.push(itemKey(bucket.warehouseId, String(item.id)));
+    }
+    return ids;
+  }, [buckets, expandedLoc]);
+
+  const selection = useListSelection(visibleRowIds);
+  const listBehavior = useListBehaviorSettings();
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
+
+  const contextColumns = useMemo<ListContextColumn<LocationRow>[]>(
+    () => [
+      { title: 'Тип', value: (row) => (row.kind === 'location' ? 'Локация' : 'Позиция') },
+      { title: 'Локация', value: (row) => row.warehouseId },
+      {
+        title: 'Наименование',
+        value: (row) => (row.kind === 'location' ? row.label : (row.item.nomenclatureName ?? '(без названия)')),
+      },
+      { title: 'Код', value: (row) => (row.kind === 'location' ? '—' : (row.item.nomenclatureCode ?? '—')) },
+      {
+        title: 'Остаток',
+        value: (row) => (row.kind === 'location' ? String(row.totalQty) : String(Number(row.item.qty ?? 0))),
+      },
+      {
+        title: 'Доступно',
+        value: (row) => (row.kind === 'location' ? String(row.totalAvailable) : String(Number(row.item.availableQty ?? 0))),
+      },
+    ],
+    [],
+  );
+
+  function printRows(items: LocationRow[]) {
+    const head = items[0];
+    const title =
+      items.length > 1
+        ? `Выделенные остатки (${items.length})`
+        : `Остатки: ${head?.kind === 'location' ? head.label : (head?.item.nomenclatureName ?? '')}`;
+    printRowsPreview({
+      title,
+      sectionTitle: 'Остатки по локациям',
+      rows: items,
+      columns: contextColumns,
+    });
+  }
+
+  async function copyRows(items: LocationRow[]) {
+    await copyRowsToClipboard(items, contextColumns);
+    setStatus(buildCopyRowsStatus(items.length));
+  }
+
   // Сквозная нумерация строк-локаций по всем категориям; позиции внутри локации не нумеруются.
   let locationRowNo = 0;
 
@@ -182,7 +293,10 @@ export function WarehouseLocationsPage(props: { onOpenReport?: (presetId: string
       ) : null}
 
       <ListCount total={totalLocations} shown={shownLocations} />
-      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}>
+      <div
+        data-list-root="true"
+        style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}
+      >
         <table className="list-table" style={{ width: '100%' }}>
           <thead>
             <tr>
@@ -211,7 +325,23 @@ export function WarehouseLocationsPage(props: { onOpenReport?: (presetId: string
                 const isExpanded = Boolean(expandedLoc[bucket.warehouseId]);
                 locationRowNo += 1;
                 const head = (
-                  <tr key={bucket.warehouseId} style={{ cursor: 'pointer' }} onClick={() => toggleExpand(bucket.warehouseId)}>
+                  <tr
+                    key={bucket.warehouseId}
+                    style={{ cursor: 'pointer' }}
+                    data-list-selected={selection.isSelected(locationKey(bucket.warehouseId)) ? 'true' : undefined}
+                    // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+                    data-list-row="true"
+                    data-list-row-key={locationKey(bucket.warehouseId)}
+                    onContextMenu={(e) => {
+                      const result = selection.onRowContextMenu(e, locationKey(bucket.warehouseId));
+                      if (!result.openMenu) return;
+                      setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+                    }}
+                    onClick={() => {
+                      selection.onRowPrimaryAction(locationKey(bucket.warehouseId));
+                      toggleExpand(bucket.warehouseId);
+                    }}
+                  >
                     <RowNumberCell n={locationRowNo} />
                     <td style={{ textAlign: 'center' }}>{isExpanded ? '▾' : '▸'}</td>
                     <td data-col-kind="name"><strong>{bucket.label}</strong> <span style={{ color: 'var(--subtle)', fontSize: 12 }}>{bucket.items.length} поз.</span></td>
@@ -236,7 +366,18 @@ export function WarehouseLocationsPage(props: { onOpenReport?: (presetId: string
                 );
                 if (!isExpanded) return [head];
                 const itemRows = bucket.items.map((item) => (
-                  <tr key={`${bucket.warehouseId}::${item.id}`}>
+                  <tr
+                    key={`${bucket.warehouseId}::${item.id}`}
+                    data-list-selected={selection.isSelected(itemKey(bucket.warehouseId, String(item.id))) ? 'true' : undefined}
+                    data-list-row="true"
+                    data-list-row-key={itemKey(bucket.warehouseId, String(item.id))}
+                    onContextMenu={(e) => {
+                      const result = selection.onRowContextMenu(e, itemKey(bucket.warehouseId, String(item.id)));
+                      if (!result.openMenu) return;
+                      setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+                    }}
+                    onClick={() => selection.onRowPrimaryAction(itemKey(bucket.warehouseId, String(item.id)))}
+                  >
                     <td />
                     <td></td>
                     <td data-col-kind="name" style={{ paddingLeft: 24 }}>{item.nomenclatureName ?? '(без названия)'}</td>
@@ -271,6 +412,50 @@ export function WarehouseLocationsPage(props: { onOpenReport?: (presetId: string
           </tbody>
         </table>
       </div>
+
+      {/* Выделение контуром (Ctrl + рамка) — слой кита, включается общей настройкой. */}
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
+      {menu ? (
+        <ListContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildListContextMenuItems({
+            rows: resolveMenuRows(menu.targetIds, rowById),
+            bulk: menu.bulk,
+            getId: (row) => row.key,
+            onSelect: selection.toggleSelect,
+            onClearSelection: selection.clearSelection,
+            hasSelection: selection.selectedCount > 0,
+            // Список ОБЪЯВЛЯЕТ свои действия (промт КАРМАНА #67): печать, копирование
+            // и журнал движений по строке. Удалять остатки здесь нечем — пункта «Удалить» нет.
+            actions: [
+              listPrintAction({ available: true, print: printRows }),
+              listCopyAction({ available: true, copy: copyRows }),
+              {
+                id: 'journal',
+                label: 'Журнал движений',
+                available: Boolean(props.onOpenReport),
+                scope: 'single',
+                run: (items) => {
+                  const row = items[0];
+                  if (!row || !props.onOpenReport) return;
+                  if (row.kind === 'location') {
+                    props.onOpenReport('part_movement_journal', { warehouseIds: [row.warehouseId] });
+                    return;
+                  }
+                  if (row.item.nomenclatureId) {
+                    props.onOpenReport('part_movement_journal', {
+                      warehouseIds: [row.warehouseId],
+                      nomenclatureSearch: row.item.nomenclatureCode ?? row.item.nomenclatureName ?? '',
+                    });
+                  }
+                },
+              },
+            ],
+          })}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

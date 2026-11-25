@@ -22,6 +22,13 @@ const KIT_PAGES = [
   // Справочники: начало фазы «остальные модули» — те же правила, тот же кит.
   './pages/EngineBrandGroupsPage.tsx',
   './pages/EngineBrandsPage.tsx',
+  // Партия 1 «склад и справочники» (25.11.2026): цеха, инвентаризация, остатки по локациям.
+  './pages/MasterdataWorkshopsPage.tsx',
+  './pages/StockInventoryPage.tsx',
+  './pages/WarehouseLocationsPage.tsx',
+  // Табели и номера РМЗ — переведены на кит 25.11.2026 (реестр отставал, сторож — нет).
+  './pages/TimesheetsPage.tsx',
+  './pages/EngineRmzNumbersPage.tsx',
   // Список карточек СИЗ — тоже страница верхнего уровня: список сотрудников, а не пикер.
   // До 23.11.2026 он стоял мимо кита (корневой маркер был, а выделения, контура и меню — нет).
   './pages/PpeCardsPage.tsx',
