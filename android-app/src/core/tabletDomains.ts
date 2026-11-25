@@ -90,12 +90,6 @@ export const TABLET_DOMAIN_EXCEPTIONS: readonly TabletDomainException[] = [
       'канал обновления ставит инсталлятор .exe на Windows-машину; планшет обновляется APK-ом (отдельный тег android-v*), установщика для него нет',
   },
   {
-    domain: 'DesktopTransfer',
-    channelPrefixes: ['desktopTransfer:'],
-    reason:
-      'перенос на десктоп — отправка клиенту по локальной сети; планшет не десктоп и передавать ему нечего',
-  },
-  {
     domain: 'ClientOps',
     channelPrefixes: ['clientOps:'],
     reason:

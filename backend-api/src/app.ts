@@ -13,6 +13,7 @@ import { adminUsersRouter } from './routes/adminUsers.js';
 import { adminAuditRouter } from './routes/adminAudit.js';
 import { adminMasterdataRouter } from './routes/adminMasterdata.js';
 import { chatRouter } from './routes/chat.js';
+import { exchangeBotRouter } from './routes/exchangeBot.js';
 import { presenceRouter } from './routes/presence.js';
 import { filesRouter } from './routes/files.js';
 import { partsRouter } from './routes/parts.js';
@@ -162,6 +163,8 @@ export function createApp() {
   app.use('/sync', requireAuth, requirePermission(PermissionCode.SyncUse), syncRouter);
   app.use('/ledger', requireAuth, requirePermission(PermissionCode.SyncUse), ledgerRouter);
   app.use('/chat', requireAuth, requirePermission(PermissionCode.ChatUse), chatRouter);
+  // Бот обмена и пересылки: клиент зовёт бота после отправки сообщения боту.
+  app.use('/exchange-bot', requireAuth, requirePermission(PermissionCode.ChatUse), exchangeBotRouter);
   app.use('/notes', notesRouter);
   app.use('/presence', presenceRouter);
   app.use('/admin', adminUsersRouter);
