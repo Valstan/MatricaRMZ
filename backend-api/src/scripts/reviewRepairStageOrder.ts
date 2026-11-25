@@ -4,7 +4,13 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { moscowDayKey, REPAIR_HISTORY_OPERATION_TYPE, SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
+import {
+  CARD_SOURCE_ATTR,
+  moscowDayKey,
+  REPAIR_HISTORY_OPERATION_TYPE,
+  SyncTableName,
+  SyncTableRegistry,
+} from '@matricarmz/shared';
 import { and, eq } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
@@ -43,19 +49,11 @@ const LATER_STAGE_CODES = ['obkatka', 'sborka', 'otk', 'shipped', 'accepted'] as
 
 /**
  * Атрибут карточки, из которого бэкфилл `stages:backfill` взял дату этапа (его
- * `STATUS_TO_STAGE` + EAV `arrival_date`/`defect_date`). Пустая строка — источника нет:
- * ремонтные этапы приходили из строк ведомостей, а не с карточки.
+ * `STATUS_TO_STAGE` + EAV `arrival_date`/`defect_date`) — список живёт в домене
+ * (`shared/src/domain/repairStageCardSource.ts`): рантайм (этап следует за датой карточки)
+ * и этот разбор смотрят на одну карту. Раньше список был только здесь, и клиент о нём
+ * не знал вовсе.
  */
-const CARD_SOURCE_ATTR: Record<string, string> = {
-  disassembly_defect: 'defect_date',
-  arrival: 'arrival_date',
-  shipped: 'status_customer_sent_date',
-  accepted: 'status_customer_accepted_date',
-  repaired: 'status_repaired_date',
-  obkatka: '',
-  sborka: '',
-  otk: '',
-};
 
 /**
  * Мишени `card` ограничены датами, из которых берутся этапы: иначе инструмент был бы

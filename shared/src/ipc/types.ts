@@ -3629,6 +3629,13 @@ export type MatricaApi = {
       save: (args: SaveRepairStageInput) => Promise<SaveRepairStageResult>;
       remove: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
       /**
+       * Погашенные этапы двигателя: те, что исчезли из истории (сняли дату карточки),
+       * но остались в базе. Видны с пометкой «почему исчезли», и их можно вернуть.
+       */
+      deleted: (engineId: string) => Promise<{ ok: true; rows: RepairStageRow[] } | { ok: false; error: string }>;
+      /** Вернуть погашенный этап в историю ремонта (право — как у снятия этапа). */
+      restore: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+      /**
        * Перенос этапов при перебивке номера (программа владельца, п.4): срез
        * «от укладки вала и выше» переезжает на другой двигатель, источник гасится,
        * обе истории получают записи о переносе. Право — `engines.edit` (действие

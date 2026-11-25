@@ -111,8 +111,64 @@ export async function listRepairStageRows(
       note: meta.note ?? '',
       // H1: кто внёс этап. Служебный `local` и пусто — «неизвестно», не показываем.
       by: normalizeStageAuthor(row.performedBy),
+      ...(meta.workshopId ? { workshopId: meta.workshopId } : {}),
       // Приёмка по рекламации: номер рекламации в очереди заездов (null — обычная строка).
       ...(meta.reclamation ? { reclamationQueueNo: meta.reclamation.queueNo } : {}),
+      // След происхождения: этап вырос из даты карточки (или правили руками — связи нет).
+      ...(meta.source ? { source: meta.source } : {}),
+      ...(meta.extinguished ? { extinguished: meta.extinguished } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Погашенные строки этапа двигателя — то, что исчезло из истории, но осталось в базе.
+ *
+ * Отдельная выборка (а не «все строки с флагом»): погашенную строку видно оператору с
+ * пометкой «почему исчезла», и её можно вернуть. Без этого снятие даты в карточке было бы
+ * необратимой потерей данных (M146: править строку в БД напрямую нельзя).
+ */
+export async function listDeletedRepairStageRows(
+  db: BetterSQLite3Database,
+  engineId: string,
+): Promise<RepairStageRow[]> {
+  const id = text(engineId);
+  if (!id) return [];
+  const rows = (await db
+    .select()
+    .from(operations)
+    .where(
+      and(
+        eq(operations.engineEntityId, id),
+        eq(operations.operationType, REPAIR_HISTORY_OPERATION_TYPE),
+      ),
+    )
+    .orderBy(desc(operations.deletedAt))
+    .limit(2000)) as Array<Record<string, unknown>>;
+  const out: RepairStageRow[] = [];
+  for (const row of rows) {
+    const deletedAt = typeof row.deletedAt === 'number' ? row.deletedAt : null;
+    if (deletedAt === null) continue;
+    const meta = parseRepairHistoryMeta(typeof row.metaJson === 'string' ? row.metaJson : null);
+    if (!meta || repairHistoryEntryType(meta, String(row.operationType ?? '')) !== 'stage' || !meta.stage) continue;
+    const at =
+      typeof meta.at === 'number' && Number.isFinite(meta.at) && meta.at > 0
+        ? meta.at
+        : typeof row.performedAt === 'number' && Number.isFinite(row.performedAt)
+          ? (row.performedAt as number)
+          : null;
+    out.push({
+      id: text(row.id),
+      code: meta.stage.code,
+      name: meta.stage.name,
+      at,
+      pass: meta.repeat?.pass ?? 1,
+      note: meta.note ?? '',
+      by: normalizeStageAuthor(row.performedBy),
+      ...(meta.reclamation ? { reclamationQueueNo: meta.reclamation.queueNo } : {}),
+      ...(meta.source ? { source: meta.source } : {}),
+      ...(meta.extinguished ? { extinguished: meta.extinguished } : {}),
     });
   }
   return out;
@@ -232,6 +288,15 @@ export async function saveRepairStageRow(
   const prevWsId = text(existingMeta?.workshopId);
   const nextWsId = text(input.workshopId);
   const prevWsName = text(existingMeta?.workshopName);
+  // След происхождения (этап вырос из даты карточки):
+  //  - авто-простановка из карточки передаёт `source` явно — связь держится и при смене даты;
+  //  - ручная правка даты связь СНИМАЕТ: строка перестаёт быть копией даты карточки, и
+  //    авто-связь её больше не трогает (решение владельца 25.11.2026 — «ручную правку не
+  //    затирать»);
+  //  - ручная правка без смены даты (примечание, цех) связь оставляет.
+  const prevSource = existingMeta?.source ?? null;
+  const dateChanged = existingMeta?.at !== undefined && existingMeta.at !== atMs;
+  const nextSource = input.source !== undefined ? input.source : dateChanged ? null : prevSource;
   const meta = buildRepairHistoryMeta({
     action: template.name,
     at: atMs,
@@ -245,6 +310,7 @@ export async function saveRepairStageRow(
     entryType: 'stage',
     stage: { code: template.code, name: template.name },
     ...(repeat ? { repeat } : {}),
+    ...(nextSource ? { source: nextSource } : {}),
     // След приёмки по рекламации: строка порождена очередью заездов, и по метке её
     // можно снять, когда рекламацию убрали из очереди.
     ...(typeof input.reclamationQueueNo === 'number' && Number.isFinite(input.reclamationQueueNo)
@@ -407,6 +473,203 @@ export async function deleteRepairStageRow(
     return { ok: false, error: 'Строка этапа не найдена' };
   }
   await softDeleteOperation(db, rowId);
+  return { ok: true };
+}
+
+/** Что сделала авто-связь этапа с датой карточки. */
+export type CardDateStageSyncAction =
+  /** этап появился из даты карточки */
+  | 'created'
+  /** этап приведён к новой дате */
+  | 'updated'
+  /** дата снята — этап погашен */
+  | 'extinguished'
+  /** дата не менялась — ничего не делали */
+  | 'kept'
+  /** этапа нет и даты нет */
+  | 'skipped'
+  /** этап правили руками — авто-связь его не трогает */
+  | 'skipped-manual';
+
+export type CardDateStageSyncResult =
+  | { ok: true; action: CardDateStageSyncAction; rowId: string | null }
+  | { ok: false; error: string };
+
+/**
+ * Погасить этап, порождённый датой карточки (дата снята).
+ *
+ * Мягко: строка остаётся в базе с пометкой «кто, когда, из-за какой даты» — её видно в
+ * истории ремонта и можно вернуть (`restoreRepairStageRow`). Свой способ удаления не
+ * заводим: выборки истории уже фильтруют `isNull(operations.deletedAt)`, поэтому погашенный
+ * этап сам выпадает из истории, фильтров и отчётов.
+ */
+async function extinguishCardDateStage(
+  db: BetterSQLite3Database,
+  rowId: string,
+  attr: string,
+  actor: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const existing = await getOperation(db, rowId);
+  const meta = existing ? parseRepairHistoryMeta(existing.metaJson ?? null) : null;
+  if (!existing || !meta) return { ok: false, error: 'Строка этапа не найдена' };
+  const { kind: _kind, ...rest } = meta;
+  const nextMeta = buildRepairHistoryMeta({
+    ...rest,
+    extinguished: { attr, by: text(actor) || 'local', at: Date.now() },
+  });
+  // Штатный путь записи (M146: править строку в базе напрямую нельзя — инкрементальный
+  // pull не увидит): upsert с тем же id снимает `deletedAt`, мягкое удаление ставит его
+  // обратно, пометка погашения остаётся в meta.
+  await upsertOperation(db, {
+    id: rowId,
+    engineId: String(existing.engineEntityId ?? ''),
+    operationType: REPAIR_HISTORY_OPERATION_TYPE,
+    status: 'done',
+    note: existing.note ?? null,
+    performedBy: existing.performedBy ?? null,
+    metaJson: JSON.stringify(nextMeta),
+  });
+  await softDeleteOperation(db, rowId);
+  return { ok: true };
+}
+
+/**
+ * Этап следует за датой карточки (промты КАРМАНА #133/#136, решение владельца 25.11.2026).
+ *
+ * Правило одно, в обе стороны:
+ *  - дата в карточке появилась → этап, ею порождённый, создаётся и помнит свой источник;
+ *  - дата изменилась → этап приводится к новой дате;
+ *  - дата снята → этап гаснет (мягко, с пометкой), и его можно вернуть.
+ *
+ * Чего функция НЕ делает: трогать этап, который поставили руками (у него нет следа
+ * источника) — решение владельца «ручную правку не затирать». Исторические строки,
+ * созданные бэкфиллом, следа источника тоже не носят ⇒ правило работает на новых записях
+ * (связь старых восстанавливается отдельным скриптом данных).
+ *
+ * Запись идёт общим путём (`saveRepairStageRow`): субординация дат и гейт дублей те же,
+ * что у ручного ввода, — отказ автомата честный, вызывающий решает.
+ */
+export async function syncCardDateStageRow(
+  db: BetterSQLite3Database,
+  engineId: string,
+  code: string,
+  attr: string,
+  atMs: number | null,
+  actor: string,
+  templates: ReadonlyArray<RepairStageTemplate> = DEFAULT_REPAIR_STAGE_TEMPLATES,
+): Promise<CardDateStageSyncResult> {
+  const id = text(engineId);
+  const stageCode = text(code).toLowerCase();
+  const sourceAttr = text(attr);
+  if (!id) return { ok: false, error: 'Укажите двигатель' };
+  if (!stageCode) return { ok: false, error: 'Укажите этап' };
+  if (!sourceAttr) return { ok: false, error: 'Не указан атрибут-источник даты карточки' };
+  if (templateByCode(templates, stageCode) === null) {
+    return { ok: false, error: `Неизвестный этап: ${stageCode}` };
+  }
+  const source = { kind: 'card_date' as const, attr: sourceAttr };
+  const rows = await listRepairStageRows(db, id);
+  const existing = rows.find((r) => r.code === stageCode) ?? null;
+
+  if (!existing) {
+    if (atMs === null) return { ok: true, action: 'skipped', rowId: null };
+    // Дата вернулась после того, как этап ею был погашен: воскрешаем ТУ ЖЕ строку, а не
+    // заводим вторую. Иначе в истории окажется два «Приёмка» — живой и погашенный, —
+    // и «Вернуть» на погашенном оживил бы дубль.
+    const gone = (await listDeletedRepairStageRows(db, id)).find(
+      (r) => r.code === stageCode && r.extinguished?.attr === sourceAttr,
+    );
+    if (gone) {
+      const revived = await saveRepairStageRow(
+        db,
+        { id: gone.id, engineId: id, code: stageCode, atMs, source },
+        actor,
+        templates,
+      );
+      if (!revived.ok) return revived;
+      return { ok: true, action: 'created', rowId: revived.id };
+    }
+    const saved = await saveRepairStageRow(
+      db,
+      { id: randomUUID(), engineId: id, code: stageCode, atMs, source },
+      actor,
+      templates,
+    );
+    if (!saved.ok) return saved;
+    return { ok: true, action: 'created', rowId: saved.id };
+  }
+
+  const rowSource = existing.source ?? null;
+  if (!rowSource || rowSource.kind !== 'card_date' || rowSource.attr !== sourceAttr) {
+    // Следа источника нет: этап поставлен руками (или строка старше появления поля) —
+    // авто-связь такую строку не трогает.
+    return { ok: true, action: 'skipped-manual', rowId: existing.id };
+  }
+
+  if (atMs === null) {
+    const off = await extinguishCardDateStage(db, existing.id, sourceAttr, actor);
+    if (!off.ok) return off;
+    return { ok: true, action: 'extinguished', rowId: existing.id };
+  }
+
+  if (existing.at === atMs) return { ok: true, action: 'kept', rowId: existing.id };
+
+  const saved = await saveRepairStageRow(
+    db,
+    {
+      id: existing.id,
+      engineId: id,
+      code: stageCode,
+      atMs,
+      source,
+      ...(existing.note ? { note: existing.note } : {}),
+      ...(existing.workshopId ? { workshopId: existing.workshopId } : {}),
+    },
+    actor,
+    templates,
+  );
+  if (!saved.ok) return saved;
+  return { ok: true, action: 'updated', rowId: saved.id };
+}
+
+/**
+ * Вернуть погашенный этап в историю ремонта.
+ *
+ * Воскрешение — общий путь записи: `upsertOperation` с тем же id снимает `deletedAt`
+ * (и синк разошлёт это остальным клиентам). Пометка погашения снимается: строка снова
+ * живая, и «почему исчезла» ей больше не нужно.
+ */
+export async function restoreRepairStageRow(
+  db: BetterSQLite3Database,
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const rowId = text(id);
+  if (!rowId) return { ok: false, error: 'Нет id строки' };
+  const existing = await getOperation(db, rowId);
+  if (!existing) return { ok: false, error: 'Строка этапа не найдена' };
+  if (!existing.deletedAt) return { ok: false, error: 'Строка не погашена' };
+  const meta = parseRepairHistoryMeta(existing.metaJson ?? null);
+  if (!meta || repairHistoryEntryType(meta, existing.operationType) !== 'stage') {
+    return { ok: false, error: 'Эта запись истории — не строка этапа, вернуть её здесь нельзя' };
+  }
+  // Возвращать нечего, если такой же этап уже есть в истории: двумя живыми строками
+  // одного этапа история ремонта становится неправдивой («где двигатель» считает по
+  // последней дате, а оператор увидит две).
+  const live = await listRepairStageRows(db, String(existing.engineEntityId ?? ''));
+  if (live.some((r) => r.code === meta.stage?.code)) {
+    return { ok: false, error: 'Такой этап уже есть в истории ремонта — возвращать нечего' };
+  }
+  const { kind: _kind, ...rest } = meta;
+  const nextMeta = buildRepairHistoryMeta({ ...rest, extinguished: null });
+  await upsertOperation(db, {
+    id: rowId,
+    engineId: String(existing.engineEntityId ?? ''),
+    operationType: REPAIR_HISTORY_OPERATION_TYPE,
+    status: 'done',
+    note: existing.note ?? null,
+    performedBy: existing.performedBy ?? null,
+    metaJson: JSON.stringify(nextMeta),
+  });
   return { ok: true };
 }
 

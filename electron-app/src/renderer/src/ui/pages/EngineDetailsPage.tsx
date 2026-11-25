@@ -761,6 +761,12 @@ export function EngineDetailsPage(props: {
   const [coreDefsReady, setCoreDefsReady] = useState(false);
 
   const [saveStatus, setSaveStatus] = useState<string>('');
+  /**
+   * Предупреждения записи карточки (этап следует за датой карточки): дата сохранена, а
+   * этап в истории не появился — нет права на запись этапов. Раньше отказ проглатывался
+   * молча, и оператор видел в карточке одно, а в истории двигателя другое.
+   */
+  const [stageWarnings, setStageWarnings] = useState<string[]>([]);
   // Строгая реплика карточки (план engine-cards-strict-2026-10, E3b): ядро поверх
   // EAV-снапшота списка. Реплики может не быть (холодный pull) — тогда чистый EAV.
   // sync_status реплики несёт гейт-отказ сервера (error): показываем баннер, значения
@@ -1519,11 +1525,15 @@ export function EngineDetailsPage(props: {
           const r = (await api?.engines?.card?.save?.({
             id: props.engineId,
             fields: Object.fromEntries(changedEntries),
-          })) as { ok?: boolean; changed?: boolean; error?: string } | null;
+          })) as { ok?: boolean; changed?: boolean; error?: string; warnings?: unknown } | null;
           if (!r?.ok) {
             setSaveStatus(`Ошибка сохранения: ${String(r?.error ?? 'неизвестно')}`);
             throw new Error(String(r?.error ?? 'неизвестно'));
           }
+          const warnings = Array.isArray(r?.warnings)
+            ? r.warnings.map((w) => String(w ?? '').trim()).filter(Boolean)
+            : [];
+          setStageWarnings(warnings);
           didSaveStrict = true;
           // Межцеховая передача удалена вместе с цехом из «Основного» карточки (2026-10):
           // двигатель не привязан к цеху; цех — атрибут этапа ремонта (work_sheets),
@@ -2940,6 +2950,12 @@ export function EngineDetailsPage(props: {
           </div>
         ) : saveStatus ? (
           <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div>
+        ) : stageWarnings.length > 0 ? (
+          <div style={{ color: 'var(--warning, #b45309)', fontSize: 12 }} data-engine-stage-warnings>
+            {stageWarnings.map((w) => (
+              <div key={w}>{w}</div>
+            ))}
+          </div>
         ) : (
           // Плашка «Утиль» в шапке карточки: утильный двигатель должен читаться сразу,
           // а не вычисляться оператором по подписям (в списках ту же роль играет розовая строка).

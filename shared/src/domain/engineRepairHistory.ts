@@ -1,4 +1,10 @@
 import { moscowDaySortKey, repairStageRank } from './repairStages.js';
+import {
+  parseExtinguishedMark,
+  parseSourceMark,
+  type RepairHistoryExtinguishedMark,
+  type RepairHistorySourceMark,
+} from './repairStageCardSource.js';
 import { parseWorkSheetFields, type WorkSheetField } from './workSheets.js';
 
 /**
@@ -134,6 +140,25 @@ export type RepairHistoryMeta = {
    * убрали из очереди. Строки, поставленные руками, метку не несут.
    */
   reclamation?: RepairHistoryReclamationMark;
+  /**
+   * След происхождения строки этапа: этап вырос из даты карточки.
+   *
+   * По грабли M147 строка этапа — копия даты карточки, и раньше эта связь была только
+   * догадкой (сравнение миллисекунд). Теперь источник назван прямо: сняли дату в карточке —
+   * этап, ею порождённый, гаснет; дату поменяли — этап едет за ней.
+   *
+   * Ручная правка этапа в ленте связь снимает (строка перестаёт быть копией даты), и
+   * авто-связь её больше не трогает — решение владельца 25.11.2026 («ручную правку не
+   * затирать»).
+   */
+  source?: RepairHistorySourceMark;
+  /**
+   * Пометка погашения: этап погашен, потому что сняли дату карточки.
+   *
+   * Живёт в погашенной строке, чтобы оператор видел «почему этап исчез» и мог вернуть
+   * его одной кнопкой. Без пометки восстановление неотличимо от «строку удалили руками».
+   */
+  extinguished?: RepairHistoryExtinguishedMark;
   /**
    * Снятие утиля по картеру (исход 10.10.2026): картер отремонтирован или заменён —
    * двигатель перестаёт считаться утильным, но след утиля в акте и в этой записи
@@ -383,6 +408,8 @@ export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMe
     ...(parseReclamationMark(obj.reclamation) ? { reclamation: parseReclamationMark(obj.reclamation)! } : {}),
     ...(parseRepeat(obj.repeat) ? { repeat: parseRepeat(obj.repeat)! } : {}),
     ...(parseScrapResolved(obj.scrapResolved) ? { scrapResolved: parseScrapResolved(obj.scrapResolved)! } : {}),
+    ...(parseSourceMark(obj.source) ? { source: parseSourceMark(obj.source)! } : {}),
+    ...(parseExtinguishedMark(obj.extinguished) ? { extinguished: parseExtinguishedMark(obj.extinguished)! } : {}),
   };
 }
 
@@ -406,6 +433,10 @@ export function buildRepairHistoryMeta(input: {
   repairStage?: RepairHistoryStageMark | null;
   repeat?: RepairHistoryRepeat | null;
   scrapResolved?: RepairHistoryScrapResolved | null;
+  /** След происхождения этапа (дата карточки). */
+  source?: RepairHistorySourceMark | null;
+  /** Пометка погашения (сняли дату карточки). */
+  extinguished?: RepairHistoryExtinguishedMark | null;
   reclamation?: RepairHistoryReclamationMark | null;
 }): RepairHistoryMeta {
   const sheet = parseSheet(input.sheet);
@@ -426,6 +457,8 @@ export function buildRepairHistoryMeta(input: {
     ...(parseRepairStageMark(input.repairStage) ? { repairStage: parseRepairStageMark(input.repairStage)! } : {}),
     ...(parseRepeat(input.repeat) ? { repeat: parseRepeat(input.repeat)! } : {}),
     ...(parseScrapResolved(input.scrapResolved) ? { scrapResolved: parseScrapResolved(input.scrapResolved)! } : {}),
+    ...(parseSourceMark(input.source) ? { source: parseSourceMark(input.source)! } : {}),
+    ...(parseExtinguishedMark(input.extinguished) ? { extinguished: parseExtinguishedMark(input.extinguished)! } : {}),
     ...(parseReclamationMark(input.reclamation) ? { reclamation: parseReclamationMark(input.reclamation)! } : {}),
   };
 }

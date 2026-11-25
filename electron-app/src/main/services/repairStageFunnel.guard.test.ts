@@ -33,6 +33,8 @@ const WORKSHEET_SERVICE = src('./workSheetService.ts');
 const CARD = src('../../renderer/src/ui/pages/EngineDetailsPage.tsx');
 const CHECKLIST_PANEL = src('../../renderer/src/ui/components/RepairChecklistPanel.tsx');
 const TRIGGER = src('../../../../shared/src/domain/repairChecklist.ts');
+/** Серверный разбор разнобоя «строка этапа ↔ дата карточки». */
+const REVIEW_SCRIPT = src('../../../../backend-api/src/scripts/reviewRepairStageOrder.ts');
 
 describe('воронка этапов: все писатели через save/ensure', () => {
   it('ручной ввод идёт только через stages.save → saveRepairStageRow', () => {
@@ -56,11 +58,25 @@ describe('воронка этапов: все писатели через save/e
 
   it('карта писателей: arrival/shipped/accepted — strict-save карточки (main, не renderer)', () => {
     expect(ENGINE_SERVICE).toContain("code === 'arrival_date'");
-    expect(ENGINE_CARD_WRITE).toContain("stageFromDate('arrival'");
-    expect(ENGINE_CARD_WRITE).toContain("stageFromDate('shipped'");
-    expect(ENGINE_CARD_WRITE).toContain("stageFromDate('accepted'");
+    // Этап следует за датой карточки (промты КАРМАНА #133/#136): обе двери — и карточка,
+    // и EAV-путь — зовут один и тот же `syncCardDateStageRow`, а не «ensure mark-if-absent».
+    expect(ENGINE_CARD_WRITE).toContain('syncCardDateStageRow');
+    expect(ENGINE_SERVICE).toContain('syncCardDateStageRow');
+    expect(ENGINE_CARD_WRITE).toContain("code: 'arrival'");
+    expect(ENGINE_CARD_WRITE).toContain("code: 'shipped'");
+    expect(ENGINE_CARD_WRITE).toContain("code: 'accepted'");
     // Через эту дверь ходят оба входа — карточка и пакетный приём списком.
     expect(ENGINE_CARDS_IPC).toContain('saveEngineCardGated(');
+  });
+
+  it('этап помнит источник: у авто-этапа есть атрибут-источник, а список — общий', () => {
+    // Связь «этап ← дата карточки» живёт в домене, а не в двух местах сразу: список
+    // «код этапа → атрибут» один (`CARD_SOURCE_ATTR`), и серверный разбор берёт его оттуда.
+    expect(ENGINE_CARD_WRITE).toContain("attr: 'arrival_date'");
+    expect(ENGINE_CARD_WRITE).toContain("attr: 'status_customer_sent_date'");
+    expect(ENGINE_CARD_WRITE).toContain("attr: 'status_customer_accepted_date'");
+    expect(REVIEW_SCRIPT).toContain('CARD_SOURCE_ATTR');
+    expect(REVIEW_SCRIPT).not.toContain('const CARD_SOURCE_ATTR');
   });
 
   it('даты «Основного» → этапы пишет main, а не рендерер (дефект 07.10.2026)', () => {

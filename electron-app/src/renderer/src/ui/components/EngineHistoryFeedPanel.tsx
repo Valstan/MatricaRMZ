@@ -9,6 +9,7 @@ import {
   repairHistoryActionOptions,
   type EngineHistoryFeedItem,
   type EngineHistoryFeedRow,
+  type RepairStageRow,
   type RepairStageTemplate,
 } from '@matricarmz/shared';
 
@@ -73,6 +74,11 @@ export function EngineHistoryFeedPanel(props: {
 }) {
   const [rows, setRows] = useState<EngineHistoryFeedRow[]>([]);
   const [templates, setTemplates] = useState<StageTemplate[]>([]);
+  /**
+   * Погашенные этапы (этап следует за датой карточки): сняли дату — этап исчез из
+   * истории, но остался в базе. Показываем его с пометкой «почему исчез» и даём вернуть.
+   */
+  const [deletedStages, setDeletedStages] = useState<RepairStageRow[]>([]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -142,11 +148,14 @@ export function EngineHistoryFeedPanel(props: {
 
   const load = useCallback(async () => {
     try {
-      const [ops, tpl] = await Promise.all([
+      const [ops, tpl, gone] = await Promise.all([
         window.matrica.operations.list(props.engineId),
         window.matrica.workSheets.stages.templates.list(),
+        // Погашенные этапы — отдельная выборка: её отсутствие не должно ронять ленту.
+        window.matrica.workSheets.stages.deleted(props.engineId).catch(() => null),
       ]);
       setRows((Array.isArray(ops) ? ops : []) as EngineHistoryFeedRow[]);
+      setDeletedStages(gone?.ok ? gone.rows : []);
       if (tpl.ok) {
         setTemplates(tpl.templates);
         if (tpl.source === 'fallback') setStatus('Шаблон этапов взят из программы — сервер недоступен, свежих правок может не быть.');
@@ -368,6 +377,29 @@ export function EngineHistoryFeedPanel(props: {
       }
       setUndo(before ? { label: `«${name}»`, kind: 'restore-stage', snapshot: before } : null);
       setStatus('');
+      await load();
+      props.onChanged?.();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Вернуть погашенный этап в историю ремонта (сняли дату карточки — этап исчез).
+   * Возврат воскрешает строку тем же id: она снова считается в истории и расчётах.
+   */
+  async function restoreDeletedStage(id: string, name: string) {
+    if (!confirm(`Вернуть этап «${name}» в историю ремонта?`)) return;
+    setBusy(true);
+    try {
+      const r = await window.matrica.workSheets.stages.restore(id);
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      setStatus(`Этап «${name}» возвращён в историю`);
       await load();
       props.onChanged?.();
     } catch (e) {
@@ -1031,6 +1063,51 @@ export function EngineHistoryFeedPanel(props: {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Погашенные этапы (этап следует за датой карточки). Сняли дату в карточке — этап
+          исчез из истории, но строка осталась в базе: показываем её с пометкой «почему
+          исчезла» и даём вернуть. Без этого снятие даты было бы необратимой потерей. */}
+      {deletedStages.length > 0 && (
+        <div style={{ width: '100%', maxWidth: 1400, margin: '12px auto 0', display: 'flex', justifyContent: 'center' }}>
+          <div style={{ border: '1px dashed var(--border)', borderRadius: 6, padding: 8 }} data-history-deleted-stages>
+            <div className="ui-muted" style={{ marginBottom: 6 }}>
+              Погашенные этапы — исчезли, потому что сняли дату в карточке. Их можно вернуть.
+            </div>
+            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+              <tbody>
+                {deletedStages.map((row) => (
+                  <tr key={row.id} data-history-deleted-stage={row.id}>
+                    <td style={{ padding: '3px 6px', whiteSpace: 'nowrap' }}>
+                      {row.at && row.at > 0 ? formatMoscowDate(new Date(row.at)) : '—'}
+                    </td>
+                    <td style={{ padding: '3px 6px' }}>{row.name}</td>
+                    <td style={{ padding: '3px 6px' }} className="ui-muted">
+                      {row.extinguished
+                        ? `погашен: снята дата «${row.extinguished.attr}»${
+                            row.extinguished.by ? `, ${row.extinguished.by}` : ''
+                          }`
+                        : 'погашен вручную'}
+                    </td>
+                    <td style={{ padding: '3px 6px', whiteSpace: 'nowrap' }}>
+                      {props.canEdit && (
+                        <Button
+                          variant="ghost"
+                          disabled={busy}
+                          title="Вернуть этап в историю ремонта"
+                          data-history-deleted-restore={row.id}
+                          onClick={() => void restoreDeletedStage(row.id, row.name)}
+                        >
+                          ↩ Вернуть
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

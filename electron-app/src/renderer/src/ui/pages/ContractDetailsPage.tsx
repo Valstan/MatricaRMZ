@@ -66,7 +66,7 @@ import {
   removePayment,
   slotTotals,
   syncSlotsWithPlan,
-  STATUS_LABELS,
+  engineStateLabel,
   type AttachedEngineRef,
   type BulkEngineInput,
   type BulkPlacementPlan,
@@ -344,19 +344,20 @@ function plannedSectionsOf(sections: ContractSections): PlannedSectionBrand[] {
   return planned;
 }
 
+/**
+ * Статус двигателя в договоре — по истории ремонта (промты КАРМАНА #133/#135).
+ *
+ * Раньше подпись считалась по замороженным флагам карточки: их никто не пишет с 01.08
+ * (шаг 8 плана unified-stages), и подпись отставала от факта. Теперь это доменное правило
+ * `engineStateLabel` — ровно то, что показывает отчёт «Сейчас на заводе» (решение
+ * владельца 25.11.2026: один словарь на оба экрана). Тонкая обёртка над общим правилом,
+ * а не своя копия статуса: по реестру глобальных модулей такая копия запрещена.
+ *
+ * Источник тот же, что у прогресса исполнения договора (`aggregateProgress` →
+ * `lastStageCode`/`lastStageAt`), поэтому статус и прогресс не расходятся.
+ */
 function currentEngineStatusLabel(engine: EngineListItem): string {
-  const flags = engine.statusFlags ?? {};
-  if (flags.status_rejected) return STATUS_LABELS.status_rejected;
-  // Утиль — терминальный исход, приоритетнее промежуточных статусов. «Признан утильным»
-  // (ещё на заводе, собирается к возврату) идёт следом — судьба двигателя уже решена.
-  if (flags.status_rework_sent) return STATUS_LABELS.status_rework_sent;
-  if (flags.status_scrap_confirmed) return STATUS_LABELS.status_scrap_confirmed;
-  if (flags.status_customer_accepted) return STATUS_LABELS.status_customer_accepted;
-  if (flags.status_customer_sent) return STATUS_LABELS.status_customer_sent;
-  if (flags.status_repaired) return STATUS_LABELS.status_repaired;
-  if (flags.status_repair_started) return STATUS_LABELS.status_repair_started;
-  if (flags.status_storage_received || engine.arrivalDate) return 'Приход на завод';
-  return '—';
+  return engineStateLabel(engine);
 }
 
 function renderCompactTableHtml(headers: string[], rows: string[][]) {
