@@ -246,4 +246,5 @@
 | [M231](gotchas/M231.md) | Имя прода и базы — `matricarmz`: опечатка в одну букву даёт «Could not resolve hostname» и «database does not exist» — оба про имя, а не про поломку |
 | [M232](gotchas/M232.md) | После squash-merge гейт закрытия красный: «branch has no upstream — never pushed», хотя работа уже в `main` |
 | [M233](gotchas/M233.md) | Смоук снял оверлей приветствия, а не карточку: «За работу! (Enter)» не нашлось точным сравнением |
+| [M234](gotchas/M234.md) | Нет проверок в конфликте PR: «no checks reported» ≠ зелёные |
 
