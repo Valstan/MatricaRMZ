@@ -4,7 +4,7 @@
 
 **Status:** ACTIVE
 **Updated:** 2026-11-25 (вторая сессия линии 2 — **SKIP снят: живая карточка этапа работ, PASS 31 / FAIL 0 / SKIP 0**, PR #2016 смержен `b5f50ca4`; **MiniMax Code / MiniMax-M3.1-Flash**, машина **PC79**)
-**Branch:** `main` @ `b5f50ca4` (= PR #2016, docs-only: план нитки, профиль машины, скилл `verifier-electron`, письмо в мозг, handoff). Закрытие первой сессии — PR #2014 + PR #2015 (`023f9d64`).
+**Branch:** `main` — содержательно `b5f50ca4` (= PR #2016: план нитки, профиль машины, скилл `verifier-electron`, письмо в мозг, handoff); поверх — только docs-only коммиты закрытия (squash-мерж, кода нет). Ветка сессии `docs/lane2-live-work-sheet-card-2026-11` удалена локально и на origin. Закрытие первой сессии — PR #2014 + PR #2015 (`023f9d64`).
 **Last released version:** **v3.145.0** (прод + APK `MatricaRMZ-3.145.0.apk`)
 
 ## Текущая нитка
