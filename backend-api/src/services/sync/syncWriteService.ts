@@ -6,10 +6,16 @@
  */
 import { type LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
 import { and, inArray } from 'drizzle-orm';
-import { ENGINE_INVENTORY_STAGE, SyncTableName, SyncTableRegistry, syncRowSchemaByTable } from '@matricarmz/shared';
+import {
+  ENGINE_INVENTORY_STAGE,
+  SyncTableName,
+  SyncTableRegistry,
+  syncRowSchemaByTable,
+  toSyncRow,
+} from '@matricarmz/shared';
 
 import { db } from '../../database/db.js';
-import { attributeValues } from '../../database/schema.js';
+import { attributeValues, erpEngineInventoryLines } from '../../database/schema.js';
 import { signAndAppendDetailed } from '../../ledger/ledgerService.js';
 import type { InventoryOperationRow } from '../engineInventoryLinesService.js';
 import { writeEngineCardEavTrail } from '../engineStrictService.js';
@@ -229,34 +235,143 @@ export function isUnchangedAttributeValueRow(
   return sameValue && sameUpdated && sameDeleted;
 }
 
-/** id строк-значений, содержимое которых совпадает с серверным (см. isUnchangedAttributeValueRow). */
-async function findUnchangedAttributeValueRows(rows: Array<Record<string, unknown>>): Promise<Set<string>> {
+/**
+ * Поля, которые НЕ являются содержимым строки: их различие не значит правку
+ * (статус синка и номер журнала меняются сами по себе; `created_at` — служебная
+ * метка времени, у клиентской копии она своя).
+ */
+const NON_CONTENT_SYNC_FIELDS = new Set(['sync_status', 'last_server_seq', 'created_at']);
+
+/**
+ * Правило «содержимое не изменилось» — по таблице.
+ *
+ * Само правило журнала (no-op ⇒ без seq и без записи журнала, но с подтверждением
+ * клиенту) написано ОДИН раз — в `writeSyncChanges`. Здесь только различие между
+ * таблицами: как найти серверную копию и что считать «не изменилось».
+ */
+type UnchangedRule = {
+  /** Ключ пришедшей строки: по нему ищем серверную копию. */
+  keyOf: (row: Record<string, unknown>) => string;
+  /** Серверные копии по ключам пришедших строк. */
+  load: (keys: string[]) => Promise<Map<string, Record<string, unknown>>>;
+  /** Сравнение серверной копии с пришедшей строкой. */
+  same: (current: Record<string, unknown>, incoming: Record<string, unknown>) => boolean;
+};
+
+/**
+ * Содержимое строки совпало с серверным — по общему реестру полей.
+ *
+ * Сравниваются все поля контракта, кроме служебных (`sync_status`,
+ * `last_server_seq`): они меняются сами по себе и правку не означают. Поля,
+ * которых нет в серверной копии, считаются расхождением (строка идёт в журнал) —
+ * лишняя запись в журнале лучше потерянной правки.
+ */
+function isUnchangedSyncContentRow(
+  table: SyncTableName,
+  current: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): boolean {
+  const currentDto = toSyncRow(table, current);
+  for (const [key, value] of Object.entries(incoming)) {
+    if (key === 'id' || NON_CONTENT_SYNC_FIELDS.has(key)) continue;
+    if (!sameSyncScalar(currentDto[key], value)) return false;
+  }
+  return true;
+}
+
+/** Сравнение двух значений строки: null/undefined — одно и то же; число и его строка — тоже. */
+function sameSyncScalar(a: unknown, b: unknown): boolean {
+  const na = a == null ? null : a;
+  const nb = b == null ? null : b;
+  if (na === nb) return true;
+  if (typeof na === 'number' && typeof nb === 'string') return String(na) === nb;
+  if (typeof na === 'string' && typeof nb === 'number') return na === String(nb);
+  if (typeof na === 'boolean' && typeof nb === 'string') return String(na) === nb;
+  if (typeof na === 'string' && typeof nb === 'boolean') return na === String(nb);
+  return false;
+}
+
+const UNCHANGED_RULES: Partial<Record<SyncTableName, UnchangedRule>> = {
+  // Значения атрибутов опознаются по ПАРЕ (entity_id, attribute_def_id): клиент
+  // может прислать другой id для той же пары (ремап по паре на сервере).
+  [SyncTableName.AttributeValues]: {
+    keyOf: (row) => `${String(row.entity_id ?? '')}:${String(row.attribute_def_id ?? '')}`,
+    load: async (keys) => {
+      const byPair = new Map<string, Record<string, unknown>>();
+      const entityIds = Array.from(new Set(keys.map((k) => k.split(':')[0] ?? '').filter(Boolean)));
+      const defIds = Array.from(new Set(keys.map((k) => k.split(':')[1] ?? '').filter(Boolean)));
+      if (entityIds.length === 0 || defIds.length === 0) return byPair;
+      const stored = await db
+        .select({
+          entityId: attributeValues.entityId,
+          attributeDefId: attributeValues.attributeDefId,
+          valueJson: attributeValues.valueJson,
+          updatedAt: attributeValues.updatedAt,
+          deletedAt: attributeValues.deletedAt,
+        })
+        .from(attributeValues)
+        .where(
+          and(
+            inArray(attributeValues.entityId, entityIds as any),
+            inArray(attributeValues.attributeDefId, defIds as any),
+          ),
+        )
+        .limit(50_000);
+      for (const s of stored) byPair.set(`${s.entityId}:${s.attributeDefId}`, s as unknown as Record<string, unknown>);
+      return byPair;
+    },
+    same: (current, incoming) => isUnchangedAttributeValueRow(current as any, incoming),
+  },
+  // Строки списка деталей двигателя опознаются по id (контрактный ключ ['id']).
+  // Повторный push неизменённой строки раньше создавал новый seq и новую запись
+  // журнала (инцидент 25.11.2026: 1244 записи на 622 строки) ⇒ номер строки ехал,
+  // и следующий push упирался в «серверная копия новее».
+  [SyncTableName.ErpEngineInventoryLines]: {
+    keyOf: (row) => String(row.id ?? ''),
+    load: async (keys) => {
+      const byId = new Map<string, Record<string, unknown>>();
+      if (keys.length === 0) return byId;
+      const stored = await db
+        .select()
+        .from(erpEngineInventoryLines)
+        .where(inArray(erpEngineInventoryLines.id, keys as any))
+        .limit(50_000);
+      for (const s of stored as any[]) byId.set(String(s.id), s as Record<string, unknown>);
+      return byId;
+    },
+    same: (current, incoming) => isUnchangedSyncContentRow(SyncTableName.ErpEngineInventoryLines, current, incoming),
+  },
+};
+
+/**
+ * Содержимое строки совпало с серверным — по правилу таблицы (без обращения к БД).
+ *
+ * Публичная точка правила «журнал — лог ИЗМЕНЕНИЙ»: серверная копия (`current`,
+ * в форме БД) и пришедшая строка (`incoming`, в форме контракта). `current = null`
+ * ⇒ строки на сервере ещё нет ⇒ это изменение.
+ */
+export function isUnchangedSyncRow(
+  table: SyncTableName,
+  current: Record<string, unknown> | null | undefined,
+  incoming: Record<string, unknown>,
+): boolean {
+  const rule = UNCHANGED_RULES[table];
+  if (!rule || !current) return false;
+  return rule.same(current, incoming);
+}
+
+/** id строк таблицы, содержимое которых совпадает с серверным (см. правило выше). */
+async function findUnchangedRows(table: SyncTableName, rows: Array<Record<string, unknown>>): Promise<Set<string>> {
   const unchanged = new Set<string>();
-  if (rows.length === 0) return unchanged;
-  const entityIds = Array.from(new Set(rows.map((r) => String(r.entity_id ?? '')).filter(Boolean)));
-  const defIds = Array.from(new Set(rows.map((r) => String(r.attribute_def_id ?? '')).filter(Boolean)));
-  if (entityIds.length === 0 || defIds.length === 0) return unchanged;
-  const stored = await db
-    .select({
-      entityId: attributeValues.entityId,
-      attributeDefId: attributeValues.attributeDefId,
-      valueJson: attributeValues.valueJson,
-      updatedAt: attributeValues.updatedAt,
-      deletedAt: attributeValues.deletedAt,
-    })
-    .from(attributeValues)
-    .where(
-      and(
-        inArray(attributeValues.entityId, entityIds as any),
-        inArray(attributeValues.attributeDefId, defIds as any),
-      ),
-    )
-    .limit(50_000);
-  const byPair = new Map<string, (typeof stored)[number]>();
-  for (const s of stored) byPair.set(`${s.entityId}:${s.attributeDefId}`, s);
+  const rule = UNCHANGED_RULES[table];
+  if (!rule || rows.length === 0) return unchanged;
+  const keys = Array.from(new Set(rows.map((r) => rule.keyOf(r)).filter(Boolean)));
+  if (keys.length === 0) return unchanged;
+  const stored = await rule.load(keys);
   for (const r of rows) {
-    const cur = byPair.get(`${String(r.entity_id ?? '')}:${String(r.attribute_def_id ?? '')}`);
-    if (isUnchangedAttributeValueRow(cur ?? null, r)) unchanged.add(String(r.id ?? ''));
+    const current = stored.get(rule.keyOf(r));
+    if (!current) continue;
+    if (rule.same(current, r)) unchanged.add(String(r.id ?? ''));
   }
   return unchanged;
 }
@@ -314,16 +429,17 @@ export async function writeSyncChanges(
   // ── Step 0.5: no-op строки (содержимое не изменилось) ─────────────────
   // Их не должно быть в журнале: журнал — лог ИЗМЕНЕНИЙ. Подтверждение
   // (applied_rows) клиенту приходит отдельно и не пострадает.
-  const noopAttributeValueIds = await findUnchangedAttributeValueRows(
-    grouped.get(SyncTableName.AttributeValues) ?? [],
-  );
+  const noopIdsByTable = new Map<SyncTableName, Set<string>>();
+  for (const table of [SyncTableName.AttributeValues, SyncTableName.ErpEngineInventoryLines]) {
+    noopIdsByTable.set(table, await findUnchangedRows(table, grouped.get(table) ?? []));
+  }
 
   // ── Step 1: Sign and append to ledger ────────────────────
   const upserts = Array.from(grouped.entries()).map(([table, rows]) => ({ table, rows }));
 
   const payloads: LedgerTxPayload[] = upserts.flatMap((pack) =>
     pack.rows
-      .filter((row) => !noopAttributeValueIds.has(String(row.id ?? '')))
+      .filter((row) => !noopIdsByTable.get(pack.table)?.has(String(row.id ?? '')))
       .map((row) => {
       const op = row.deleted_at ? 'delete' : 'upsert';
       const tsValue = Number(row.updated_at ?? ts);

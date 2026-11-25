@@ -12,6 +12,7 @@ import {
   hasActiveSession,
   readLastPulledServerSeq,
   runSync,
+  sendDiagnosticsSnapshotNow,
   waitForServerChanges,
 } from './syncService.js';
 import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
@@ -88,6 +89,8 @@ export class SyncManager implements SyncControl {
   /** Застрявшие неотправленные строки; null — проба ещё ни разу не считалась. */
   private stuckPending: StuckPendingSummary | null = null;
   private lastStuckProbeAt = 0;
+  /** Проба застрявших строк идёт: не накладываем пробы на пробы. */
+  private stuckProbeRunning = false;
   /**
    * Неотправленные данные, выгруженные в файл на машине: их нет на сервере, и пока файл
    * лежит, оператор должен об этом знать (жалоба 23.11.2026). null — выгрузок нет.
@@ -296,6 +299,12 @@ export class SyncManager implements SyncControl {
   }
 
   private async localWatchTick() {
+    // Проба застрявших строк (и снимок диагностики, который она шлёт) идут
+    // ДАЖЕ во время прогона синка: когда цикл висит (pull на планшете шёл и
+    // 38 минут), именно тогда серверу нужна правда об очереди. Раньше всё это
+    // уходило под `inFlight` — и на висящем pull'е снимок не уходил никогда
+    // (инцидент 25.11.2026, M229).
+    void this.refreshStuckPendingSafely();
     if (this.localBusy || this.inFlight) return;
     this.localBusy = true;
     try {
@@ -322,13 +331,25 @@ export class SyncManager implements SyncControl {
       });
       this.localRetryDelayMs = action.nextRetryDelayMs;
       if (pendingRows >= 0) this.lastPendingRows = pendingRows;
-      await this.refreshStuckPending();
       await this.refreshPendingExport();
       if (!action.sync) return;
       this.lastDirtySyncAt = nowMs();
       await this.runOnce(this.progressOpts()).catch(() => undefined);
     } finally {
       this.localBusy = false;
+    }
+  }
+
+  /** Проба застрявших строк — вне `inFlight`, но без наложения проб на пробу. */
+  private async refreshStuckPendingSafely(): Promise<void> {
+    if (this.stuckProbeRunning) return;
+    this.stuckProbeRunning = true;
+    try {
+      await this.refreshStuckPending();
+    } catch {
+      // проба не удалась — прошлое значение честнее, чем «застрявших нет»
+    } finally {
+      this.stuckProbeRunning = false;
     }
   }
 
@@ -350,6 +371,13 @@ export class SyncManager implements SyncControl {
       // в сводке он не помещается, а в отчёте без него пришлось бы гадать.
       ...(probe.byTable && probe.byTable.length > 0 ? { byTable: probe.byTable } : {}),
     };
+    // Очередь застряла — сервер должен видеть это ДАЖЕ если цикл синка висит или
+    // падает: android-парк не прислал ни одного снимка `scope='client'`, и
+    // автолечение очередь не видело (инцидент 25.11.2026). Троттлинг отправки —
+    // внутри (раз в 10 минут), звать можно на каждой пробе.
+    if (probe.count > 0) {
+      void sendDiagnosticsSnapshotNow(this.db, this.apiBaseUrl, this.clientId).catch(() => {});
+    }
   }
 
   /**

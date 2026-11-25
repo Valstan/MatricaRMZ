@@ -16,6 +16,7 @@ vi.mock('./syncService.js', () => ({
     await new Promise<void>((resolve) => state.release.push(resolve));
     return { ok: true, pushed: mine, pulled: 0, serverCursor: mine };
   }),
+  sendDiagnosticsSnapshotNow: vi.fn(async () => {}),
 }));
 
 vi.mock('./engineReservationClient.js', () => ({ flushPendingEngineReservationReleases: vi.fn(async () => 0) }));
