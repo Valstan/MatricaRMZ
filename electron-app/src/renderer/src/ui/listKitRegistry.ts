@@ -45,6 +45,13 @@ export const LIST_KIT_PAGES: ListKitPageEntry[] = [
   // --- Справочники: начало фазы «остальные модули» ---
   { file: './pages/EngineBrandGroupsPage.tsx', kind: 'list-page', status: 'on-kit' },
   { file: './pages/EngineBrandsPage.tsx', kind: 'list-page', status: 'on-kit' },
+  // --- Партия 1 «склад и справочники» (25.11.2026): цеха, инвентаризация, остатки по локациям ---
+  { file: './pages/MasterdataWorkshopsPage.tsx', kind: 'list-page', status: 'on-kit' },
+  { file: './pages/StockInventoryPage.tsx', kind: 'list-page', status: 'on-kit' },
+  { file: './pages/WarehouseLocationsPage.tsx', kind: 'list-page', status: 'on-kit' },
+  // --- Табели и номера РМЗ: переведены на кит 25.11.2026, реестр отставал ---
+  { file: './pages/EngineRmzNumbersPage.tsx', kind: 'list-page', status: 'on-kit' },
+  { file: './pages/TimesheetsPage.tsx', kind: 'list-page', status: 'on-kit' },
   // --- Производственная программа (шов с ПП, PR #1929 + #1948 + #1972 + этот заход:
   //     подключён слой выделения контуром — до него ПП был единственным списком кита
   //     без Ctrl + рамки). ---
@@ -86,9 +93,7 @@ export const LIST_KIT_PAGES: ListKitPageEntry[] = [
   { file: './pages/EngineAssemblyBomDetailsPage.tsx', kind: 'card', status: 'pending' },
   { file: './pages/EngineAssemblyBomPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/EngineDetailsPage.tsx', kind: 'card', status: 'pending' },
-  { file: './pages/EngineRmzNumbersPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/FileSearchPage.tsx', kind: 'list-page', status: 'pending' },
-  { file: './pages/MasterdataWorkshopsPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/NomenclatureDetailsPage.tsx', kind: 'card', status: 'pending' },
   { file: './pages/NomenclatureDirectoryPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/NomenclaturePage.tsx', kind: 'list-page', status: 'pending' },
@@ -109,15 +114,12 @@ export const LIST_KIT_PAGES: ListKitPageEntry[] = [
   { file: './pages/ServicesByBrandPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/StockBalancesPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/StockDocumentsPage.tsx', kind: 'list-page', status: 'pending' },
-  { file: './pages/StockInventoryPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/SuperadminAuditPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/SupplyRequestsPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/SupplyToolMovementsPage.tsx', kind: 'list-page', status: 'pending' },
-  { file: './pages/TimesheetsPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/UserScreensPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/UserScreenViewPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/WarehouseLocationsAdminPage.tsx', kind: 'list-page', status: 'pending' },
-  { file: './pages/WarehouseLocationsPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/WorkOrderTemplatesPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/WorkSheetsPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/WorkshopStatsPage.tsx', kind: 'list-page', status: 'pending' },

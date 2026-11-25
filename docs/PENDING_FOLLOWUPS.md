@@ -57,7 +57,7 @@
 - [🟡 Совет специалистов: три решения владельца (состав, обязательность, место протоколов) 🗓 since:2026-11-25](pending/sovet-specialistov-tri-resheniya-vladeltsa.md)
 
 - [✅ Кит перетаскивания: живой прогон второго пути (карточки) доведён 🗓 since:2026-11-24](pending/kit-peretaskivaniya-zhivoy-progon-vtorogo-pute.md)
-- [🟡 Списки вне кита: 44 таблицы-страницы ещё не переведены 🗓 since:2026-11-25](pending/list-kit-remaining-pages.md)
+- [🟡 Списки вне кита: 39 таблиц-страниц ещё не переведены 🗓 since:2026-11-25](pending/list-kit-remaining-pages.md)
 
 - [🟡 Дубли общих модулей: объединить лестницы «где двигатель сейчас» и общий escapeHtml — решения владельца 🗓 since:2026-11-25](pending/dubl-obshchih-modulev-lestnicy-i-escapehtml.md)
 

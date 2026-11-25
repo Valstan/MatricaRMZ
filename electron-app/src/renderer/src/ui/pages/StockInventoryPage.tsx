@@ -13,6 +13,22 @@ import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
 import { lookupToSelectOptions } from '../utils/warehouseUi.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+// Кит списков (промт КАРМАНА #67): правила — из общего источника, меню — из объявления действий.
+import { useListSelection } from '../hooks/useListSelection.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
+import {
+  buildCopyRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  isListEditingTarget,
+  listCopyAction,
+  listPrintAction,
+  printRowsPreview,
+  resolveMenuRows,
+  type ListContextColumn,
+} from '../utils/listContextActions.js';
 
 type InventoryLine = {
   nomenclatureId: string;
@@ -25,6 +41,11 @@ type InventoryLine = {
 };
 
 type SortKey = 'code' | 'name' | 'unit' | 'book' | 'actual' | 'delta';
+
+/** Устойчивый ключ строки: номенклатура + склад. Позиция в списке ключом быть не может. */
+function inventoryRowKey(row: { nomenclatureId: string; warehouseId: string }): string {
+  return `${row.nomenclatureId}-${row.warehouseId}`;
+}
 
 export function StockInventoryPage(props: {
   canEdit: boolean;
@@ -76,6 +97,52 @@ export function StockInventoryPage(props: {
     () => withRecents('warehouseId', lookupToSelectOptions(lookups.warehouses)),
     [lookups.warehouses, withRecents],
   );
+
+  // Кит списка: выделение, контур и меню — по общим правилам программы (D-248).
+  const sortedIds = useMemo(() => sortedRows.map((row) => inventoryRowKey(row)), [sortedRows]);
+  const selection = useListSelection(sortedIds);
+  const listBehavior = useListBehaviorSettings();
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
+  const rowById = useMemo(() => {
+    const map = new Map<string, InventoryLine>();
+    for (const row of sortedRows) map.set(inventoryRowKey(row), row);
+    return map;
+  }, [sortedRows]);
+
+  const contextColumns = useMemo<ListContextColumn<InventoryLine>[]>(() => {
+    const columns: ListContextColumn<InventoryLine>[] = [
+      { title: 'Код', value: (row) => row.code },
+      { title: 'Номенклатура', value: (row) => row.name },
+      { title: 'Ед.', value: (row) => row.unitName ?? '—' },
+    ];
+    // Слепая инвентаризация (G9): учётные числа оператор видеть не должен — и в буфере,
+    // и на распечатке их быть не должно, иначе «слепой» подсчёт перестаёт быть слепым.
+    if (!blindMode) {
+      columns.push({ title: 'Учет', value: (row) => String(row.bookQty) });
+    }
+    columns.push({ title: 'Факт', value: (row) => row.actualQty.trim() || '—' });
+    if (!blindMode) {
+      columns.push({
+        title: 'Расхождение',
+        value: (row) => String(Number(row.actualQty || row.bookQty) - row.bookQty),
+      });
+    }
+    return columns;
+  }, [blindMode]);
+
+  function printRows(items: InventoryLine[]) {
+    printRowsPreview({
+      title: items.length > 1 ? `Выделенные строки инвентаризации (${items.length})` : `Строка инвентаризации: ${items[0]?.name || ''}`,
+      sectionTitle: 'Строки инвентаризации склада',
+      rows: items,
+      columns: contextColumns,
+    });
+  }
+
+  async function copyRows(items: InventoryLine[]) {
+    await copyRowsToClipboard(items, contextColumns);
+    setStatus(buildCopyRowsStatus(items.length));
+  }
 
   function onSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
@@ -288,7 +355,7 @@ export function StockInventoryPage(props: {
             т.к. скролл-контейнер (containerRef, overflow:auto) — прямой родитель таблицы
             без промежуточной overflow-обёртки. */}
         <ListCount total={rows.length} shown={sortedRows.length} />
-        <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        <div ref={containerRef} data-list-root="true" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <div style={{ border: '1px solid #e5e7eb' }}>
             <table className="list-table">
               {tableHeader}
@@ -301,7 +368,21 @@ export function StockInventoryPage(props: {
                   </tr>
                 ) : (
                   sortedRows.map((row, i) => (
-                    <tr key={`${row.nomenclatureId}-${row.warehouseId}`}>
+                    <tr
+                      key={inventoryRowKey(row)}
+                      data-list-selected={selection.isSelected(inventoryRowKey(row)) ? 'true' : undefined}
+                      // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+                      data-list-row="true"
+                      data-list-row-key={inventoryRowKey(row)}
+                      onContextMenu={(e) => {
+                        // Правый клик по полю «Факт» — нативное меню оператора (вставить из буфера), не меню списка.
+                        if (isListEditingTarget(e.target)) return;
+                        const result = selection.onRowContextMenu(e, inventoryRowKey(row));
+                        if (!result.openMenu) return;
+                        setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+                      }}
+                      onClick={() => selection.onRowPrimaryAction(inventoryRowKey(row))}
+                    >
                       <RowNumberCell n={i + 1} />
                       {renderInventoryCells(row)}
                     </tr>
@@ -314,6 +395,31 @@ export function StockInventoryPage(props: {
       </div>
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
+
+      {/* Выделение контуром (Ctrl + рамка) — слой кита, включается общей настройкой. */}
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
+      {menu ? (
+        <ListContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildListContextMenuItems({
+            rows: resolveMenuRows(menu.targetIds, rowById),
+            bulk: menu.bulk,
+            getId: (row) => inventoryRowKey(row),
+            onSelect: selection.toggleSelect,
+            onClearSelection: selection.clearSelection,
+            hasSelection: selection.selectedCount > 0,
+            // Список ОБЪЯВЛЯЕТ свои действия (промт КАРМАНА #67). Удалять в инвентаризации
+            // нечего: строки создаются из остатков склада, а документ собирает оператор.
+            // Поэтому пункта «Удалить» в меню НЕТ ВООБЩЕ, а не гаснет.
+            actions: [
+              listPrintAction({ available: true, print: printRows }),
+              listCopyAction({ available: true, copy: copyRows }),
+            ],
+          })}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

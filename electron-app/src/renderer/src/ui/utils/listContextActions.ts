@@ -200,3 +200,19 @@ export function resolveMenuRows<T>(targetIds: string[], rowById: ReadonlyMap<str
   return targetIds.map((id) => rowById.get(id)).filter((row): row is T => Boolean(row));
 }
 
+/**
+ * Правый клик по полю ввода внутри строки — это НЕ меню списка.
+ *
+ * В списках с редактируемыми ячейками (справочник цехов, инвентаризация склада)
+ * нативное меню браузера нужно оператору: вставить значение из буфера, вырезать
+ * фрагмент. Если перехватить его меню списка, вставка из буфера пропадёт.
+ *
+ * Правило одно на программу — проверка живёт в ките, а не в каждой странице.
+ */
+export function isListEditingTarget(target: EventTarget | null): boolean {
+  const el = target instanceof HTMLElement ? target : null;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
