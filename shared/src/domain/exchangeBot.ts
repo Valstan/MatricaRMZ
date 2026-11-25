@@ -29,6 +29,15 @@ export const EXCHANGE_BOT_MAX_CANDIDATES = 10;
  */
 export const EXCHANGE_BOT_MACHINE_ALIVE_WINDOW_DAYS = 14;
 
+/**
+ * Сколько живёт «ожидающий ответа» файл.
+ *
+ * Оператор отвечает на вопрос сразу. Файл, присланный боту час назад, ответом
+ * «2» уже не пересылается: иначе любое число в переписке с администратором
+ * уводило бы старый файл кому-то.
+ */
+export const EXCHANGE_BOT_REQUEST_WINDOW_MS = 10 * 60_000;
+
 /** Тип машины. Определяет, как бот её называет: «вы на планшете …». */
 export type ExchangeDeviceKind = 'computer' | 'tablet' | 'phone' | 'other';
 

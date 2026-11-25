@@ -21,7 +21,7 @@ vi.mock('../database/db.js', () => ({
         chain.limit = async (n?: number) => {
           const queue = queueByTable.get(table);
           if (!queue || queue.length === 0) return [];
-          const rows = queue.length === 1 ? queue[0] : queue.shift()!;
+          const rows = queue.length === 1 ? (queue[0] ?? []) : (queue.shift() ?? []);
           return typeof n === 'number' ? rows.slice(0, n) : rows;
         };
         return chain;
@@ -96,7 +96,7 @@ function fileMessageRow(over: Record<string, unknown> = {}) {
     messageType: 'file',
     bodyText: 'акт.pdf',
     payloadJson: JSON.stringify({ id: 'file-1', name: 'акт.pdf', size: 10, mime: 'application/pdf', sha256: 'abc', createdAt: NOW }),
-    createdAt: NOW,
+    createdAt: Date.now(),
     deletedAt: null,
     ...over,
   };
@@ -185,6 +185,26 @@ describe('бот обмена и пересылки', () => {
     const fileMsg = sentMessages.find((m) => m.messageType === 'file');
     expect(fileMsg?.recipientUserId).toBe('u-2');
     expect(String(sentMessages.at(-1)?.text ?? '')).toContain('Петров');
+  });
+
+  it('на старый запрос бот не отвечает пересылкой — файл ждёт ответа только десять минут', async () => {
+    queueByTable.set(clientSettings, [
+      [
+        clientRow(),
+        clientRow({ clientId: 'PC2-uuid', hostname: 'PC2', username: 'colleague', lastSeenAt: NOW - 30_000 }),
+      ],
+    ]);
+    const stale = fileMessageRow({ createdAt: Date.now() - 60 * 60_000 });
+    queueByTable.set(chatMessages, [
+      [
+        { id: 'msg-2', senderUserId: 'u-1', recipientUserId: 'u-super', messageType: 'text', bodyText: '2', payloadJson: null, createdAt: NOW + 1000, deletedAt: null },
+      ],
+      [stale],
+    ]);
+    const r = await runExchangeBotAction(trigger({ messageId: 'msg-2', text: '2' }));
+    expect(sentMessages.filter((m) => m.messageType === 'file')).toHaveLength(0);
+    expect(String(sentMessages.at(-1)?.text ?? '')).toContain('не вижу файла');
+    expect(r.acted).toBe(true);
   });
 
   it('без доступа отправителя файл не пересылает и пишет в журнал событий', async () => {

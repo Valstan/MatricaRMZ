@@ -29,6 +29,7 @@ import {
   EXCHANGE_BOT_EVENT_CODE,
   EXCHANGE_BOT_MACHINE_ALIVE_WINDOW_DAYS,
   EXCHANGE_BOT_MAX_CANDIDATES,
+  EXCHANGE_BOT_REQUEST_WINDOW_MS,
   EXCHANGE_BOT_USERNAME,
   buildExchangeBotQuestion,
   buildExchangeBotSentText,
@@ -67,6 +68,8 @@ export type ExchangeBotTrigger = {
   fileName?: string | null;
   /** Подсказка клиента: какой файл ждёт ответа (последний отправленный боту). */
   pendingFileId?: string | null;
+  /** Когда клиент отправил этот файл (unix-мс) — по нему сужается окно ответа. */
+  pendingFileSentAt?: number | null;
   /** Текст сообщения (если это не файл). */
   text?: string | null;
 };
@@ -319,10 +322,10 @@ async function forwardFileToCandidate(args: {
   return { ok: true, fileName: payload.name };
 }
 
-/** Последний файл, присланный боту этим оператором. */
-async function findPendingFile(actorId: string, botUserId: string): Promise<FileRefLike | null> {
+/** Последний файл, присланный боту этим оператором (и не старше окна ответа). */
+async function findPendingFile(actorId: string, botUserId: string, now: number): Promise<FileRefLike | null> {
   const rows = await db
-    .select({ payloadJson: chatMessages.payloadJson, bodyText: chatMessages.bodyText })
+    .select({ payloadJson: chatMessages.payloadJson, bodyText: chatMessages.bodyText, createdAt: chatMessages.createdAt })
     .from(chatMessages)
     .where(
       and(
@@ -336,7 +339,12 @@ async function findPendingFile(actorId: string, botUserId: string): Promise<File
     .limit(5);
   for (const row of rows) {
     const ref = parseFileRef(row.payloadJson);
-    if (ref) return ref;
+    if (!ref) continue;
+    // Старый запрос не ждёт ответа: иначе любое число в переписке с администратором
+    // уводило бы файл, присланный когда-то, кому-то.
+    const sentAt = Number(row.createdAt ?? 0) || 0;
+    if (sentAt > 0 && now - sentAt > EXCHANGE_BOT_REQUEST_WINDOW_MS) return null;
+    return ref;
   }
   return null;
 }
@@ -492,9 +500,14 @@ export async function runExchangeBotAction(trigger: ExchangeBotTrigger): Promise
   const choice = parseExchangeBotChoice(text);
   if (choice == null) return { ok: true, acted: false, reason: 'не ответ на вопрос бота' };
 
+  // Подсказка клиента (файл ещё мог не уехать на сервер) — но только если он свежий:
+  // файл ждёт ответа десять минут, потом не ждёт.
+  const hintSentAt = Number(trigger.pendingFileSentAt ?? 0) || 0;
+  const hintFresh =
+    Boolean(trigger.pendingFileId) && hintSentAt > 0 && now - hintSentAt <= EXCHANGE_BOT_REQUEST_WINDOW_MS;
   const pending =
-    (await findPendingFile(actorId, botUserId)) ??
-    (trigger.pendingFileId ? { id: trigger.pendingFileId, name: '' } : null);
+    (await findPendingFile(actorId, botUserId, now)) ??
+    (hintFresh ? { id: String(trigger.pendingFileId), name: '' } : null);
   if (!pending?.id) {
     const reply = 'Бот обмена: не вижу файла, который вы прислали — пришлите его ещё раз.';
     await replyAsBot(actorId, reply);

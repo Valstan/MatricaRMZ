@@ -55,13 +55,16 @@ export type ExchangeBotNotifyResult = {
  * Ответ приходит следующим сообщением, а сообщение с файлом к серверу могло ещё
  * не уехать (push асинхронный). Без подсказки бот сказал бы «не вижу файла» —
  * то есть отказал бы на ровном месте.
+ *
+ * Время отправки едет вместе с подсказкой: файл ждёт ответа десять минут, а
+ * потом — не ждёт (иначе любое число в переписке уводило бы старый файл).
  */
-let lastBotFileId: string | null = null;
+let lastBotFile: { id: string; sentAt: number } | null = null;
 
 /** Запомнить файл, отправленный боту. */
 export function rememberExchangeBotFile(fileId: string | null | undefined): void {
   const id = String(fileId ?? '').trim();
-  if (id) lastBotFileId = id;
+  if (id) lastBotFile = { id, sentAt: Date.now() };
 }
 
 /** Тип машины по платформе клиента. На android — планшет (APK ставится на планшет). */
@@ -106,7 +109,8 @@ export async function notifyExchangeBot(
           appVersion: app.getVersion(),
           fileId: fileId || null,
           fileName: args.fileName ?? null,
-          pendingFileId: lastBotFileId,
+          pendingFileId: lastBotFile?.id ?? null,
+          pendingFileSentAt: lastBotFile?.sentAt ?? null,
           text: args.text ?? null,
         }),
       },

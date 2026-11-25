@@ -28,6 +28,7 @@ const schema = z.object({
   fileId: z.string().max(80).optional().nullable(),
   fileName: z.string().max(400).optional().nullable(),
   pendingFileId: z.string().max(80).optional().nullable(),
+  pendingFileSentAt: z.number().int().nonnegative().optional().nullable(),
   text: z.string().max(5000).optional().nullable(),
 });
 
@@ -48,6 +49,7 @@ exchangeBotRouter.post('/act', requirePermission(PermissionCode.ChatUse), async 
       fileId: parsed.data.fileId ?? null,
       fileName: parsed.data.fileName ?? null,
       pendingFileId: parsed.data.pendingFileId ?? null,
+      pendingFileSentAt: parsed.data.pendingFileSentAt ?? null,
       text: parsed.data.text ?? null,
     });
     return res.json(result);
