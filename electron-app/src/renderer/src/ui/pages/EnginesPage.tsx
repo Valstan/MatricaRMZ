@@ -35,6 +35,7 @@ import {
 import type { EngineFacetId, EngineFacetSelection, EngineListItem, GroupLevel } from '@matricarmz/shared';
 
 import { EngineFacetFilter } from '../components/EngineFacetFilter.js';
+import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
 import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { SEARCH_MODE_HINT, searchModeEmptyText } from '../components/SearchModeHint.js';
@@ -50,6 +51,7 @@ import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
+import { SearchMatchBadge } from '../components/SearchMatchBadge.js';
 import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
@@ -602,7 +604,11 @@ export function EnginesPage(props: {
   // Верхний поиск: tier-1 по полям строки + tier-2 внутрь карточек (EAV).
   const getRowId = React.useCallback((e: EngineListItem) => String(e.id), []);
   const getRowLabel = React.useCallback((e: EngineListItem) => String(e.engineNumber ?? ''), []);
-  const deepFilter = useListDeepFilter(modeRows, getRowId, getRowLabel, query, { mode: searchModeOf(searchSimilar) });
+  const deepFilter = useListDeepFilter(modeRows, getRowId, getRowLabel, query, {
+    mode: searchModeOf(searchSimilar),
+    // Вид сущности — чтобы поиск знал, в каком поле строки он совпал (промт #137).
+    kind: 'engine',
+  });
   const similarMode = deepFilter.similarMode;
   // Все отборы, кроме поиска, живут теперь в ступенях: рекламация, акт комплектности и даты
   // прихода стали ступенями и применяются одним проходом ниже.
@@ -914,6 +920,8 @@ export function EnginesPage(props: {
         render: (e) => (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span>{e.engineNumber ?? '-'}</span>
+            {/* По какому полю совпал поиск (промт КАРМАНА #137) — показываем у найденной строки. */}
+            <SearchMatchBadge matches={deepFilter.fieldMatches.get(String(e.id))} />
             {/* Ф2 (повторный заезд): роль карточки приезжает готовой из listEngines (`e.arrival`) —
                 правило групповое и живёт в одном месте, список его больше не пересчитывает.
                 Порядковый номер («1 из 2») держим в подсказке, а не в бейдже: колонка «Номер»
@@ -1116,7 +1124,7 @@ export function EnginesPage(props: {
         render: (e) => <ListRowThumbs files={(e as EngineRow).attachmentPreviews ?? []} />,
       },
     ],
-    [selectedStageDateOf],
+    [selectedStageDateOf, deepFilter.fieldMatches],
   );
   const allColumnIds = useMemo(() => allColumns.map((c) => c.id), [allColumns]);
   const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);
@@ -1356,6 +1364,12 @@ export function EnginesPage(props: {
             onChange={(v) => patchState({ query: v, page: 0 })}
             placeholder="Поиск по всем данным двигателя (и внутри карточек)…"
           />
+        </ToolbarPin>
+        {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,
+            промт КАРМАНА #151). Закреплена: свёрнутая панель исчезает с экрана целиком, и
+            добраться до неё иначе нечем. */}
+        <ToolbarPin>
+          <FacetPanelToggle usageKey="list:engines" />
         </ToolbarPin>
         <ToolbarPin>
           <EngineQrScanButton onEngineNumber={(n) => patchState({ query: n, page: 0 })} />

@@ -65,3 +65,32 @@ describe('умолчание матчера — точный режим', () => 
     expect(filterPreparedRecords(prepared, 'дизелб', 'similar').records).toHaveLength(1);
   });
 });
+
+// Промт КАРМАНА #137 (25.11.2026): поиск должен знать, в каком поле строки совпало.
+describe('поле совпадения (промт #137)', () => {
+  const rows = [
+    { id: '1', engineNumber: 'А-100', contractName: 'Договор 77' },
+    { id: '2', engineNumber: 'А-200', contractName: 'Договор 88' },
+  ];
+
+  it('называет поле, по которому нашлась строка', () => {
+    const prepared = prepareRecordSearch(rows, (r) => r.id, (r) => r.engineNumber, { kind: 'engine' });
+    const result = filterPreparedRecords(prepared, 'А-100');
+    expect(result.records).toHaveLength(1);
+    expect(result.fieldMatches.get('1')?.[0]?.fieldId).toBe('engine_number');
+  });
+
+  it('без вида сущности поле неизвестно — и это не ошибка', () => {
+    const prepared = prepareRecordSearch(rows, (r) => r.id, (r) => r.engineNumber);
+    const result = filterPreparedRecords(prepared, 'А-100');
+    expect(result.records).toHaveLength(1);
+    expect(result.fieldMatches.size).toBe(0);
+  });
+
+  it('пустой запрос не ломает выдачу и не выдумывает поля', () => {
+    const prepared = prepareRecordSearch(rows, (r) => r.id, (r) => r.engineNumber, { kind: 'engine' });
+    const result = filterPreparedRecords(prepared, '');
+    expect(result.records).toHaveLength(2);
+    expect(result.fieldMatches.size).toBe(0);
+  });
+});

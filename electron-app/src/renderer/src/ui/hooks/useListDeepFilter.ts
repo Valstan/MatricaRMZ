@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import type { SearchMode } from '@matricarmz/shared';
+import type { GlobalSearchKind, SearchFieldMatch, SearchMode } from '@matricarmz/shared';
 
 import { filterPreparedRecords, prepareRecordSearch } from '../utils/search.js';
 
@@ -57,27 +57,39 @@ export function useListDeepFilter<T>(
   getId: (r: T) => string,
   getLabel: (r: T) => string,
   query: string,
-  opts?: { entityBacked?: boolean; mode?: SearchMode },
+  opts?: { entityBacked?: boolean; mode?: SearchMode; kind?: GlobalSearchKind },
 ) {
   const entityBacked = opts?.entityBacked !== false;
   // Просьба владельца 08.09.2026: списки ищут точное совпадение, пока оператор сам не
   // попросил похожие. Тир-2 (внутрь карточек) режима не знает намеренно — он и так ищет
   // вхождение подстроки, то есть уже точен; «похожие» добавляет только тир-1.
   const mode: SearchMode = opts?.mode ?? 'exact';
+  const kind = opts?.kind;
   const deepIds = useCardContentIds(rows, getId, query, entityBacked);
 
-  const prepared = useMemo(() => prepareRecordSearch(rows, getId, getLabel), [rows, getId, getLabel]);
+  const prepared = useMemo(
+    () => prepareRecordSearch(rows, getId, getLabel, kind ? { kind } : {}),
+    [rows, getId, getLabel, kind],
+  );
 
   const q = query.trim();
 
-  const { filtered, similarMode } = useMemo(() => {
-    if (!q) return { filtered: rows, similarMode: false };
+  const { filtered, similarMode, fieldMatches } = useMemo(() => {
+    if (!q) return { filtered: rows, similarMode: false, fieldMatches: new Map<string, SearchFieldMatch[]>() };
     const tier1 = filterPreparedRecords(prepared, q, mode);
-    if (!deepIds || deepIds.size === 0) return { filtered: tier1.records, similarMode: tier1.similarMode };
+    if (!deepIds || deepIds.size === 0) {
+      return { filtered: tier1.records, similarMode: tier1.similarMode, fieldMatches: tier1.fieldMatches };
+    }
     const seen = new Set(tier1.records.map(getId));
     const deepOnly = rows.filter((r) => deepIds.has(getId(r)) && !seen.has(getId(r)));
-    return { filtered: [...tier1.records, ...deepOnly], similarMode: tier1.similarMode };
+    return {
+      filtered: [...tier1.records, ...deepOnly],
+      similarMode: tier1.similarMode,
+      // Строки, найденные только внутри карточек, поля не знают — это и правда: там
+      // искали по содержимому, а не по полю строки.
+      fieldMatches: tier1.fieldMatches,
+    };
   }, [q, rows, prepared, deepIds, getId, mode]);
 
-  return { filtered, similarMode, total: rows.length, matched: q ? filtered.length : rows.length };
+  return { filtered, similarMode, total: rows.length, matched: q ? filtered.length : rows.length, fieldMatches };
 }

@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 
-import { globalSearchKindLabel, type GlobalSearchHit, type GlobalSearchKind } from '@matricarmz/shared';
+import {
+  globalSearchKindLabel,
+  groupRowsBySearchField,
+  type GlobalSearchHit,
+  type GlobalSearchKind,
+  type SearchFieldMatch,
+} from '@matricarmz/shared';
 
 import { SearchModeToggle, searchModeOf } from './SearchModeToggle.js';
 import { SEARCH_MODE_HINT } from './SearchModeHint.js';
@@ -70,6 +76,12 @@ type RowItem = {
   hit?: GlobalSearchHit;
   tabId?: string;
 };
+
+// Группа выдачи: по виду сущности (как было) и — внутри — подгруппы по месту совпадения
+// («по номеру двигателя — 3»). Подгруппы появляются только там, где поле известно;
+// серверный и карточный слои поля не знают — там вид остаётся как был.
+type PaletteSubgroup = { key: string; title: string; rows: RowItem[] };
+type PaletteGroup = { key: string; title: string; rows: RowItem[]; subgroups?: PaletteSubgroup[] };
 
 export function GlobalSearchOverlay(props: {
   open: boolean;
@@ -244,14 +256,19 @@ export function GlobalSearchOverlay(props: {
     const out: Partial<Record<GlobalSearchKind, PreparedRecordSearch<L2Row>>> = {};
     for (const src of L2_SOURCES) {
       const rows = l2Loaded[src.kind] ?? [];
-      out[src.kind] = prepareRecordSearch(rows, (r) => String((r as L2Row).id ?? ''), (r) => pickL2Label(r as L2Row));
+      out[src.kind] = prepareRecordSearch(
+        rows,
+        (r) => String((r as L2Row).id ?? ''),
+        (r) => pickL2Label(r as L2Row),
+        { kind: src.kind },
+      );
     }
     return out;
   }, [l2Loaded]);
 
   const l1Prepared = useMemo(() => {
     if (!scope) return null;
-    return prepareRecordSearch(scope.rows, scope.getId, scope.getLabel);
+    return prepareRecordSearch(scope.rows, scope.getId, scope.getLabel, { kind: scope.kind });
   }, [scope]);
 
   const uiPrepared = useMemo(
@@ -264,18 +281,22 @@ export function GlobalSearchOverlay(props: {
     [],
   );
 
-  const hits = useMemo<GlobalSearchHit[]>(() => {
+  const { hits, hitFieldMatches } = useMemo<{ hits: GlobalSearchHit[]; hitFieldMatches: Map<string, SearchFieldMatch[]> }>(() => {
     const q = query.trim();
-    if (!q) return [];
+    const fieldMatches = new Map<string, SearchFieldMatch[]>();
+    if (!q) return { hits: [], hitFieldMatches: fieldMatches };
     const showL1 = (mode === 'auto' || mode === 'page') && !!scope && !!l1Prepared;
     const showL2 = mode === 'auto' || mode === 'directories';
     const showL3 = mode === 'auto' || mode === 'server';
     const out: GlobalSearchHit[] = [];
 
     if (showL1 && scope && l1Prepared) {
-      for (const r of filterPreparedRecords(l1Prepared, q, searchMode).records.slice(0, PER_GROUP)) {
+      const tier = filterPreparedRecords(l1Prepared, q, searchMode);
+      for (const r of tier.records.slice(0, PER_GROUP)) {
         const id = scope.getId(r);
         if (!id) continue;
+        const fields = tier.fieldMatches.get(id);
+        if (fields?.length) fieldMatches.set(`${scope.kind}|${id}`, fields);
         out.push({ kind: scope.kind, id, label: scope.getLabel(r) || id });
       }
     }
@@ -283,9 +304,12 @@ export function GlobalSearchOverlay(props: {
       for (const src of L2_SOURCES) {
         const prep = l2Prepared[src.kind];
         if (!prep) continue;
-        for (const r of filterPreparedRecords(prep, q, searchMode).records.slice(0, PER_GROUP)) {
+        const tier = filterPreparedRecords(prep, q, searchMode);
+        for (const r of tier.records.slice(0, PER_GROUP)) {
           const id = String(r.id ?? '');
           if (!id) continue;
+          const fields = tier.fieldMatches.get(id);
+          if (fields?.length) fieldMatches.set(`${src.kind}|${id}`, fields);
           const code = src.getCode?.(r) ?? '';
           out.push({ kind: src.kind, id, label: pickL2Label(r) || id, ...(code ? { code } : {}) });
         }
@@ -296,12 +320,15 @@ export function GlobalSearchOverlay(props: {
     if (mode !== 'page') out.push(...sheetHits);
 
     const seen = new Set<string>();
-    return out.filter((h) => {
-      const key = `${h.kind}|${h.id}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    return {
+      hits: out.filter((h) => {
+        const key = `${h.kind}|${h.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }),
+      hitFieldMatches: fieldMatches,
+    };
   }, [query, mode, searchMode, scope, l1Prepared, l2Prepared, serverHits, sheetHits]);
 
   // Deep-only hits: ids matched inside card content that tier-1/2/3 did not surface.
@@ -351,8 +378,8 @@ export function GlobalSearchOverlay(props: {
     return out;
   }, [stampHits, hits, deepHits, l2Loaded]);
 
-  const groups = useMemo(() => {
-    const ordered: Array<{ key: string; title: string; rows: RowItem[] }> = [];
+  const groups = useMemo<PaletteGroup[]>(() => {
+    const ordered: PaletteGroup[] = [];
 
     if (uiRows.length) {
       ordered.push({
@@ -382,16 +409,35 @@ export function GlobalSearchOverlay(props: {
         path: KIND_PATH[h.kind],
         hit: h,
       }));
+    // Группа вида сущности + подгруппы по месту совпадения («по номеру двигателя — 3»).
+    // Подгруппы есть только там, где поле известно; серверный и карточный слои поля
+    // не знают — там вид остаётся плоским, как был.
+    const kindGroup = (kind: GlobalSearchKind, arr: GlobalSearchHit[]): PaletteGroup => {
+      const rows = toRows(arr);
+      const buckets = groupRowsBySearchField(
+        kind,
+        rows,
+        (r) => (r.hit ? `${r.hit.kind}|${r.hit.id}` : r.key),
+        hitFieldMatches,
+      );
+      if (!buckets.some((b) => b.fieldId !== null)) return { key: kind, title: groupTitle(kind, scope), rows };
+      const subgroups: PaletteSubgroup[] = buckets.map((b) => ({
+        key: `${kind}|${b.fieldId ?? 'other'}`,
+        title: `${b.title} — ${b.rows.length}`,
+        rows: b.rows,
+      }));
+      return { key: kind, title: groupTitle(kind, scope), rows: [], subgroups };
+    };
     const used = new Set<GlobalSearchKind>();
     for (const kind of KIND_ORDER) {
       const arr = byKind.get(kind);
       if (arr && arr.length) {
-        ordered.push({ key: kind, title: groupTitle(kind, scope), rows: toRows(arr) });
+        ordered.push(kindGroup(kind, arr));
         used.add(kind);
       }
     }
     for (const [kind, arr] of byKind) {
-      if (!used.has(kind) && arr.length) ordered.push({ key: kind, title: groupTitle(kind, scope), rows: toRows(arr) });
+      if (!used.has(kind) && arr.length) ordered.push(kindGroup(kind, arr));
     }
 
     if (stampRows.length) {
@@ -412,9 +458,12 @@ export function GlobalSearchOverlay(props: {
       });
     }
     return ordered;
-  }, [uiRows, hits, deepHits, stampRows, scope]);
+  }, [uiRows, hits, deepHits, stampRows, scope, hitFieldMatches]);
 
-  const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
+  const flat = useMemo(
+    () => groups.flatMap((g) => (g.subgroups ? g.subgroups.flatMap((s) => s.rows) : g.rows)),
+    [groups],
+  );
 
   useEffect(() => {
     setActiveIndex((i) => (flat.length === 0 ? 0 : Math.min(i, flat.length - 1)));
@@ -435,6 +484,59 @@ export function GlobalSearchOverlay(props: {
       onClose();
       onNavigateTab(row.tabId);
     }
+  };
+
+  /** Строка выдачи. Порядок обхода обязан совпадать с `flat` — по нему идёт стрелками. */
+  const renderRow = (row: RowItem) => {
+    const idx = flatCursor;
+    flatCursor += 1;
+    const isActive = idx === activeIndex;
+    return (
+      <button
+        key={row.key}
+        ref={isActive ? activeRowRef : null}
+        data-testid="global-search-row"
+        data-kind={row.hit ? row.hit.kind : 'ui'}
+        type="button"
+        onMouseEnter={() => setActiveIndex(idx)}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => pick(row)}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 2,
+          width: '100%',
+          textAlign: 'left',
+          padding: '7px 16px',
+          border: 'none',
+          cursor: 'pointer',
+          background: isActive ? 'var(--surface2)' : 'transparent',
+          color: 'var(--text)',
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <span style={{ flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {row.label}
+          </span>
+          {row.code ? <span style={{ flex: '0 0 auto', fontSize: 12, color: 'var(--muted)' }}>{row.code}</span> : null}
+          {row.note ? <span style={{ flex: '0 0 auto', fontSize: 11, color: 'var(--muted)' }}>{row.note}</span> : null}
+        </span>
+        {row.path ? (
+          <span
+            style={{
+              fontSize: 11,
+              color: 'var(--muted)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {row.path}
+          </span>
+        ) : null}
+      </button>
+    );
   };
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
@@ -582,57 +684,23 @@ export function GlobalSearchOverlay(props: {
               >
                 {group.title}
               </div>
-              {group.rows.map((row) => {
-                const idx = flatCursor;
-                flatCursor += 1;
-                const isActive = idx === activeIndex;
-                return (
-                  <button
-                    key={row.key}
-                    ref={isActive ? activeRowRef : null}
-                    data-testid="global-search-row"
-                    data-kind={row.hit ? row.hit.kind : 'ui'}
-                    type="button"
-                    onMouseEnter={() => setActiveIndex(idx)}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => pick(row)}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'stretch',
-                      gap: 2,
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '7px 16px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      background: isActive ? 'var(--surface2)' : 'transparent',
-                      color: 'var(--text)',
-                    }}
-                  >
-                    <span style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                      <span style={{ flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {row.label}
-                      </span>
-                      {row.code ? <span style={{ flex: '0 0 auto', fontSize: 12, color: 'var(--muted)' }}>{row.code}</span> : null}
-                      {row.note ? <span style={{ flex: '0 0 auto', fontSize: 11, color: 'var(--muted)' }}>{row.note}</span> : null}
-                    </span>
-                    {row.path ? (
-                      <span
+              {group.subgroups
+                ? group.subgroups.map((sub) => (
+                    <div key={sub.key}>
+                      <div
+                        data-testid="global-search-field-group"
                         style={{
+                          padding: '3px 16px 2px 26px',
                           fontSize: 11,
                           color: 'var(--muted)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
                         }}
                       >
-                        {row.path}
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
+                        {sub.title}
+                      </div>
+                      {sub.rows.map((row) => renderRow(row))}
+                    </div>
+                  ))
+                : group.rows.map((row) => renderRow(row))}
             </div>
           ))}
         </div>

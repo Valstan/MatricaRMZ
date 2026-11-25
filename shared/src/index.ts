@@ -137,6 +137,8 @@ export * from './domain/watchdog.js';
 // Принудительное обновление парка: отставание ≥2 релизов + окно 12:30 МСК.
 export * from './domain/forcedUpdate.js';
 export * from './domain/globalSearch.js';
+// Реестр полей поиска и сопоставление совпадения с полем (промт КАРМАНА #137).
+export * from './domain/searchFields.js';
 export * from './domain/payments.js';
 export * from './domain/engineFinance.js';
 export * from './domain/reclamation.js';
