@@ -35,7 +35,6 @@ import {
 import type { EngineFacetId, EngineFacetSelection, EngineListItem, GroupLevel } from '@matricarmz/shared';
 
 import { EngineFacetFilter } from '../components/EngineFacetFilter.js';
-import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
 import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { SEARCH_MODE_HINT, searchModeEmptyText } from '../components/SearchModeHint.js';
@@ -1364,12 +1363,6 @@ export function EnginesPage(props: {
             onChange={(v) => patchState({ query: v, page: 0 })}
             placeholder="Поиск по всем данным двигателя (и внутри карточек)…"
           />
-        </ToolbarPin>
-        {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,
-            промт КАРМАНА #151). Закреплена: свёрнутая панель исчезает с экрана целиком, и
-            добраться до неё иначе нечем. */}
-        <ToolbarPin>
-          <FacetPanelToggle usageKey="list:engines" />
         </ToolbarPin>
         <ToolbarPin>
           <EngineQrScanButton onEngineNumber={(n) => patchState({ query: n, page: 0 })} />
