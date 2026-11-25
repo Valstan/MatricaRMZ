@@ -142,3 +142,21 @@ corepack pnpm -F @matricarmz/electron-app exec electron-builder install-app-deps
 ## История подъёмов именованных стендов
 
 Хроника прошлых подъёмов (lane2 в линиях 2 и 4, 23–25.11.2026) вынесена в отдельную часть: [stand-log.md](stand-log.md). Актуальное состояние стенда — выше.
+
+### Стенд в отдельном worktree — когда в общем дереве пишет соседний агент (25.11.2026)
+
+Рабочий путь, когда общий рабочий деревьев занят соседней нитью: свой worktree со своим `node_modules`, свой стенд на портах lane1 и своя копия `better-sqlite3` — соседний агент и его прогоны тестов не затрагиваются (ABI в его дереве не переключается).
+
+1. `git worktree add --detach .claude/worktrees/<имя> HEAD` (внутри репо — путь снаружи гейт режет).
+2. `corepack pnpm install --frozen-lockfile --prefer-offline` — ~1 мин, всё из общего стора.
+3. **Скопировать `.env.dev`** (`backend-api/` и `electron-app/`) из основного дерева: они gitignored, в worktree их нет ⇒ backend и клиент останутся на портах и БД стенда `main`.
+4. **Скопировать распакованный electron**: `node_modules/.pnpm/electron@43.0.0/node_modules/electron/dist` (+ `path.txt`) из основного дерева. **Postinstall в worktree бинарь НЕ качет** ⇒ клиент падает с «Electron uninstall» (electron-vite).
+5. **Сменить ABI better-sqlite3 в node_modules worktree**: сначала убрать файл (`rm -- <путь>`, разорвать hard link на стор-.store — грабля **M209**), потом положить копию из `.verifier-electron/abi-electron-20261021/` (`better_sqlite3.node` и `better_sqlite3.mc.node`). Обратно переключать не нужно: worktree удаляется.
+6. Свои лаунчеры (ASCII-only, PS 5.1 ломает кириллицу в `.ps1` без BOM): backend — `PGDATABASE=matricarmz_dev_lane1`, `PORT=3002`, `MATRICA_API_URL=http://127.0.0.1:3002`; клиент — `MATRICA_RENDERER_PORT=5174`, `MATRICA_CDP_PORT=9223`, `MATRICA_API_URL=http://127.0.0.1:3002`.
+7. После прогона: клиент закрыть через CDP `Browser.close` (таргет — `http://127.0.0.1:9223/json/list`), backend — остановить по порту (`Get-NetTCPConnection -LocalPort 3002` → `Stop-Process`), worktree убрать.
+
+**Грабли worktree на Windows:**
+
+- `git worktree remove --force` падает с **«Filename too long»** (пути в `node_modules/.pnpm` длиннее 260 символов). Помогает `git config core.longpaths true` + `git worktree prune`; остаток каталога удаляется через node: `fs.rmSync('\\\\?\\' + path, { recursive: true, force: true })`.
+- `robocopy /E` на копировании `node_modules` режет политика («recursive write/delete target cannot be verified inside the workspace») — копировать через node (`fs.cpSync`).
+- Модуль `ws` есть не в корне монорепо, а в `node_modules/.pnpm` ⇒ CDP-драйверы запускать из каталога пакета (или резолвить `ws` как в смоуках скилла).
