@@ -37,4 +37,10 @@ describe('бот обмена и пересылки: клиентская пол
     // Свой канал «ответ бота» означал бы второй транспорт и второй контракт.
     expect(CLIENT_SERVICE, 'у клиента не должно быть канала ответа бота').not.toContain('exchangeBot:reply');
   });
+
+  it('подсказка «какой файл ждёт ответа» помнит, кому файл ушёл', () => {
+    // Файл, отправленный коллеге, — не запрос боту: по нему бот пересылать не должен.
+    expect(CLIENT_SERVICE).toContain('pendingFileRecipientUserId');
+    expect(CLIENT_SERVICE).toContain('recipientUserId: recipient');
+  });
 });
