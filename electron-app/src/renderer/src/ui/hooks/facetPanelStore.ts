@@ -104,13 +104,12 @@ export function subscribeFacetPanel(
 
 /** Хук для кнопки тулбара и для самой панели: одно состояние на обоих. */
 export function useFacetPanelState(usageKey?: string) {
-  const key = facetPanelKey(usageKey);
   const [state, setState] = React.useState<FacetPanelState>(() => readFacetPanelState(usageKey));
 
   React.useEffect(() => {
     setState(readFacetPanelState(usageKey));
     return subscribeFacetPanel(usageKey, setState);
-  }, [key]);
+  }, [usageKey]);
 
   return {
     expanded: state.expanded,
