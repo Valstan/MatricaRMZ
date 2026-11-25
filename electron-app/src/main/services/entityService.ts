@@ -93,7 +93,13 @@ export async function listEntitiesByType(db: BetterSQLite3Database, entityTypeId
     .select()
     .from(entities)
     .where(and(eq(entities.typeId, entityTypeId), isNull(entities.deletedAt)))
-    .orderBy(asc(entities.updatedAt))
+    // Сортировка — по убыванию: при лимите 2000 строк в выжимку должны попадать
+    // СВЕЖИЕ записи, а не самые давно обновлённые. Обратная сортировка отсекала
+    // свежие записи справочника (промт КАРМАНА #146: «новые не видны»): в поле
+    // выбора попадали самые старые, а новые контрагенты — нет. Порядок выдачи
+    // всё равно задаётся в конце функции (свежие первыми) — здесь важно, КАКИЕ строки
+    // переживают лимит.
+    .orderBy(desc(entities.updatedAt))
     .limit(2000);
 
   if (rows.length === 0) return [];

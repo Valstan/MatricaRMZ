@@ -46,6 +46,7 @@ import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { safeJsonObject } from '../utils/safeJson.js';
+import { loadCounterpartySources } from '../utils/counterpartyOptions.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { FacetFilter } from '../components/FacetFilter.js';
@@ -196,14 +197,9 @@ export function CounterpartiesPage(props: {
       // контрагента. Раньше список читал легаси-EAV, и правка в карточке (ИНН, адрес,
       // телефон) до списка не доезжала — два экрана показывали разное. EAV остаётся
       // запасным путём и источником вложений (превью файлов).
-      const strictResult = await window.matrica.contracts.counterparty.list().catch(() => null);
-      const strictRows =
-        strictResult && strictResult.ok && Array.isArray(strictResult.rows) ? (strictResult.rows as any[]) : [];
-      const eavRows = (await window.matrica.admin.entities.listByEntityType(typeId)) as any[];
-      const withAttrs = await window.matrica.admin.entities.listByEntityTypeWithAttrs(typeId).catch(() => []);
-      const attrsById = new Map(withAttrs.map((row) => [String(row.id), row.attributes ?? {}]));
-      const strictById = new Map(strictRows.map((r) => [String(r.id), r]));
-      const merged = strictRows.length > 0 ? [...strictRows, ...eavRows.filter((r) => !strictById.has(String(r.id)))] : eavRows;
+      // Мерж живёт в общем модуле — его же читает поле выбора контрагента в карточке
+      // договора (промт #146): один источник, чтобы экраны снова не разошлись.
+      const { attrsById, strictById, merged } = await loadCounterpartySources(typeId);
 
       // Сводка по договорам заказчика: сколько их, какая сумма, есть ли двигатели на
       // заводе, есть ли просроченные. Это и есть связь «заказчик → его договоры» и
