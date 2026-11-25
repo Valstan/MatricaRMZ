@@ -152,9 +152,26 @@ if (!(await ev(`window.matrica.auth.status().then(s => !!s.loggedIn)`))) {
   await waitFor(`window.matrica.auth.status().then(s => !!s.loggedIn)`, 'вход выполнен');
 }
 await sleep(1500);
-await ev(`(() => { for (const t of ['За работу!','Позже','Отклонить','Закрыть']) { for (const b of [...document.querySelectorAll('button')].filter(x=>x.textContent.trim()===t)) b.click(); } return true; })()`);
+// Гасим оверлеи. Сравнение — по НАЧАЛУ подписи, а не по точному равенству: кнопка
+// приветствия называется «За работу! (Enter)», и точное сравнение её не находило —
+// оверлей оставался на экране, а снимки показывали его вместо карточки (грабля
+// смоука 26.11.2026: DOM мерился правильно, а картинка — нет).
+await ev(`(() => {
+  const wanted = ['За работу!', 'Позже', 'Отклонить', 'Закрыть'];
+  const clicked = [];
+  for (const b of [...document.querySelectorAll('button')]) {
+    const t = (b.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (wanted.some((w) => t === w || t.startsWith(w))) { b.click(); clicked.push(t); }
+  }
+  return clicked;
+})()`).then((c) => console.log(`   оверлеи погашены: ${JSON.stringify(c)}`));
 await sleep(400);
 await waitFor(`!!document.querySelector('.v3-tab-strip')`, 'оболочка v3');
+// Оверлей приветствия перекрывает экран: пока он жив, снимок показывает его, а не
+// карточку. Поэтому проверяем, что он ушёл, ДО первого снимка — иначе «доказательство»
+// окажется картинкой приветствия (грабля 26.11.2026).
+const overlayAlive = await ev(`Boolean(document.querySelector('.release-welcome-overlay'))`);
+step('окно приветствия закрыто (снимки будут карточки, а не оверлея)', overlayAlive === false);
 
 /* ── 1. Карточка двигателя → вкладка «История ремонта» ────────────────────────────────── */
 
