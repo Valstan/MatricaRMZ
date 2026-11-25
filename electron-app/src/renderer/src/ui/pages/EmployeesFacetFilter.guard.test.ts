@@ -32,13 +32,16 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(PAGE).toContain('hasFiles: (row.attachmentPreviews?.length ?? 0) > 0');
   });
 
-  it('кнопки «Фильтры» нет: панель фильтров всегда на виду под тулбаром', () => {
-    // Владелец 12.11.2026: «убери кнопку „Фильтры“ отовсюду, пусть панель фильтров будет всегда
-    // открыта и активна и видна под панелью управляющих кнопок карточки или списка».
-    expect(PAGE, 'кнопка «Фильтры» вернулась бы в тулбар').not.toContain('<FacetToggleButton');
-    expect(PAGE).not.toContain('data-facet-toggle');
+  it('кнопка «Фильтры» в тулбаре есть: панель открывается и сворачивается ею', () => {
+    // ⚠️ Разворот решения 12.11.2026 («убери кнопку „Фильтры“ отовсюду»), решение владельца
+    // 25.11.2026 (промт КАРМАНА #151): кнопка ВЕРНУЛАСЬ в верхнюю панель управляющих кнопок.
+    // Свёрнутая панель исчезает с экрана целиком — без кнопки до неё не добраться.
+    expect(PAGE).toContain('<FacetPanelToggle usageKey="list:employees" />');
+    const at = PAGE.indexOf('<FacetPanelToggle');
+    expect(at, 'кнопки «Фильтры» нет').toBeGreaterThan(-1);
+    expect(PAGE.slice(Math.max(0, at - 200), at), 'кнопка не закреплена').toContain('<ToolbarPin>');
     expect(PAGE, 'у списка больше нет состояния раскрытости панели').not.toContain('facetsOpen');
-    expect(FILTER, 'панель снова может исчезнуть').not.toContain('if (!props.open) return null;');
+    expect(FILTER, 'панель должна исчезать с экрана целиком').toContain('if (!expanded) return null;');
     // Панель при этом на месте — под тулбаром.
     expect(PAGE).toContain('<FacetFilter<Row>');
   });

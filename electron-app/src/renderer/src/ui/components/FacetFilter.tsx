@@ -23,30 +23,15 @@ import {
 } from '@matricarmz/shared';
 
 import { Input } from './Input.js';
-import { useListUiState } from '../hooks/useListBehavior.js';
+import { setFacetPanelActiveCount, useFacetPanelState } from '../hooks/facetPanelStore.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
 import { FALLBACK_FACET_TONE, facetTones, type FacetTone } from '../utils/facetTone.js';
-import { layoutFacetChipGroups, type FacetChipGroup } from '../utils/facetChipLayout.js';
 
 /** Значений больше — в меню ступени появляется поле «Найти…». */
 const FACET_VALUE_SEARCH_THRESHOLD = 10;
 
-/**
- * Высота строки плашек под кнопками-родителями. Плашки висят в ОТДЕЛЬНОЙ строке под рядом
- * кнопок (не плавающим слоем поверх него): строка плашек — общая на все ступени, иначе
- * плашки соседних ступеней наезжали друг на друга (владелец 12.11.2026: «наезжают друг на
- * друга, прочитать невозможно, что выбрано, и отключить невозможно»).
- */
-const FACET_CHIP_ROW_HEIGHT = 22;
-
 /** Плашка не шире этого — длинное значение обрезается многоточием, полный текст — в подсказке. */
 const FACET_CHIP_MAX_WIDTH = 200;
-
-/**
- * Ниже этой ширины плашку не ужимаем: вместо читаемой подписи получится «Пр…», и оператор
- * не поймёт, что выбрано. Лучше пусть ряд выйдет за панель, чем плашка станет нечитаемой.
- */
-const FACET_CHIP_MIN_WIDTH = 90;
 
 /** Хранилище рейтинга ступеней: своё у каждого списка (`usageKey`). */
 const FACET_USAGE_STORAGE_PREFIX = 'facetUsage:';
@@ -73,17 +58,25 @@ function readFacetUsage(usageKey: string | undefined): FacetUsage {
 }
 
 /**
- * Ступенчатый фильтр списка — под панелью управляющих кнопок (владелец 12.11.2026: «убери
- * кнопку „Фильтры“ отовсюду, пусть панель фильтров будет всегда открыта и активна и видна под
- * панелью управляющих кнопок карточки или списка»). Раньше панель пряталась под кнопку в
- * тулбаре (просьба владельца 08.09.2026: тулбар оброс кнопками, и все отборы должны жить в
- * одном месте) — теперь кнопки «Фильтры» нет, а панель стоит под тулбаром.
+ * Ступенчатый фильтр списка — под панелью управляющих кнопок. Общий для двигателей и
+ * контрактов: ступени приходят описанием, компонент о предметной области ничего не знает.
  *
- * С 24.11.2026 панель ещё и **сворачивается** (промт КАРМАНА #106): по умолчанию развёрнута,
- * но кнопка сворачивает её и освобождает место под рабочую область списка. Отбор при этом
- * остаётся видимым (плашки и счётчик) — иначе список выглядел бы «неправильным».
- * Общий для двигателей и контрактов — ступени приходят описанием, компонент о предметной
- * области ничего не знает.
+ * **С 25.11.2026 (промт КАРМАНА #151) панель открывается и сворачивается кнопкой «Фильтры» в
+ * верхней панели управляющих кнопок** (владелец: «кнопка „Фильтры“ в верхней панели, свёрнутая
+ * панель исчезает совсем»). Свёрнутая панель исчезает с экрана ЦЕЛИКОМ: ни рамки, ни кнопки
+ * «Сбросить фильтры», ни плашек выбранных значений. Признак отбора при этом остаётся на виду —
+ * числом активных ступеней на кнопке «Фильтры» в тулбаре (иначе оператор не поймёт, почему
+ * список короче).
+ *
+ * Открытая панель — **один ряд**: [сворачивание] [«Сбросить фильтры (N)»] [плашки выбранных
+ * значений], с переносом на вторую строку, если в экран не влезает.
+ *
+ * Это СОЗНАТЕЛЬНЫЙ разворот двух прошлых решений владельца: 12.11.2026 («убери кнопку „Фильтры“
+ * отовсюду, пусть панель фильтров будет всегда открыта») и 24.11.2026 (при сворачивании отбор
+ * остаётся видимым, чтобы не было ловушки «почему тут не все?»).
+ *
+ * Раньше панель пряталась под кнопку в тулбаре (просьба владельца 08.09.2026: тулбар оброс
+ * кнопками, и все отборы должны жить в одном месте).
  *
  * Вид панели (владелец 12.11.2026: «пусть это будут просто надписи на квадратных ячейках,
  * практически без полей»):
@@ -115,18 +108,17 @@ function readFacetUsage(usageKey: string | undefined): FacetUsage {
  * Пятое (владелец 12.11.2026): ширина плашек выбранных значений НЕ влияет на ширину
  * кнопки-родителя. Раньше колонка была `flex column` с `maxWidth`, и длинное название
  * выбранного значения раздвигало соседние кнопки — общий ряд «расползался в ширину».
- * Теперь плашки стоят отдельной строкой под рядом кнопок, и ширину ряда задаёт сама
- * кнопка.
  *
- * Шестое (владелец 12.11.2026): кнопки «Фильтры» больше нет — панель всегда открыта,
- * выпадашка непрозрачная, щелчок по плашке снимает значение.
+ * Шестое (владелец 12.11.2026): выпадашка непрозрачная, щелчок по плашке снимает значение.
  *
  * Седьмое (владелец 12.11.2026): плашки разных ступеней больше НЕ наезжают друг на друга.
  * Раньше каждая висела плавающим слоем под своей кнопкой, и широкая плашка наезжала на
- * соседнюю — «прочитать невозможно, что выбрано, и отключить невозможно». Теперь у всех
- * ступеней ОДНА строка плашек под рядом кнопок, и места в ней хватает всем: группа тянется
- * к своей кнопке-родителю, но при нехватке места сдвигается — ровно как дочернее меню в
- * Матрице первой и второй версии.
+ * соседнюю — «прочитать невозможно, что выбрано, и отключить невозможно».
+ *
+ * Восьмое (владелец 25.11.2026, промт КАРМАНА #151): плашки переехали В РЯД ПАНЕЛИ — рядом с
+ * кнопкой сворачивания и «Сбросить фильтры», а не отдельной строкой под кнопками-ступенями.
+ * Ряд один и переносится, если не влезает; замер и раскладка плашек по кнопкам-родителям
+ * (`utils/facetChipLayout.ts`) больше не нужны — плашки идут обычным потоком.
  */
 
 /**
@@ -165,16 +157,6 @@ function facetChipStyle(tone: FacetTone, maxWidth: number): React.CSSProperties 
   };
 }
 
-/**
- * Позиции плашек не изменились — тогда состояние не трогаем. Без этого проверки каждый
- * замер ронял бы новый объект, а React — перерисовывать панель (и замерять снова) по кругу.
- */
-function sameChipLayout(prev: Record<string, number>, next: Record<string, number>): boolean {
-  const prevKeys = Object.keys(prev);
-  if (prevKeys.length !== Object.keys(next).length) return false;
-  return prevKeys.every((key) => Math.abs((prev[key] ?? -1) - (next[key] ?? -2)) <= 0.5);
-}
-
 export function FacetFilter<Row>(props: {
   facets: readonly FacetDescriptor<Row>[];
   rows: readonly Row[];
@@ -186,9 +168,8 @@ export function FacetFilter<Row>(props: {
   onChangeSelection: (next: FacetSelection) => void;
   onChangeFields: (next: string[]) => void;
   onReset: () => void;
-  // Пропа `open` больше нет (владелец 12.11.2026: «убери кнопку „Фильтры“ отовсюду, пусть
-  // панель фильтров будет всегда открыта и активна и видна»): панель не сворачивается, и
-  // состояние раскрытости в состоянии списка больше не нужно.
+  // Пропа `open` больше нет: раскрытость панели живёт в общем сторе (`facetPanelStore.ts`) —
+  // там же, откуда её читает кнопка «Фильтры» в тулбаре.
   // Кнопки колонок здесь тоже нет (владелец 16.09.2026): она жила в панели с 08.09, но панель
   // сворачивалась, и «Колонки списка» пропадали вместе с ней. Настройка колонок вернулась
   // в тулбар — постоянно на виду.
@@ -196,17 +177,18 @@ export function FacetFilter<Row>(props: {
   const activeCount = activeFacetCount(props.facets, props.selection);
   const chosen = new Set(props.fields);
 
-  // ── Раскрытость панели (владелец 24.11.2026, промт КАРМАНА #106) ────────────────────────
-  // По умолчанию панель РАЗВЁРНУТА (так просил владелец: «по умолчанию панель фильтров всегда
-  // развёрнута»), но сворачивается одной кнопкой — освобождается место под рабочую область
-  // списка. Выбор помнится в состоянии списка (по `usageKey`, как группировка и сортировка):
-  // своя панель у каждого списка, переживает переход между экранами.
-  const panelStateKey = `${props.usageKey ?? 'facets'}:facetPanel`;
-  const { state: panelState, patchState: patchPanelState } = useListUiState<{ expanded: boolean }>(
-    panelStateKey,
-    { expanded: true },
-  );
-  const expanded = panelState.expanded !== false;
+  // ── Раскрытость панели (владелец 25.11.2026, промт КАРМАНА #151) ────────────────────────
+  // Общий источник с подпиской: кнопка «Фильтры» в тулбаре и сама панель читают ОДНО
+  // состояние. Своё состояние у каждой из них разошлось бы (кнопка переключила своё, панель
+  // — своё), а `useListUiState` на внешние изменения не подписан.
+  const panel = useFacetPanelState(props.usageKey);
+  const expanded = panel.expanded;
+
+  // Счётчик активных ступеней — на кнопке «Фильтры» в тулбаре: свёрнутая панель исчезает
+  // с экрана целиком, и без числа оператор не поймёт, почему список короче.
+  React.useEffect(() => {
+    setFacetPanelActiveCount(props.usageKey, activeCount);
+  }, [props.usageKey, activeCount]);
 
   // Цвет ступени — от её id, а не от места в ряду: фильтр узнаётся по цвету, даже когда
   // рейтинг переставил кнопки.
@@ -418,103 +400,15 @@ export function FacetFilter<Row>(props: {
   }, [props.facets, props.selection, selectedOptions]);
 
   /**
-   * Раскладка плашек по строке (владелец 12.11.2026).
+   * Кнопка сворачивания панели (владелец 25.11.2026, промт КАРМАНА #151).
    *
-   * Плашки больше не висят плавающим слоем под своей кнопкой: все ступени делят ОДНУ строку
-   * под рядом кнопок, и плашки соседних ступеней наезжали друг на друга. Теперь позиции
-   * считаются явно: у каждой группы — своё место в строке, рядом со своей кнопкой, но без
-   * наезда (алгоритм — в `utils/facetChipLayout.ts`, это то же поведение, что было у меню
-   * Матрицы первой и второй версии: дочернее меню ищет место под родителем и сдвигается,
-   * если место занято).
-   */
-  const chipRowRef = React.useRef<HTMLDivElement | null>(null);
-  const parentRefs = React.useRef<Record<string, HTMLElement | null>>({});
-  const groupRefs = React.useRef<Record<string, HTMLElement | null>>({});
-  const [chipLayout, setChipLayout] = React.useState<Record<string, number>>({});
-  /** Ширина плашки: ужимается, если в одну строку иначе не влезает. */
-  const [chipMaxWidth, setChipMaxWidth] = React.useState(FACET_CHIP_MAX_WIDTH);
-
-  /** Состав плашек — по нему ширина плашек возвращается к обычной, когда отбор изменился. */
-  const chipSignature = React.useMemo(
-    () =>
-      rankedFields
-        .map((facet) => {
-          const chips = selectedOptions.get(facet.id) ?? [];
-          const range = facet.kind === 'dateRange' && facetRangeOf(props.selection, facet.id) != null ? 1 : 0;
-          return `${facet.id}:${chips.length}:${range}`;
-        })
-        .join('|'),
-    [rankedFields, selectedOptions, props.selection],
-  );
-
-  React.useEffect(() => {
-    setChipMaxWidth(FACET_CHIP_MAX_WIDTH);
-  }, [chipSignature]);
-
-  /**
-   * Замер и раскладка. Считается после каждой отрисовки: изменились плашки, изменилась
-   * ширина панели — плашки встали на новые места.
-   */
-  const measureChipRow = React.useCallback(() => {
-    const chipRow = chipRowRef.current;
-    if (!chipRow) return;
-    // При свёрнутой панели плашки идут потоком, а кнопок под ними нет — измерять нечего
-    // (у скрытых кнопок прямоугольник пустой, и раскладка вышла бы мусорной). При разворачивании
-    // замер повторится сам: `measureChipRow` меняется вместе с `expanded`.
-    if (!expanded) return;
-    const rowRect = chipRow.getBoundingClientRect();
-    const available = rowRect.width;
-    const groups: FacetChipGroup[] = [];
-    let chipCount = 0;
-    for (const facet of rankedFields) {
-      const group = groupRefs.current[facet.id];
-      const parent = parentRefs.current[facet.id];
-      if (!group || !parent) continue;
-      const chips = selectedOptions.get(facet.id) ?? [];
-      const range = facet.kind === 'dateRange' ? facetRangeOf(props.selection, facet.id) : null;
-      if (chips.length === 0 && !range) continue;
-      const groupRect = group.getBoundingClientRect();
-      const parentRect = parent.getBoundingClientRect();
-      groups.push({
-        id: facet.id,
-        width: groupRect.width,
-        parentCenter: parentRect.left + parentRect.width / 2 - rowRect.left,
-      });
-      chipCount += chips.length + (range ? 1 : 0);
-    }
-    if (groups.length === 0) {
-      setChipLayout((prev) => (Object.keys(prev).length === 0 ? prev : {}));
-      return;
-    }
-    const plan = layoutFacetChipGroups(groups, available);
-    // В одну строку не влезает — ужимаем плашки (снизу ограничителем: подпись должна читаться).
-    if (plan.totalWidth > available + 0.5 && chipCount > 0 && chipMaxWidth > FACET_CHIP_MIN_WIDTH) {
-      const per = Math.ceil((plan.totalWidth - available) / chipCount);
-      const next = Math.max(FACET_CHIP_MIN_WIDTH, chipMaxWidth - per);
-      if (next < chipMaxWidth) {
-        setChipMaxWidth(next);
-        return;
-      }
-    }
-    setChipLayout((prev) => (sameChipLayout(prev, plan.positions) ? prev : plan.positions));
-  }, [rankedFields, selectedOptions, props.selection, chipMaxWidth, expanded]);
-
-  React.useLayoutEffect(() => {
-    measureChipRow();
-  }, [measureChipRow]);
-
-  /** Ширина панели меняется — плашки пересчитывают места. */
-  React.useEffect(() => {
-    const chipRow = chipRowRef.current;
-    if (!chipRow || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(() => measureChipRow());
-    observer.observe(chipRow);
-    return () => observer.disconnect();
-  }, [measureChipRow]);
-
-  /**
-   * Кнопка сворачивания/разворачивания панели (владелец 24.11.2026, промт КАРМАНА #106).
-   * Живёт ВНЕ сворачиваемого содержимого — иначе сворачивать было бы нечем.
+   * Живёт в ряду панели и стоит В НЁМ ПЕРВОЙ: сперва сворачивание, потом «Сбросить фильтры»,
+   * потом плашки выбранных значений. Знак — треугольник вверх: он означает «свернётся», а не
+   * «развернётся» (владелец 25.11.2026: «давай треугольник этот сделаем… или, например,
+   * стрелку вверх, чтобы было понятно, что если ты её нажмешь, то панель свернется»).
+   *
+   * Развернуть панель обратно — кнопка «Фильтры» в тулбаре: свёрнутая панель исчезает с экрана
+   * целиком, и кнопки внутри неё больше нет.
    */
   function renderCollapseButton() {
     return (
@@ -522,12 +416,8 @@ export function FacetFilter<Row>(props: {
         type="button"
         data-facet-collapse
         aria-expanded={expanded}
-        onClick={() => patchPanelState({ expanded: !expanded })}
-        title={
-          expanded
-            ? 'Свернуть панель фильтров — освободит место под список'
-            : 'Развернуть панель фильтров'
-        }
+        onClick={() => panel.setExpanded(false)}
+        title="Свернуть панель фильтров — освободит место под список"
         style={{
           padding: '2px 4px',
           borderRadius: 4,
@@ -539,15 +429,16 @@ export function FacetFilter<Row>(props: {
           lineHeight: 1.25,
         }}
       >
-        {expanded ? '▼' : '▶'}
+        ▲
       </button>
     );
   }
 
   /**
-   * Кнопка «Сбросить фильтры» — первой в ряду (владелец 16.09.2026): выход из фильтра ищут в
-   * начале панели, а не в её хвосте, который на узком окне уезжает под перенос ступеней.
-   * Снимает ВСЁ (владелец 12.11.2026); сброс одной ступени живёт в её меню.
+   * Кнопка «Сбросить фильтры» — вторая в ряду панели, сразу за сворачиванием (владелец
+   * 25.11.2026: «сперва сворачивание, потом „Сбросить фильтры“, потом плашки»). Выход из
+   * фильтра ищут в начале панели, а не в её хвосте, который на узком окне уезжает под перенос
+   * ступеней. Снимает ВСЁ (владелец 12.11.2026); сброс одной ступени живёт в её меню.
    */
   function renderResetButton() {
     const idle = activeCount === 0 && props.fields.length === 0;
@@ -784,9 +675,6 @@ export function FacetFilter<Row>(props: {
         }}
       >
         <div
-          ref={(el) => {
-            parentRefs.current[facet.id] = el;
-          }}
           style={{ position: 'relative' }}
           onMouseEnter={() => openMenu(facet.id, 'cell')}
           onMouseLeave={closeMenuOnLeave}
@@ -809,8 +697,9 @@ export function FacetFilter<Row>(props: {
   }
 
   /**
-   * Группа плашек одной ступени: стоит в общем ряду под кнопками, прижата к своей кнопке
-   * (насколько позволяет ряд), но ни на что не наезжает.
+   * Группа плашек одной ступени: стоит в ряду панели, после кнопки сброса. Плашки идут
+   * обычным потоком и переносятся, если ряд не влезает — привязки к кнопке-родителю больше
+   * нет (владелец 25.11.2026: плашки переехали в ряд панели).
    */
   function renderChipGroup(facet: FacetDescriptor<Row>) {
     const tone = tones[facet.id] ?? FALLBACK_FACET_TONE;
@@ -820,26 +709,14 @@ export function FacetFilter<Row>(props: {
     return (
       <div
         key={facet.id}
-        ref={(el) => {
-          groupRefs.current[facet.id] = el;
-        }}
         data-facet-chip-group={facet.id}
         style={{
-          // Развёрнутая панель: группа стоит под своей кнопкой (места считает замер).
-          // Свёрнутая: под кнопок не видно — плашка идёт обычным потоком, иначе она повисла
-          // бы в пустоте.
-          ...(expanded
-            ? { position: 'absolute' as const, top: 0, left: chipLayout[facet.id] ?? 0 }
-            : { position: 'static' as const }),
-          // Ширина по содержимому: от положения группы в ряду она не зависит, иначе
-          // замер ширины ломался бы о собственное смещение.
-          width: 'max-content',
           display: 'flex',
-          flexWrap: 'nowrap',
-          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+          alignItems: 'center',
           gap: 2,
-          whiteSpace: 'nowrap',
-          zIndex: 5,
+          minWidth: 0,
+          maxWidth: '100%',
         }}
       >
         {chips.map((option) => (
@@ -854,7 +731,7 @@ export function FacetFilter<Row>(props: {
               data-facet-chip={`${facet.id}:${option.value}`}
               onClick={() => toggleChip(facet.id, option.value)}
               title={`${option.label} — нажмите, чтобы снять значение из отбора`}
-              style={facetChipStyle(tone, chipMaxWidth)}
+              style={facetChipStyle(tone, FACET_CHIP_MAX_WIDTH)}
             >
               {option.label}
             </button>
@@ -872,7 +749,7 @@ export function FacetFilter<Row>(props: {
               data-facet-chip={`${facet.id}:range`}
               onClick={() => clearRangeChip(facet.id)}
               title={`${facet.label}: ${range.from ?? '…'} — ${range.to ?? '…'} — нажмите, чтобы снять период`}
-              style={facetChipStyle(tone, chipMaxWidth)}
+              style={facetChipStyle(tone, FACET_CHIP_MAX_WIDTH)}
             >
               {range.from && range.from === range.to ? range.from : `${range.from ?? '…'} — ${range.to ?? '…'}`}
             </button>
@@ -883,33 +760,31 @@ export function FacetFilter<Row>(props: {
     );
   }
 
-  /** Общий ряд плашек под рядом кнопок: одна строка на все ступени, без наездов.
-   *  При СВЁРНУТОЙ панели ряд остаётся видимым: отбор, который надо ещё открыть, и который
-   *  снимается не тем же щелчком, каким выбран, — это ловушка (письмо владельцу
-   *  12.11.2026). Тогда плашки идут обычным потоком: под кнопками, которых не видно, им
-   *  стоять негде. */
+  /**
+   * Ряд плашек выбранных значений — часть ряда панели (владелец 25.11.2026): [сворачивание]
+   * [«Сбросить фильтры (N)»] [плашки]. Плашки идут обычным потоком и переносятся, если ряд
+   * не влезает в экран.
+   */
   function renderChipRow() {
     if (!hasAnyChips) return null;
     return (
       <div
-        ref={chipRowRef}
         data-facet-chip-row
-        style={
-          expanded
-            ? { position: 'relative', height: FACET_CHIP_ROW_HEIGHT }
-            : { display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }
-        }
+        style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', flex: '1 1 auto', minWidth: 0 }}
       >
         {rankedFields.map(renderChipGroup)}
       </div>
     );
   }
 
-  // Панель по умолчанию развёрнута (владелец 24.11.2026), но сворачивается кнопкой: место
-  // освобождается под рабочую область списка. Содержимое скрывается атрибутом `hidden` на
-  // ДОЧЕРНЕМ узле — на корневой лежит инлайновый `display: 'grid'`, а он перебил бы `hidden`
-  // (M78). Содержимое НЕ размонтируется: рейтинг ступеней и открытое меню должны пережить
-  // сворачивание (иначе панель «забывает» свой вид).
+  // Свёрнутая панель исчезает с экрана ЦЕЛИКОМ (владелец 25.11.2026): ни рамки, ни кнопки
+  // «Сбросить фильтры», ни плашек выбранных значений — иначе панель занимала бы место под
+  // себя, но ничего не говорила бы. Развернуть её — кнопка «Фильтры» в тулбаре.
+  //
+  // Все хуки выше по тексту уже вызваны (ранний выход стоит после них), а отбор живёт в
+  // состоянии списка — сворачивание его не теряет.
+  if (!expanded) return null;
+
   return (
     <div
       data-engine-facets
@@ -922,20 +797,20 @@ export function FacetFilter<Row>(props: {
         background: 'var(--surface-2)',
       }}
     >
-      {/* Ряд панели: выход из фильтра и кнопка сворачивания. Живут всегда — иначе сворачивать
-          было бы нечем, а сброс отбора — недоступен. */}
+      {/* Ряд панели — ОДИН: сворачивание, «Сбросить фильтры», плашки выбранных значений.
+          Перенос на вторую строку, если в экран не влезает. */}
       <div
         data-facet-panel-bar
         style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', minWidth: 0 }}
       >
-        {/* Подписи у ряда нет: кнопка «Фильтры» уже сказала, что это фильтры, а сами кнопки
-            названы столбцами (владелец 08.09.2026). «Сбросить фильтры» — ПЕРВОЙ в ряду
-            (владелец 16.09.2026): выход из фильтра ищут в начале панели, а не в её хвосте,
-            который на узком окне уезжает под перенос ступеней. */}
-        {renderResetButton()}
+        {/* Подписи у ряда нет: кнопка «Фильтры» в тулбаре уже сказала, что это фильтры, а сами
+            кнопки названы столбцами (владелец 08.09.2026). Порядок ряда — владелец 25.11.2026:
+            сперва сворачивание, потом «Сбросить фильтры», потом плашки. */}
         {renderCollapseButton()}
+        {renderResetButton()}
+        {renderChipRow()}
       </div>
-      <div data-facet-panel-body hidden={!expanded}>
+      <div data-facet-panel-body>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
           {/* Спойлера «Ещё N» больше нет (владелец 12.11.2026): после компактной переделки
               панели показывать все ступени сразу — удобно, а ряд остаётся компактным, потому
@@ -944,11 +819,6 @@ export function FacetFilter<Row>(props: {
           {rankedFields.map(renderFacetColumn)}
         </div>
       </div>
-      {/* Ряд плашек выбранных значений — общий на все ступени, под рядом кнопок. Каждая
-          группа тянется к своей кнопке, но ни одна не наезжает на другую (владелец
-          12.11.2026: «плавающие плашки наезжают друг на друга — прочитать невозможно,
-          что выбрано, и отключить невозможно»). При свёрнутой панели ряд остаётся на виду. */}
-      {renderChipRow()}
     </div>
   );
 }

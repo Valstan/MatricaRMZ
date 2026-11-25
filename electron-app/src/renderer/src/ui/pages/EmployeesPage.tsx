@@ -23,6 +23,7 @@ import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { FacetFilter } from '../components/FacetFilter.js';
+import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
@@ -596,6 +597,11 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         )}
         <ToolbarPin>
           <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v, pageIndex: 0 })} placeholder="Поиск по всем данным сотрудника (и внутри карточек)…" />
+        </ToolbarPin>
+        {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,
+            промт КАРМАНА #151). */}
+        <ToolbarPin>
+          <FacetPanelToggle usageKey="list:employees" />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => { toggleSearchMode(); patchState({ pageIndex: 0 }); }} />

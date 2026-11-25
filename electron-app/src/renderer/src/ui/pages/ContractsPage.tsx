@@ -47,6 +47,7 @@ import {
 } from '@matricarmz/shared';
 
 import { FacetFilter } from '../components/FacetFilter.js';
+import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { searchModeEmptyText } from '../components/SearchModeHint.js';
 import { useSearchMode } from '../hooks/useSearchMode.js';
@@ -1088,6 +1089,11 @@ export function ContractsPage(props: {
         {/* Поиск и то, что им управляет, в меню не уезжают: без них список неуправляем. */}
         <ToolbarPin>
           <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по всем данным контракта…" />
+        </ToolbarPin>
+        {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,
+            промт КАРМАНА #151). */}
+        <ToolbarPin>
+          <FacetPanelToggle usageKey="list:contracts" />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />

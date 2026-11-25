@@ -37,6 +37,7 @@ import { ListColumnChips, type ColumnDescriptor } from '../../components/ListCol
 import { ColumnToggleButton } from '../../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../../components/ColumnResizeHandle.js';
 import { FacetFilter } from '../../components/FacetFilter.js';
+import { FacetPanelToggle } from '../../components/FacetPanelToggle.js';
 import { ToolbarSearchField } from '../../components/ToolbarSearchField.js';
 import { ListCount } from '../../components/ListCount.js';
 import { ListExportButtons } from '../../components/ListExportButtons.js';
@@ -494,6 +495,11 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
         </Button>
         <ToolbarPin>
           <ToolbarSearchField value={ui.query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по двигателям на заводе…" />
+        </ToolbarPin>
+        {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,
+            промт КАРМАНА #151). */}
+        <ToolbarPin>
+          <FacetPanelToggle usageKey="report:enginesNowAtPlant:ui" />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />
