@@ -7,6 +7,12 @@
 // EXCEPT `on*` subscription props, which must stay undefined so the
 // renderer's existence guards (sync.onProgress, app.onCloseRequest, …)
 // fail closed instead of receiving a non-function.
+//
+// ИСКЛЮЧЕНИЕ из этого правила — подписки, которые renderer зовёт БЕЗ проверки
+// наличия (files.onProgress, drafts.onChanged): там «undefined» роняет оболочку
+// в белый экран, и планшетную раскладку нечем посмотреть без устройства.
+
+import { PermissionCode } from '@matricarmz/shared';
 
 const missed = new Set<string>();
 
@@ -37,6 +43,11 @@ const SPIKE_VERSION = '0.0.1-android-spike';
 // планшетную раскладку оболочки без планшета: до входа оболочки v3 нет вовсе, а
 // именно она и её панели — предмет планшетных правок. Данных не будет (все прочие
 // методы возвращают пустое), но раскладка, жесты и скрытие панелей проверяются.
+//
+// `?spikeRole=<роль>` — роль фиктивного пользователя. Нужна, чтобы смотреть меню
+// глазами ОПЕРАТОРА, а не суперадмина: операторский пресет сужает меню только
+// не-суперадмину (`operatorMenuPreset && userRole !== 'superadmin'`), поэтому на
+// суперадмине сужение пресета не видно — а проверить его надо.
 const spikeLogin = (() => {
   try {
     return new URLSearchParams(window.location.search).has('spikeLogin');
@@ -45,34 +56,33 @@ const spikeLogin = (() => {
   }
 })();
 
-// Полный набор ключей, которые читает deriveUiCaps: без них меню пустое и смотреть
+const spikeRole = (() => {
+  try {
+    const raw = new URLSearchParams(window.location.search).get('spikeRole');
+    return raw && raw.trim() ? raw.trim() : 'superadmin';
+  } catch {
+    return 'superadmin';
+  }
+})();
+
+// Полный набор прав, которые читает deriveUiCaps: без них меню пустое и смотреть
 // планшетную раскладку не на чем.
+//
+// Права берём из ОБЩЕГО реестра `PermissionCode` (shared), а не перечисляем руками:
+// ручной список устаревал и молча срезал разделы (ПП, печатные формы, дети были
+// не видны — и это выглядело как «раздел вырезан на планшете», хотя на самом деле
+// не хватало права в фикстуре). Теперь фикстура не может отстать от реестра.
 const SPIKE_PERMISSIONS = Object.fromEntries(
-  [
-    'admin.users.manage', 'contracts.edit', 'employees.create', 'employees.view',
-    'engines.disassemble_confirm', 'engines.edit', 'engines.view', 'files.upload', 'files.view',
-    'masterdata.edit', 'masterdata.view', 'movements.revert', 'operations.edit', 'operations.view',
-    'parts.create', 'parts.delete', 'parts.edit', 'parts.view',
-    'reports.export', 'reports.print', 'reports.view',
-    'supply_requests.accept', 'supply_requests.create', 'supply_requests.director_approve',
-    'supply_requests.edit', 'supply_requests.fulfill', 'supply_requests.print',
-    'supply_requests.sign', 'supply_requests.view', 'sync.use',
-    'timesheet.create', 'timesheet.edit', 'timesheet.print', 'timesheet.view', 'updates.use',
-    'warehouse.assembly_return', 'warehouse_locations.manage', 'warehouse_locations.view',
-    'work_order_templates.edit', 'work_orders.assembly_shortage_approve', 'work_orders.close',
-    'work_orders.create', 'work_orders.edit', 'work_orders.print', 'work_orders.revert',
-    'work_orders.view', 'workshop_repair_templates.edit', 'workshops.manage',
-  ].map((k) => [k, true]),
+  Object.values(PermissionCode).map((code) => [code, true]),
 );
 
 const SPIKE_AUTH = spikeLogin
   ? {
       loggedIn: true,
-      user: { id: 'spike-user', username: 'spike', role: 'superadmin', fullName: 'Спайк' },
+      user: { id: 'spike-user', username: 'spike', role: spikeRole, fullName: 'Спайк' },
       permissions: SPIKE_PERMISSIONS,
     }
   : { loggedIn: false, user: null, permissions: null };
-
 const matrica = {
   ping: async () => 'pong',
   log: stubGroup('log', {
@@ -149,6 +159,17 @@ const matrica = {
   drafts: stubGroup('drafts', {
     list: async () => ({ ok: true, drafts: [] }),
     clear: async () => ({ ok: true }),
+    // Подписка «черновики изменились» (App.tsx зовёт её БЕЗ проверки наличия —
+    // в отличие от sync.onProgress/app.onCloseRequest). Настоящий preload её
+    // отдаёт всегда, поэтому и спайк обязан: иначе оболочка падает в белый
+    // экран и планшетную раскладку нечем посмотреть без устройства.
+    onChanged: () => () => {},
+  }),
+  files: stubGroup('files', {
+    // То же самое для прогресса передачи файлов (useFileTransfers зовёт подписку
+    // без проверки). Событий в спайке не бывает — подписка просто молчит.
+    onProgress: () => () => {},
+    progressList: async () => [],
   }),
   notes: stubGroup('notes', {
   }),
