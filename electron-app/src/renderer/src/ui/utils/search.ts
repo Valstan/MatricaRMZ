@@ -1,9 +1,14 @@
 import {
   LOOKUP_FILTER_MIN_SCORE,
+  matchPreparedSearchFields,
   prepareLookupOptions,
+  prepareSearchFields,
   rankPreparedLookupOptions,
   searchPreparedLookupOptionsTiered,
+  type GlobalSearchKind,
   type PreparedLookupOption,
+  type PreparedSearchField,
+  type SearchFieldMatch,
   type SearchMode,
 } from '@matricarmz/shared';
 
@@ -83,24 +88,44 @@ export type TieredRecordFilterResult<T> = {
   records: T[];
   /** True when nothing matched exactly and `records` holds typo-tolerant fallback — render with a «похожие» notice. */
   similarMode: boolean;
+  /**
+   * В каком поле совпала строка (id записи → поля). Пусто, если вид сущности не задан
+   * или поле вне реестра: тогда поле совпадения просто неизвестно.
+   */
+  fieldMatches: Map<string, SearchFieldMatch[]>;
 };
 
 export type PreparedRecordSearch<T> = {
   records: T[];
-  prepared: Array<PreparedLookupOption<{ id: string; label: string; searchText: string; record: T }>>;
+  prepared: Array<PreparedLookupOption<{ id: string; label: string; searchText: string; record: T; index: number }>>;
+  /** Вид сущности — по нему считается, в каком поле совпало (промт КАРМАНА #137). */
+  kind?: GlobalSearchKind;
+  /** Подготовленные поля строк по индексу строки — считаются один раз на набор, не на ввод. */
+  fieldRows?: Array<PreparedSearchField[]>;
 };
 
 /**
  * Stage 1 of the tiered list-page filter (#035 Ф1): normalize the dataset once.
  * Memoize on the records array — this is the expensive part; the per-keystroke
  * scoring in filterPreparedRecords is cheap.
+ *
+ * `opts.kind` включает подготовку полей строки: по ней потом считается, ГДЕ именно
+ * совпало (вид сущности → реестр полей). Само поле не меняет того, что нашлось:
+ * поиск по склеенной записи остаётся как был.
  */
-export function prepareRecordSearch<T>(records: T[], getId: (r: T) => string, getLabel: (r: T) => string): PreparedRecordSearch<T> {
+export function prepareRecordSearch<T>(
+  records: T[],
+  getId: (r: T) => string,
+  getLabel: (r: T) => string,
+  opts?: { kind?: GlobalSearchKind },
+): PreparedRecordSearch<T> {
+  const kind = opts?.kind;
   return {
     records,
     prepared: prepareLookupOptions(
-      records.map((r) => ({ id: getId(r), label: getLabel(r), searchText: collectRecordText(r), record: r })),
+      records.map((r, index) => ({ id: getId(r), label: getLabel(r), searchText: collectRecordText(r), record: r, index })),
     ),
+    ...(kind ? { kind, fieldRows: records.map((r) => prepareSearchFields(r, kind)) } : {}),
   };
 }
 
@@ -112,17 +137,32 @@ export function prepareRecordSearch<T>(records: T[], getId: (r: T) => string, ge
  * query the full set is returned in input order so the page's own column sort
  * applies (callers must NOT re-apply column sort while a query is active — see
  * EnginesPage). The «похожие» typo fallback is likewise distance-ordered.
+ *
+ * Дополнительно считает, в каком поле совпала каждая строка (`fieldMatches`):
+ * матчер полей — тот же тир-1 и тот же режим, поэтому объяснение не может
+ * противоречить самой выдаче. Поля считаются ТОЛЬКО для нашедшихся строк —
+ * горячий путь поиска не меняется.
  */
 export function filterPreparedRecords<T>(
   search: PreparedRecordSearch<T>,
   query: string,
   mode: SearchMode = 'exact',
 ): TieredRecordFilterResult<T> {
-  if (!String(query ?? '').trim()) return { records: search.records, similarMode: false };
+  if (!String(query ?? '').trim()) return { records: search.records, similarMode: false, fieldMatches: new Map() };
   const tiered = searchPreparedLookupOptionsTiered(search.prepared, query, { minScore: LOOKUP_FILTER_MIN_SCORE, mode });
   const matched = tiered.primary.length > 0 ? tiered.primary : tiered.similar;
+  const fieldMatches = new Map<string, SearchFieldMatch[]>();
+  if (search.fieldRows) {
+    for (const option of matched) {
+      const fields = search.fieldRows[option.index];
+      if (!fields?.length) continue;
+      const hits = matchPreparedSearchFields(fields, query, mode);
+      if (hits.length) fieldMatches.set(option.id, hits);
+    }
+  }
   return {
     records: matched.map((o) => o.record),
     similarMode: tiered.primary.length === 0 && tiered.similar.length > 0,
+    fieldMatches,
   };
 }
