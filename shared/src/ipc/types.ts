@@ -122,7 +122,7 @@ export type DesktopInboxItem = {
 };
 
 export type DesktopSendFileResult =
-  | { ok: true; messageId: string; fileName: string }
+  | { ok: true; messageId: string; fileName: string; fileId?: string }
   | { ok: false; error: string };
 
 /** Архив со скриптами обслуживания, который едет вместе с клиентом. */
@@ -941,7 +941,7 @@ export type ChatRoomSaveResult = { ok: true; id: string } | { ok: false; error: 
 
 export type ChatUsersListResult = { ok: true; users: ChatUserItem[] } | { ok: false; error: string };
 export type ChatListResult = { ok: true; messages: ChatMessageItem[] } | { ok: false; error: string };
-export type ChatSendResult = { ok: true; id: string } | { ok: false; error: string };
+export type ChatSendResult = { ok: true; id: string; fileId?: string } | { ok: false; error: string };
 export type ChatUnreadCountResult =
   | {
       ok: true;

@@ -17,6 +17,7 @@ import { formatChatDaySeparator, formatMoscowTime, moscowDayKey } from '../utils
 import { pollWhenVisible } from '../utils/pollWhenVisible.js';
 import { useTabVisible } from '../shell/TabVisibilityContext.js';
 import { useFileTransfers } from '../hooks/useFileTransfers.js';
+import { isAndroidPlatform } from '../platform.js';
 
 function onlineDot(online: boolean | null | undefined, size = 9) {
   if (online == null) return null;
@@ -94,6 +95,8 @@ export function ChatPanel(props: {
   const [busyNote, setBusyNote] = useState('');
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Планшет: файл выбирает WebView (галерея/камера) — отдельным input'ом.
+  const androidFileRef = useRef<HTMLInputElement | null>(null);
   const chatRootRef = useRef<HTMLDivElement | null>(null);
   const [noteDialog, setNoteDialog] = useState<{ open: boolean; message: ChatMessageItem | null; title: string }>({
     open: false,
@@ -177,6 +180,15 @@ export function ChatPanel(props: {
 
   const privateWith = !adminMode && selectedUserId ? usersById.get(selectedUserId) ?? null : null;
   const isPrivate = !!privateWith;
+  /**
+   * Бот обмена и пересылки живёт в переписке с администратором: он отвечает оттуда
+   * же (имя «Бот обмена»), отдельной учётной записи в программе нет.
+   */
+  const botUserId = useMemo(
+    () => users.find((u) => String(u.role ?? '').toLowerCase() === 'superadmin')?.id ?? null,
+    [users],
+  );
+  const isBotConversation = !adminMode && !selectedRoomId && !!selectedUserId && selectedUserId === botUserId;
   const selectedRoom = useMemo(
     () => (selectedRoomId ? rooms.find((r) => r.id === selectedRoomId) ?? null : null),
     [selectedRoomId, rooms],
@@ -466,9 +478,52 @@ export function ChatPanel(props: {
 
   async function sendFile() {
     if (adminMode) return;
+    // На планшете файловых диалогов нет: файл выбирает сам WebView, а сообщение с
+    // файлом создаётся по его id (`desktopTransfer:send`) — тем же путём, что и на
+    // компьютере, только без пути на диске.
+    if (isAndroidPlatform()) {
+      androidFileRef.current?.click();
+      return;
+    }
     const picked = await window.matrica.files.pick().catch(() => null);
     if (!picked || !(picked as any).ok) return;
     await sendFilePaths(((picked as any).paths ?? []) as string[]);
+  }
+
+  /** Планшет: файл из галереи/камеры → загрузка в программу → сообщение с файлом. */
+  async function sendTabletFile(file: File) {
+    if (adminMode) return;
+    const recipientUserId = String(selectedUserId ?? '').trim();
+    if (!recipientUserId) {
+      setBusyNote('Сначала выберите, кому отправить файл');
+      return;
+    }
+    setBusyNote('Загрузка файла…');
+    try {
+      const dataBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('не удалось прочитать файл'));
+        reader.onload = () => resolve(String(reader.result ?? '').split(',')[1] ?? '');
+        reader.readAsDataURL(file);
+      });
+      const up = await window.matrica.files.uploadBlob({
+        name: file.name,
+        ...(file.type ? { mime: file.type } : {}),
+        dataBase64,
+        // Тот же scope, что у файлов чата на компьютере: от него зависит уборка
+        // старых файлов на сервере.
+        scope: { ownerType: 'chat', ownerId: 'chat-files', category: 'chat-files' },
+      });
+      if (!up.ok) throw new Error(up.error);
+      const sent = await window.matrica.desktopTransfer.sendToColleague({
+        fileId: String((up.file as any)?.id ?? ''),
+        recipientUserId,
+      });
+      if (!sent.ok) throw new Error(sent.error);
+      setBusyNote('Файл отправлен');
+    } catch (e) {
+      setBusyNote(`Ошибка: ${String(e)}`);
+    }
   }
 
   // Перетаскивание из проводника: реальный путь брошенного файла умеет достать
@@ -967,6 +1022,23 @@ export function ChatPanel(props: {
         ) : null}
 
         <div style={{ borderTop: `1px solid ${theme.colors.border}`, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {isBotConversation ? (
+            <div data-chat-bot-hint style={{ fontSize: 12, color: theme.colors.muted }}>
+              🤖 Бот обмена: пришлите файл — перешлю на компьютер, где вы работаете. Ответ на его вопрос — номером.
+            </div>
+          ) : null}
+          {isAndroidPlatform() ? (
+            <input
+              ref={androidFileRef}
+              type="file"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const picked = Array.from(e.target.files ?? [])[0] ?? null;
+                e.target.value = '';
+                if (picked) void sendTabletFile(picked);
+              }}
+            />
+          ) : null}
           <Input
             ref={inputRef}
             value={text}

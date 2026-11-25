@@ -59,6 +59,13 @@ export type PostChatMessageInput = {
   text: string;
   /** Тип сообщения; по умолчанию обычный текст. */
   messageType?: string;
+  /**
+   * Полезная нагрузка сообщения. Для сообщения с файлом — полный `FileRef`
+   * (`{id, name, size, mime, sha256, createdAt}`): именно он даёт получателю
+   * доступ к файлу (`chatPayloadGrantsFileAccess` на сервере) — то есть это и
+   * есть транспорт передачи файла между пользователями.
+   */
+  payload?: unknown;
   /** Кто инициировал запись (для журнала синка). */
   actor?: { id: string; username: string; role?: string | null };
 };
@@ -79,6 +86,7 @@ export async function postChatMessage(input: PostChatMessageInput): Promise<{ ok
   const id = randomUUID();
   const recipientUserId = input.recipientUserId ? String(input.recipientUserId) : null;
   const messageType = String(input.messageType ?? 'text');
+  const payloadJson = input.payload == null ? null : JSON.stringify(input.payload);
 
   await db.insert(chatMessages).values({
     id,
@@ -87,7 +95,7 @@ export async function postChatMessage(input: PostChatMessageInput): Promise<{ ok
     recipientUserId: recipientUserId ? (recipientUserId as any) : null,
     messageType,
     bodyText: text,
-    payloadJson: null,
+    payloadJson,
     createdAt: ts,
     updatedAt: ts,
     deletedAt: null,
@@ -101,7 +109,7 @@ export async function postChatMessage(input: PostChatMessageInput): Promise<{ ok
     recipientUserId,
     messageType,
     bodyText: text,
-    payloadJson: null,
+    payloadJson,
     createdAt: ts,
     updatedAt: ts,
     deletedAt: null,

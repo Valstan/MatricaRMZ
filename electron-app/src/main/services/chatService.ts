@@ -547,7 +547,7 @@ export async function chatSendFile(
       updatedAt: ts,
     });
     endFileTransfer(transfer.id, { ok: true });
-    return { ok: true, id };
+    return { ok: true, id, fileId: String(file.id ?? '') };
   } catch (e) {
     if (transferId) endFileTransfer(transferId, { ok: false, error: String(e) });
     return { ok: false, error: String(e) };

@@ -57,7 +57,7 @@ export async function desktopSendFile(
     deletedAt: null,
   } as never);
 
-  return { ok: true, messageId: id, fileName: meta.file.name };
+  return { ok: true, messageId: id, fileName: meta.file.name, fileId: meta.file.id };
 }
 
 /**

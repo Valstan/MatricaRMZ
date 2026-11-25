@@ -26,6 +26,7 @@ import { registerAiChatIpc } from '../../../electron-app/src/main/ipc/register/a
 import { registerAuthAndSyncIpc } from '../../../electron-app/src/main/ipc/register/authAndSync.js';
 import { registerChangesIpc } from '../../../electron-app/src/main/ipc/register/changes.js';
 import { registerChatIpc } from '../../../electron-app/src/main/ipc/register/chat.js';
+import { registerDesktopTransferIpc } from '../../../electron-app/src/main/ipc/register/desktopTransfer.js';
 import { registerChecklistsIpc } from '../../../electron-app/src/main/ipc/register/checklists.js';
 import { registerChildrenIpc } from '../../../electron-app/src/main/ipc/register/children.js';
 import { registerContractPaymentsIpc } from '../../../electron-app/src/main/ipc/register/contractPayments.js';
@@ -197,6 +198,12 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
   registerServicePricingIpc(ctx);
   registerSignatureDefaultsIpc(ctx);
   registerChatIpc(ctx);
+  // Передача файлов между Верстаками (промт КАРМАНА #143). Исключение «планшет не
+  // десктоп» было устаревшим: транспорт — личное сообщение чата с файлом, а НЕ
+  // локальная сеть, и путь на диске не нужен — нужен id файла, уже залитого в
+  // программу (на планшете его заливает `files:uploadBlob`). Без этого домена
+  // оператор с планшета не мог ни отправить файл коллеге, ни принять присланный.
+  registerDesktopTransferIpc(ctx);
   registerAiAgentIpc(ctx);
   registerAiChatIpc(ctx);
   registerUiScreensIpc(ctx);

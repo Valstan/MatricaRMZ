@@ -19,11 +19,37 @@ import {
   chatUnreadCount,
   chatUsersList,
 } from '../../services/chatService.js';
+import { notifyExchangeBot } from '../../services/exchangeBotService.js';
 
 export function registerChatIpc(ctx: IpcContext) {
   // Право `chat.use` до сих пор проверялось только на REST (/chat/users) и в UI —
   // сам IPC пускал любого авторизованного. Гейтим запись здесь, как в aiChat.
   const requireChatUse = () => requirePermOrResult(ctx, 'chat.use');
+
+  /**
+   * Бот обмена и пересылки: после отправки сообщения зовём бота — он сам решит,
+   * его это сообщение или нет (если нет — промолчит, и это нормально).
+   *
+   * Звонок не ждём: письмо оператора уже ушло, бот — улучшение, а не условие
+   * переписки. Ошибка звонка молча не теряется: бот ответит, когда сможет.
+   */
+  const callExchangeBot = (args: {
+    messageId: string;
+    recipientUserId?: string | null | undefined;
+    text?: string | null | undefined;
+    fileId?: string | null | undefined;
+    fileName?: string | null | undefined;
+  }) => {
+    const recipientUserId = String(args.recipientUserId ?? '').trim();
+    if (!recipientUserId) return;
+    void notifyExchangeBot(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+      messageId: args.messageId,
+      recipientUserId,
+      text: args.text ?? null,
+      fileId: args.fileId ?? null,
+      fileName: args.fileName ?? null,
+    });
+  };
 
   ipcMain.handle('chat:usersList', async () => {
     return await chatUsersList(ctx.sysDb, ctx.mgr.getApiBaseUrl());
@@ -41,7 +67,9 @@ export function registerChatIpc(ctx: IpcContext) {
     if (ctx.mode().mode !== 'live') return { ok: false as const, error: 'chat disabled in backup mode' };
     const gate = await requireChatUse();
     if (!gate.ok) return gate;
-    return await chatSendText(ctx.sysDb, args);
+    const r = await chatSendText(ctx.sysDb, args);
+    if (r.ok) callExchangeBot({ messageId: r.id, recipientUserId: args?.recipientUserId, text: args?.text });
+    return r;
   });
 
   ipcMain.handle('chat:sendTextEverywhere', async (_e, args: { recipientUserId?: string | null; text: string }) => {
@@ -56,7 +84,15 @@ export function registerChatIpc(ctx: IpcContext) {
     const gate = await requireChatUse();
     if (!gate.ok) return gate;
     if (!consumeIssuedPath(args?.path)) return { ok: false as const, error: 'путь не из диалога выбора файлов' };
-    return await chatSendFile(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+    const r = await chatSendFile(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+    if (r.ok) {
+      callExchangeBot({
+        messageId: r.id,
+        recipientUserId: args?.recipientUserId,
+        fileId: r.fileId ?? null,
+      });
+    }
+    return r;
   });
 
   ipcMain.handle('chat:sendDeepLink', async (_e, args: { recipientUserId?: string | null; link: any; text?: string | null }) => {
