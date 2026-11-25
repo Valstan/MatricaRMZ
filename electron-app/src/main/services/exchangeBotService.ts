@@ -58,13 +58,18 @@ export type ExchangeBotNotifyResult = {
  *
  * Время отправки едет вместе с подсказкой: файл ждёт ответа десять минут, а
  * потом — не ждёт (иначе любое число в переписке уводило бы старый файл).
+ *
+ * Получатель едет тоже: подсказка годится, только если файл ушёл БОТУ. Файл,
+ * отправленный коллеге, — это не запрос бота, и пересылать его по первому
+ * попавшемуся числу бот не должен.
  */
-let lastBotFile: { id: string; sentAt: number } | null = null;
+let lastBotFile: { id: string; sentAt: number; recipientUserId: string } | null = null;
 
 /** Запомнить файл, отправленный боту. */
-export function rememberExchangeBotFile(fileId: string | null | undefined): void {
+export function rememberExchangeBotFile(fileId: string | null | undefined, recipientUserId: string | null | undefined): void {
   const id = String(fileId ?? '').trim();
-  if (id) lastBotFile = { id, sentAt: Date.now() };
+  const recipient = String(recipientUserId ?? '').trim();
+  if (id && recipient) lastBotFile = { id, sentAt: Date.now(), recipientUserId: recipient };
 }
 
 /** Тип машины по платформе клиента. На android — планшет (APK ставится на планшет). */
@@ -89,7 +94,7 @@ export async function notifyExchangeBot(
   if (!messageId || !recipientUserId) return { ok: false, error: 'нечего звать' };
 
   const fileId = String(args.fileId ?? '').trim();
-  if (fileId) rememberExchangeBotFile(fileId);
+  if (fileId) rememberExchangeBotFile(fileId, recipientUserId);
 
   const clientId = String((await settingsGetString(db, SettingsKey.ClientId).catch(() => null)) ?? '').trim();
   try {
@@ -111,6 +116,7 @@ export async function notifyExchangeBot(
           fileName: args.fileName ?? null,
           pendingFileId: lastBotFile?.id ?? null,
           pendingFileSentAt: lastBotFile?.sentAt ?? null,
+          pendingFileRecipientUserId: lastBotFile?.recipientUserId ?? null,
           text: args.text ?? null,
         }),
       },

@@ -241,6 +241,62 @@ describe('бот обмена и пересылки', () => {
     expect(sentMessages).toHaveLength(0);
   });
 
+  it('на число, когда боту файл не присылали, бот молчит', async () => {
+    // «2» в переписке с администратором — не ответ боту: файла от оператора у бота нет.
+    queueByTable.set(chatMessages, [
+      [
+        { id: 'msg-5', senderUserId: 'u-1', recipientUserId: 'u-super', messageType: 'text', bodyText: '2', payloadJson: null, createdAt: Date.now(), deletedAt: null },
+      ],
+    ]);
+    const r = await runExchangeBotAction(trigger({ messageId: 'msg-5', text: '2' }));
+    expect(r.acted).toBe(false);
+    expect(sentMessages).toHaveLength(0);
+  });
+
+  it('подсказка клиента принимается, только если файл ушёл боту', async () => {
+    // Оператор отправил файл КОЛЕГЕ (не боту), потом написал боту «2». Такой файл
+    // пересылаться не должен: бот отвечает на файл, присланный ЕМУ.
+    queueByTable.set(chatMessages, [
+      [
+        { id: 'msg-6', senderUserId: 'u-1', recipientUserId: 'u-super', messageType: 'text', bodyText: '2', payloadJson: null, createdAt: Date.now(), deletedAt: null },
+      ],
+    ]);
+    const r = await runExchangeBotAction(
+      trigger({
+        messageId: 'msg-6',
+        text: '2',
+        pendingFileId: 'file-1',
+        pendingFileSentAt: Date.now(),
+        pendingFileRecipientUserId: 'u-2',
+      }),
+    );
+    expect(r.acted).toBe(false);
+    expect(sentMessages.filter((m) => m.messageType === 'file')).toHaveLength(0);
+    expect(sentMessages).toHaveLength(0);
+  });
+
+  it('подсказка клиента с файлом, ушедшим боту, работает', async () => {
+    // Файл ещё не доехал до сервера (push асинхронный) — клиент привозит его id.
+    queueByTable.set(chatMessages, [
+      [
+        { id: 'msg-7', senderUserId: 'u-1', recipientUserId: 'u-super', messageType: 'text', bodyText: '1', payloadJson: null, createdAt: Date.now(), deletedAt: null },
+      ],
+    ]);
+    const r = await runExchangeBotAction(
+      trigger({
+        messageId: 'msg-7',
+        text: '1',
+        pendingFileId: 'file-1',
+        pendingFileSentAt: Date.now(),
+        pendingFileRecipientUserId: 'u-super',
+      }),
+    );
+    expect(r.acted).toBe(true);
+    const fileMsg = sentMessages.find((m) => m.messageType === 'file');
+    expect(fileMsg?.recipientUserId).toBe('u-1');
+    expect((fileMsg?.payload as any)?.id).toBe('file-1');
+  });
+
   it('предел флуда: больше десяти обращений в минуту — молчок', async () => {
     queueByTable.set(chatMessages, [[fileMessageRow()]]);
     for (let i = 0; i < 11; i += 1) {

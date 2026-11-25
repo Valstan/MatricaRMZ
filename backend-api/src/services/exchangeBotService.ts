@@ -71,6 +71,8 @@ export type ExchangeBotTrigger = {
   pendingFileId?: string | null;
   /** Когда клиент отправил этот файл (unix-мс) — по нему сужается окно ответа. */
   pendingFileSentAt?: number | null;
+  /** Кому клиент отправил этот файл — подсказка годится, только если файл ушёл БОТУ. */
+  pendingFileRecipientUserId?: string | null;
   /** Текст сообщения (если это не файл). */
   text?: string | null;
 };
@@ -323,10 +325,19 @@ async function forwardFileToCandidate(args: {
   return { ok: true, fileName: payload.name };
 }
 
-/** Последний файл, присланный боту этим оператором (и не старше окна ответа). */
-async function findPendingFile(actorId: string, botUserId: string, now: number): Promise<FileRefLike | null> {
+/**
+ * Последний файл, присланный БОТУ этим оператором, — вместе с его возрастом.
+ *
+ * Возраст отдаётся наружу, а не отсекается здесь: «файла от оператора не было» и
+ * «файл был, но окно ответа истекло» — разные случаи, и бот отвечает на них
+ * по-разному (молчит либо просит прислать файл заново).
+ */
+async function findLastFileToBot(
+  actorId: string,
+  botUserId: string,
+): Promise<{ ref: FileRefLike; sentAt: number } | null> {
   const rows = await db
-    .select({ payloadJson: chatMessages.payloadJson, bodyText: chatMessages.bodyText, createdAt: chatMessages.createdAt })
+    .select({ payloadJson: chatMessages.payloadJson, createdAt: chatMessages.createdAt })
     .from(chatMessages)
     .where(
       and(
@@ -341,11 +352,7 @@ async function findPendingFile(actorId: string, botUserId: string, now: number):
   for (const row of rows) {
     const ref = parseFileRef(row.payloadJson);
     if (!ref) continue;
-    // Старый запрос не ждёт ответа: иначе любое число в переписке с администратором
-    // уводило бы файл, присланный когда-то, кому-то.
-    const sentAt = Number(row.createdAt ?? 0) || 0;
-    if (sentAt > 0 && now - sentAt > EXCHANGE_BOT_REQUEST_WINDOW_MS) return null;
-    return ref;
+    return { ref, sentAt: Number(row.createdAt ?? 0) || 0 };
   }
   return null;
 }
@@ -507,14 +514,28 @@ export async function runExchangeBotAction(trigger: ExchangeBotTrigger): Promise
   const choice = parseExchangeBotChoice(text);
   if (choice == null) return { ok: true, acted: false, reason: 'не ответ на вопрос бота' };
 
-  // Подсказка клиента (файл ещё мог не уехать на сервер) — но только если он свежий:
-  // файл ждёт ответа десять минут, потом не ждёт.
+  // Отвечать имеет смысл только на файл, присланный БОТУ. Число в переписке с
+  // администратором — не ответ боту: так бот пересылал бы файл, отправленный кому-то
+  // другому (коллеге), стоило оператору позже написать в переписку цифру.
+  const last = await findLastFileToBot(actorId, botUserId);
   const hintSentAt = Number(trigger.pendingFileSentAt ?? 0) || 0;
-  const hintFresh =
-    Boolean(trigger.pendingFileId) && hintSentAt > 0 && now - hintSentAt <= EXCHANGE_BOT_REQUEST_WINDOW_MS;
-  const pending =
-    (await findPendingFile(actorId, botUserId, now)) ??
-    (hintFresh ? { id: String(trigger.pendingFileId), name: '' } : null);
+  const hintRecipient = String(trigger.pendingFileRecipientUserId ?? '').trim();
+  // Подсказка клиента (файл ещё мог не уехать на сервер) — но только если файл
+  // ушёл боту и он свежий: файл ждёт ответа десять минут, потом не ждёт.
+  const hintUsable =
+    Boolean(trigger.pendingFileId) &&
+    hintSentAt > 0 &&
+    now - hintSentAt <= EXCHANGE_BOT_REQUEST_WINDOW_MS &&
+    hintRecipient === botUserId;
+  if (!last && !hintUsable) {
+    return { ok: true, acted: false, reason: 'оператор не присылал боту файла — это не ответ боту' };
+  }
+  const lastFresh =
+    last && (last.sentAt === 0 || now - last.sentAt <= EXCHANGE_BOT_REQUEST_WINDOW_MS) ? last : null;
+  // От пересылаемого файла нужны только id и имя: полный `FileRef` сервер читает
+  // сам по id (и заодно проверяет доступ отправителя).
+  let pending: { id: string; name: string } | null = lastFresh ? lastFresh.ref : null;
+  if (!pending && hintUsable) pending = { id: String(trigger.pendingFileId), name: '' };
   if (!pending?.id) {
     const reply = 'Бот обмена: не вижу файла, который вы прислали — пришлите его ещё раз.';
     await replyAsBot(actorId, reply);
