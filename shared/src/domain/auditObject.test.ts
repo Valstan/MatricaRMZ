@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AUDIT_OBJECT_KIND_BY_CARD_KEY,
   auditObjectKindForRow,
   auditObjectNameFromPayload,
   auditObjectRestorePath,
   auditSectionForAction,
   auditSectionForObjectKind,
   auditSectionForRow,
+  auditSectionForTabKey,
 } from './auditObject.js';
+import { CARD_TAB_KEYS } from './uiSections.js';
 
 /**
  * Правило «журнал называет конкретный объект» (промт КАРМАНА #169).
@@ -36,8 +39,54 @@ describe('раздел строки журнала', () => {
     expect(auditSectionForRow({ action: 'ui.visit', tabKey: 'audit' })).toBe('Журнал');
   });
 
+  it('открытие карточки называет раздел по ключу карточки', () => {
+    // `payload.label` при `ui.card_open` — это `TabId` карточки, то есть тот же ключ,
+    // что и у вкладки. Раньше четыре вида карточек не знались разделом вовсе, и их строки
+    // падали в «Прочее» («Выполнил действие») — замер на живых данных, 57 строк.
+    expect(auditSectionForRow({ action: 'ui.card_open', cardKey: 'ppe_card' })).toBe('Карточки СИЗ');
+    expect(auditSectionForRow({ action: 'ui.card_open', cardKey: 'nomenclature_item' })).toBe('Номенклатура');
+    expect(auditSectionForRow({ action: 'ui.card_open', cardKey: 'work_sheet' })).toBe('Этапы ремонта');
+    expect(auditSectionForRow({ action: 'ui.card_open', cardKey: 'stock_document' })).toBe('Документы');
+  });
+
+  it('неизвестный ключ вкладки раздел не выдумывает', () => {
+    // `sectionLabelForTabKey` для неизвестного ключа возвращает «ключ» в кавычках —
+    // это не раздел, и в журнал он попасть не должен.
+    expect(auditSectionForRow({ action: 'ui.visit', tabKey: 'такого-раздела-нет' })).toBe('');
+    expect(auditSectionForTabKey('такого-раздела-нет')).toBe('');
+    expect(auditSectionForTabKey('engines')).toBe('Двигатели');
+  });
+
+  it('названия разделов совпадают с вкладками программы', () => {
+    // Иначе фильтр по разделу в журнале покажет «Договоры» и «Контракты» как два
+    // разных раздела — а объект лежит в одном.
+    expect(auditSectionForObjectKind('contract')).toBe('Контракты');
+    expect(auditSectionForObjectKind('stock_document')).toBe('Документы');
+    expect(auditSectionForObjectKind('tool_property')).toBe('Инструменты');
+  });
+
   it('неизвестный код не выдумывает раздел', () => {
     expect(auditSectionForAction('что.то.неизвестное')).toBe('');
+  });
+
+  it('каждая карточка программы названа разделом в журнале', () => {
+    // Клиент пишет в журнал ключ карточки (`payload.label`), а не название раздела.
+    // Если ключ не знается правилу — строка падает в «Прочее» («Выполнил действие»).
+    // На живых данных так были 57 строк: карточки СИЗ, номенклатуры, листа ремонта
+    // и документа склада.
+    const unknown: string[] = [];
+    for (const key of CARD_TAB_KEYS) {
+      if (!auditSectionForRow({ action: 'ui.card_open', cardKey: key })) unknown.push(key);
+    }
+    expect(unknown, 'карточки без раздела в журнале').toEqual([]);
+  });
+
+  it('вид карточки известен правилу для каждой карточки программы', () => {
+    const unknown: string[] = [];
+    for (const key of CARD_TAB_KEYS) {
+      if (!AUDIT_OBJECT_KIND_BY_CARD_KEY[key]) unknown.push(key);
+    }
+    expect(unknown, 'вид карточки без правила').toEqual([]);
   });
 });
 

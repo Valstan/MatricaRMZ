@@ -31,25 +31,47 @@ export type AuditObjectKind =
   | 'stock_document'
   | 'engine_brand'
   | 'product'
-  | 'service';
+  | 'service'
+  | 'ppe_card'
+  | 'nomenclature_item'
+  | 'work_sheet'
+  | 'engine_brand_group'
+  | 'engine_assembly_bom_item'
+  | 'report_preset'
+  | 'user_screen'
+  | 'timesheet';
 
-/** Раздел (человеческое название), где лежит объект каждого вида. */
+/**
+ * Раздел (человеческое название), где лежит объект каждого вида.
+ *
+ * Названия — те же, что у вкладок программы (`MENU_TAB_LABELS`): журнал и меню должны
+ * называть один и тот же раздел одинаково, иначе фильтр по разделу в журнале покажет
+ * «Договоры» и «Контракты» как два разных раздела.
+ */
 export const AUDIT_OBJECT_SECTIONS: Record<AuditObjectKind, string> = {
   engine: 'Двигатели',
-  contract: 'Договоры',
+  contract: 'Контракты',
   counterparty: 'Контрагенты',
   supply_request: 'Заявки',
   part: 'Детали',
   employee: 'Сотрудники',
   tool: 'Инструменты',
-  tool_property: 'Свойства инструментов',
+  tool_property: 'Инструменты',
   masterdata: 'Справочники',
   work_order: 'Наряды',
   file: 'Файлы',
-  stock_document: 'Документы склада',
+  stock_document: 'Документы',
   engine_brand: 'Марки двигателей',
   product: 'Товары',
   service: 'Услуги',
+  ppe_card: 'Карточки СИЗ',
+  nomenclature_item: 'Номенклатура',
+  work_sheet: 'Этапы ремонта',
+  engine_brand_group: 'Группы марок',
+  engine_assembly_bom_item: 'BOM двигателей',
+  report_preset: 'Отчёты',
+  user_screen: 'Мои экраны',
+  timesheet: 'Табель',
 };
 
 /**
@@ -115,23 +137,50 @@ export const AUDIT_OBJECT_KIND_BY_TABLE: Record<string, AuditObjectKind> = {
 /**
  * Вид объекта по ключу карточки клиента (`TabId`): то, что клиент кладёт в `payload.label`
  * при открытии карточки (`ui.card_open`).
+ *
+ * Ключи — те же `TabId`, что и в меню программы: открыли карточку СИЗ, номенклатуры или
+ * листа ремонта — значит раздел «Карточки СИЗ», «Номенклатура», «Этапы ремонта».
  */
 export const AUDIT_OBJECT_KIND_BY_CARD_KEY: Record<string, AuditObjectKind> = {
   engine: 'engine',
   contract: 'contract',
   counterparty: 'counterparty',
   request: 'supply_request',
+  requests: 'supply_request',
   supply_request: 'supply_request',
   part: 'part',
+  parts: 'part',
   employee: 'employee',
+  employees: 'employee',
   tool: 'tool',
+  tools: 'tool',
   tool_property: 'tool_property',
+  tool_properties: 'tool_property',
   masterdata: 'masterdata',
   work_order: 'work_order',
+  work_orders: 'work_order',
   engine_brand: 'engine_brand',
+  engine_brands: 'engine_brand',
   product: 'product',
+  products: 'product',
   service: 'service',
+  services: 'service',
   files: 'file',
+  file: 'file',
+  ppe_card: 'ppe_card',
+  ppe_cards: 'ppe_card',
+  nomenclature_item: 'nomenclature_item',
+  nomenclature: 'nomenclature_item',
+  work_sheet: 'work_sheet',
+  work_sheets: 'work_sheet',
+  stock_document: 'stock_document',
+  stock_documents: 'stock_document',
+  engine_brand_group: 'engine_brand_group',
+  engine_assembly_bom_item: 'engine_assembly_bom_item',
+  report_preset: 'report_preset',
+  user_screen: 'user_screen',
+  timesheet: 'timesheet',
+  timesheets: 'timesheet',
 };
 
 /**
@@ -246,8 +295,21 @@ export function auditObjectKindForRow(row: {
 }
 
 /**
- * Раздел строки журнала по тому, что строка знает: ключ вкладки (для визита раздела),
- * ключ карточки, код действия, таблица. '' — раздел неизвестен.
+ * Раздел по ключу вкладки. '' — ключ не в реестре вкладок программы: раздел не
+ * выдумывается (иначе в журнале появляются ««неизвестно»»).
+ */
+export function auditSectionForTabKey(tabKey: string): string {
+  const label = sectionLabelForTabKey(String(tabKey ?? '').trim());
+  if (!label || label === '—') return '';
+  // Неизвестный ключ `sectionLabelForTabKey` возвращает в кавычках — это не раздел.
+  if (label.startsWith('«') && label.endsWith('»')) return '';
+  return label;
+}
+
+/**
+ * Раздел строки журнала по тому, что строка знает: ключ вкладки (для визита раздела и
+ * для открытия карточки — клиент кладёт его в `payload.label`), код действия, таблица.
+ * '' — раздел неизвестен.
  */
 export function auditSectionForRow(row: {
   action?: string | null;
@@ -255,11 +317,9 @@ export function auditSectionForRow(row: {
   cardKey?: string | null;
   tabKey?: string | null;
 }): string {
-  const tabKey = String(row.tabKey ?? '').trim();
-  if (tabKey) {
-    const label = sectionLabelForTabKey(tabKey);
-    if (label && label !== '—') return label;
-  }
+  // Ключ вкладки — самый точный источник: он и есть раздел, где объект лежит.
+  const byTab = auditSectionForTabKey(String(row.tabKey ?? row.cardKey ?? ''));
+  if (byTab) return byTab;
   const byAction = auditSectionForAction(String(row.action ?? ''));
   if (byAction) return byAction;
   const kind = auditObjectKindForRow(row);

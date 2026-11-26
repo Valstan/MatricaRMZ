@@ -153,6 +153,13 @@ const PARENT_TAB: Record<string, MenuTabId> = {
   user_screen: 'user_screens',
 };
 
+/**
+ * Ключи карточек (детальных вкладок) — те, что клиент пишет в журнал при открытии
+ * карточки (`ui.card_open`, `payload.label`). Журнал обязан называть раздел для каждого:
+ * иначе строка падает в «Прочее» («Выполнил действие»).
+ */
+export const CARD_TAB_KEYS: readonly string[] = Object.keys(PARENT_TAB);
+
 // Pre-computed set for O(1) lookup
 const menuTabSet = new Set<MenuTabId>([
   'history',
