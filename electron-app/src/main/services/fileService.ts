@@ -1114,4 +1114,41 @@ export async function photosPrintLocalPaths(
   }
 }
 
+/**
+ * PDF из картинок, которые лежат на диске оператора (промт КАРМАНА #158).
+ *
+ * Тот же путь, что у `photosAssemblePdf`, но источник — локальные пути, а не
+ * серверные вложения по id: файлы из «Поиска по файлам» на сервере не лежат, и
+ * дверь `files:assemblePdf` (по `fileIds`) для них не годится.
+ *
+ * Окно печати — скрытое и offscreen (offscreen для `printToPDF` работает, в отличие
+ * от печати), имя файла и место выбирает оператор в диалоге сохранения.
+ */
+export async function photosAssemblePdfLocalPaths(
+  localPaths: string[],
+  savePath: string,
+): Promise<{ ok: true; savePath: string } | { ok: false; error: string }> {
+  const images: string[] = [];
+  const skipped: string[] = [];
+  for (const raw of localPaths) {
+    const p = String(raw ?? '').trim();
+    if (!p) continue;
+    if (mimeForPath(p).startsWith('image/')) images.push(p);
+    else skipped.push(basename(p));
+  }
+  if (images.length === 0) return { ok: false, error: 'Нет картинок для PDF' };
+  const opts: { offscreen: boolean; skippedNames?: string[] } = { offscreen: true };
+  if (skipped.length > 0) opts.skippedNames = skipped;
+  const win = await renderPhotosWindow(images, opts);
+  try {
+    const pdf = await win.webContents.printToPDF({ printBackground: true });
+    await fsp.writeFile(savePath, pdf);
+    return { ok: true, savePath };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  } finally {
+    win.destroy();
+  }
+}
+
 

@@ -476,6 +476,54 @@ export function desktopToggleShortcut(
 export type DesktopPutOutcome = 'added' | 'exists' | 'limit';
 
 /**
+ * Положить набор файлов на Верстак.
+ *
+ * Один вызов — много файлов: «на верстак» из выдачи «Поиска по файлам» отдаёт
+ * сразу пачку снимков, и заводить на каждый файл отдельный ярлык руками нельзя.
+ *
+ * Ярлык всё равно ссылается на СЕРВЕРНЫЙ файл (у локального снимка с диска
+ * оператора нет id на сервере) — поэтому файлы сперва грузятся на сервер, а
+ * потом кладутся на Верстак обычным файловым ярлыком.
+ */
+export type DesktopPutFilesOutcome = {
+  desktop: UserUiProfileDesktop;
+  /** Сколько ярлыков легло. */
+  added: number;
+  /** Сколько уже лежало (такой файл на Верстаке уже есть). */
+  exists: number;
+  /** Верстак полон — лишние не положили. */
+  limit: boolean;
+};
+
+export function desktopPutFiles(
+  d: UserUiProfileDesktop,
+  files: ReadonlyArray<{ id: string; name: string; mime?: string | null }>,
+  now: number,
+): DesktopPutFilesOutcome {
+  let next = d;
+  let added = 0;
+  let exists = 0;
+  let limit = false;
+  for (const file of files) {
+    const put = desktopPutShortcut(
+      next,
+      {
+        id: `file-${file.id}`.slice(0, 80),
+        label: file.name,
+        icon: desktopFileIcon(file.name),
+        link: desktopFileLink({ id: file.id, name: file.name, ...(file.mime ? { mime: file.mime } : {}) }),
+      },
+      now,
+    );
+    next = put.desktop;
+    if (put.outcome === 'added') added += 1;
+    else if (put.outcome === 'exists') exists += 1;
+    else limit = true;
+  }
+  return { desktop: next, added, exists, limit };
+}
+
+/**
  * «Добавить на Верстак» из меню кнопок: не тумблер — пункт называется «добавить»,
  * и снимать ярлык он не должен. Лежащий ярлык (в т.ч. в папке) — `exists`, из корзины
  * возвращается свой же.

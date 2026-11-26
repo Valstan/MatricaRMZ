@@ -154,6 +154,20 @@ const matricaApi = {
       ipcRenderer.invoke('fileSearch:printImages', args),
     /** Умеет ли машина системный мастер печати фотографий (кнопка прячется сама). */
     printCapabilities: async () => ipcRenderer.invoke('fileSearch:printCapabilities'),
+    /** Действия над отмеченными локальными файлами (промт КАРМАНА #158). */
+    assemblePdf: async (args: { ids: string[]; defaultName?: string }) =>
+      ipcRenderer.invoke('fileSearch:assemblePdf', args),
+    /** Мастер печати фотографий на все отмеченные снимки сразу (одно окно). */
+    printWizard: async (args: { ids: string[] }) => ipcRenderer.invoke('fileSearch:printWizard', args),
+    /** Открыть папку, где лежат отмеченные файлы. */
+    revealFolder: async (args: { ids: string[] }) => ipcRenderer.invoke('fileSearch:revealFolder', args),
+    /** Копии отмеченных файлов во временную папку (для почты и отправки). */
+    stageForShare: async (args: { ids: string[]; label?: string }) =>
+      ipcRenderer.invoke('fileSearch:stageForShare', args),
+    /** Убрать временные копии. */
+    cleanupTempFolder: async (args: { folder: string }) => ipcRenderer.invoke('fileSearch:cleanupTempFolder', args),
+    /** Скопировать пути отмеченных файлов в буфер. */
+    copyPaths: async (args: { ids: string[] }) => ipcRenderer.invoke('fileSearch:copyPaths', args),
     folders: {
       get: async () => ipcRenderer.invoke('fileSearch:folders:get'),
       set: async (args: { folders: FileSearchFolderSource[] }) => ipcRenderer.invoke('fileSearch:folders:set', args),
@@ -1352,6 +1366,9 @@ const matricaApi = {
     revealAttachment: async (args: { path: string }) => ipcRenderer.invoke('mail:revealAttachment', args),
     openDraft: async (args: { to?: string; cc?: string; subject: string; body: string }) =>
       ipcRenderer.invoke('mail:openDraft', args),
+    /** «Отправить на почту» для локальных файлов: папка с копиями + почтовый клиент. */
+    prepareLocalAttachment: async (args: { paths: string[]; label?: string; subject?: string; body?: string }) =>
+      ipcRenderer.invoke('mail:prepareLocalAttachment', args),
   },
   chat: {
     usersList: async () => ipcRenderer.invoke('chat:usersList'),

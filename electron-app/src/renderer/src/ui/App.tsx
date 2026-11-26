@@ -83,6 +83,7 @@ import {
   desktopMigrateQuickStart,
   desktopMoveToTrash,
   desktopPutShortcut,
+  desktopPutFiles,
   desktopShortcutLinkKey,
   desktopToggleShortcut,
   desktopUsageAdd,
@@ -117,6 +118,7 @@ import { KasperskySetupDialog } from './components/KasperskySetupDialog.js';
 import { SendFileToColleagueDialog } from './components/SendFileToColleagueDialog.js';
 import { DesktopPane } from './components/DesktopPane.js';
 import { openDesktopTrash } from './components/DesktopTrashBus.js';
+import { useDesktopPutFilesRequest } from './components/DesktopAddFilesBus.js';
 import { DesktopFilesProvider } from './components/DesktopFilesContext.js';
 import { ProgramFeedbackDialog, type ProgramFeedbackKind } from './components/ProgramFeedbackDialog.js';
 import { AccountSwitchDialog } from './components/AccountSwitchDialog.js';
@@ -3784,6 +3786,23 @@ export function App() {
           : `Ярлык «${label}» уже на Верстаке.`,
     );
   }
+
+  /**
+   * «Положить на верстак» из любого места программы (промт КАРМАНА #158).
+   *
+   * Файлы приходят УЖЕ загруженными на сервер: ярлык Верстака ссылается на серверный
+   * файл, а у локального снимка с диска оператора серверного id нет. Запрос приходит
+   * по шине (`DesktopAddFilesBus`) — состоянием Верстака владеет оболочка, а действие
+   * живёт на странице «Поиск по файлам».
+   */
+  useDesktopPutFilesRequest((files) => {
+    if (!files || files.length === 0) return;
+    const put = desktopPutFiles(desktopUiRef.current, files, Date.now());
+    setDesktopUi(put.desktop);
+    if (put.added > 0) notifyOperator(`На Верстак легло файлов: ${put.added}.`);
+    if (put.exists > 0) notifyOperator(`Уже лежали на Верстаке: ${put.exists}.`);
+    if (put.limit) notifyOperator('На Верстаке уже 200 ярлыков — освободите место, корзина не в счёт.', 'error');
+  });
 
   /** Ярлык открыли — плюс один в локальный счёт; наверх он уедет свёрткой по таймеру. */
   function bumpDesktopUsage(shortcutId: string) {

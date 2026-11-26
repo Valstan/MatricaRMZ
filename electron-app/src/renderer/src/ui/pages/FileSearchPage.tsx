@@ -23,9 +23,12 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { FileActionsMenu, type FileActionId } from '../components/FileActionsMenu.js';
 import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { SendFileToColleagueDialog } from '../components/SendFileToColleagueDialog.js';
 import { SuggestInput } from '../components/SuggestInput.js';
+import { requestDesktopPutFiles } from '../components/DesktopAddFilesBus.js';
 
 /**
  * Режимы поиска модуля.
@@ -199,6 +202,19 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
    * Подсказка показывает полный номер; выбор подставляет его в строку.
    */
   const [suggestions, setSuggestions] = useState<FileSearchEngineSuggestion[]>([]);
+
+  // ── Действия над отмеченными файлами (промт КАРМАНА #158) ─────────────────
+  //
+  // Меню одно на все точки включения (`components/FileActionsMenu.tsx`), открывается
+  // правой кнопкой по картинке и отдельной кнопкой над отметками.
+  /** Точка меню в координатах окна (null — меню закрыто). */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  /** Папка с временными копиями, которую программа предлагает убрать. */
+  const [cleanupFolder, setCleanupFolder] = useState('');
+  /** Куда отправляем выбранные файлы: коллеге на Верстак или в переписку чата. */
+  const [sendMode, setSendMode] = useState<'colleague' | 'chat' | null>(null);
+  /** Копии файлов, уже подготовленные к отправке (пути выданы главным процессом). */
+  const [stagedForSend, setStagedForSend] = useState<{ paths: string[]; names: string[]; folder: string } | null>(null);
 
   const [lookup, setLookup] = useState<{ engine: EngineLookup; note: string | null } | null>(null);
   const [card, setCard] = useState<Record<string, unknown> | null>(null);
@@ -430,6 +446,209 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
       setBusy(false);
     }
   }, [picked]);
+
+  /**
+   * Имя файла из полного пути — для загрузки на сервер (upload просит fileName).
+   */
+  const fileNameOf = (path: string): string => {
+    const parts = String(path ?? '').split(/[\\/]/);
+    return parts[parts.length - 1] || 'файл';
+  };
+
+  /**
+   * Действия над отмеченными файлами (промт КАРМАНА #158).
+   *
+   * Правило промта: каждое действие доводит файл до конца и говорит результат —
+   * молчать нельзя, иначе оператор не отличит «ушло на печать» от «программа
+   * зависла». Отказ называет причину (как уже делает отправка коллеге).
+   */
+  const runFileAction = useCallback(
+    async (id: FileActionId) => {
+      const ids = [...picked];
+      if (ids.length === 0) {
+        setStatus('Отметьте галочками файлы, над которыми нужно действие.');
+        return;
+      }
+      setBusy(true);
+      try {
+        if (id === 'print') {
+          const res = await window.matrica.fileSearch.printImages({ ids });
+          setStatus(res.ok ? `Отправлено на печать: ${ids.length}.` : `Не отправилось на печать: ${res.error}`);
+          return;
+        }
+        if (id === 'printWizard') {
+          const res = await window.matrica.fileSearch.printWizard({ ids });
+          if (!res.ok) {
+            setStatus(res.error);
+            if (res.folder) setCleanupFolder(res.folder);
+            return;
+          }
+          setStatus('Мастер печати закрыт. Временные копии снимков можно убрать — кнопка ниже.');
+          setCleanupFolder(res.folder);
+          return;
+        }
+        if (id === 'pdf') {
+          const res = await window.matrica.fileSearch.assemblePdf({ ids, defaultName: 'Фото двигателя' });
+          if (!res.ok) {
+            setStatus(res.error === 'cancelled' ? '' : `PDF не собрался: ${res.error}`);
+            return;
+          }
+          setStatus(`PDF сохранён и открыт: ${res.savePath}`);
+          return;
+        }
+        if (id === 'mail') {
+          const staged = await window.matrica.fileSearch.stageForShare({ ids, label: 'Отправить по почте' });
+          if (!staged.ok) {
+            setStatus(staged.error);
+            return;
+          }
+          const res = await window.matrica.mail.prepareLocalAttachment({
+            paths: staged.paths,
+            label: 'Фото двигателя',
+          });
+          if (!res.ok) {
+            setStatus(res.error);
+            return;
+          }
+          // Копии оператору ещё нужны: он сам прикрепляет их к письму.
+          setStatus(`Почтовый клиент открыт. Файлы лежат в папке: ${staged.folder}`);
+          return;
+        }
+        if (id === 'colleague' || id === 'chat') {
+          const staged = await window.matrica.fileSearch.stageForShare({
+            ids,
+            label: id === 'colleague' ? 'Отправить коллеге' : 'Отправить в чат',
+          });
+          if (!staged.ok) {
+            setStatus(staged.error);
+            return;
+          }
+          setStagedForSend({ paths: staged.paths, names: staged.names, folder: staged.folder });
+          setSendMode(id);
+          return;
+        }
+        if (id === 'openFolder') {
+          const res = await window.matrica.fileSearch.revealFolder({ ids });
+          setStatus(res.ok ? `Папка открыта: ${res.folder}` : res.error);
+          return;
+        }
+        if (id === 'copyPath') {
+          const res = await window.matrica.fileSearch.copyPaths({ ids });
+          setStatus(res.ok ? `Скопировано путей: ${res.count}.` : res.error);
+          return;
+        }
+        if (id === 'desktop') {
+          const staged = await window.matrica.fileSearch.stageForShare({ ids, label: 'На верстак' });
+          if (!staged.ok) {
+            setStatus(staged.error);
+            return;
+          }
+          const files: { id: string; name: string; mime?: string | null }[] = [];
+          const failures: string[] = [];
+          for (let i = 0; i < staged.paths.length; i += 1) {
+            const path = staged.paths[i] ?? '';
+            const up = await window.matrica.files
+              .upload({ path, fileName: staged.names[i] ?? fileNameOf(path) })
+              .catch((e) => ({ ok: false as const, error: String(e) }));
+            if (!up.ok) {
+              failures.push(`${staged.names[i] ?? fileNameOf(path)} — ${up.error}`);
+              continue;
+            }
+            files.push({ id: up.file.id, name: up.file.name, mime: up.file.mime ?? null });
+          }
+          if (files.length === 0) {
+            setStatus(`На верстак положить не удалось: ${failures.join('; ')}`);
+            return;
+          }
+          requestDesktopPutFiles(files);
+          // Файл уже на сервере — копии на диске больше не нужны.
+          await window.matrica.fileSearch.cleanupTempFolder({ folder: staged.folder }).catch(() => undefined);
+          setStatus(
+            failures.length > 0
+              ? `На верстак легло файлов: ${files.length}. Не получилось: ${failures.join('; ')}`
+              : `На верстак легло файлов: ${files.length}.`,
+          );
+          return;
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [picked],
+  );
+
+  /**
+   * Отправка подготовленных файлов: коллеге (на Верстак) или в переписку чата.
+   *
+   * После УСПЕШНОЙ отправки копии с диска убираем сами — файл уже на сервере, и
+   * держать его в папке незачем.
+   */
+  const sendStagedTo = useCallback(
+    async (recipientUserId: string) => {
+      const staged = stagedForSend;
+      const mode = sendMode;
+      if (!staged || !mode) return;
+      setBusy(true);
+      try {
+        let sent = 0;
+        const failures: string[] = [];
+        if (mode === 'chat') {
+          for (const path of staged.paths) {
+            const r = await window.matrica.chat
+              .sendFile({ recipientUserId, path })
+              .catch((e) => ({ ok: false as const, error: String(e) }));
+            if (r.ok) sent += 1;
+            else failures.push(r.error);
+          }
+        } else {
+          const fileIds: string[] = [];
+          for (const path of staged.paths) {
+            const up = await window.matrica.files
+              .upload({ path, fileName: fileNameOf(path) })
+              .catch((e) => ({ ok: false as const, error: String(e) }));
+            if (!up.ok) {
+              failures.push(up.error);
+              continue;
+            }
+            fileIds.push(up.file.id);
+          }
+          for (const fileId of fileIds) {
+            const r = await window.matrica.desktopTransfer
+              .sendToColleague({ fileId, recipientUserId })
+              .catch((e) => ({ ok: false as const, error: String(e) }));
+            if (r.ok) sent += 1;
+            else failures.push(r.error);
+          }
+        }
+        if (sent > 0) {
+          await window.matrica.fileSearch.cleanupTempFolder({ folder: staged.folder }).catch(() => undefined);
+        }
+        setStatus(
+          failures.length > 0
+            ? `Отправлено файлов: ${sent}. Не получилось: ${failures.join('; ')}`
+            : `Отправлено файлов: ${sent}.`,
+        );
+      } finally {
+        setBusy(false);
+        setSendMode(null);
+        setStagedForSend(null);
+      }
+    },
+    [stagedForSend, sendMode],
+  );
+
+  /** Убрать временные копии снимков (программа предлагает это сама). */
+  const cleanupStaged = useCallback(async () => {
+    const folder = cleanupFolder;
+    if (!folder) return;
+    const res = await window.matrica.fileSearch.cleanupTempFolder({ folder }).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (res.ok && res.removed) {
+      setCleanupFolder('');
+      setStatus('Временные копии убраны.');
+      return;
+    }
+    setStatus(res.ok ? 'Папку с копиями убрать не удалось — удалите её вручную.' : `Убрать не удалось: ${res.error}`);
+  }, [cleanupFolder]);
 
   const toggleExpanded = useCallback((key: string) => {
     setExpanded((prev) => {
@@ -908,9 +1127,28 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
                       Через мастер печати фотографий
                     </Button>
                   ) : null}
+                  {/* Промт КАРМАНА #158: одно меню действий над отмеченными — и кнопкой,
+                      и правой кнопкой по картинке. Набор действий общий с панелью вложений
+                      карточки (`components/FileActionsMenu.tsx`). */}
+                  <Button
+                    variant="outline"
+                    onClick={(e) => {
+                      const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                      setMenuAt({ x: rect.left, y: rect.bottom + 4 });
+                    }}
+                    disabled={busy || picked.size === 0}
+                    title="Печать, PDF, почта, коллеге, на верстак и другое над отмеченными файлами"
+                  >
+                    Действия…
+                  </Button>
                   <Button variant="outline" onClick={() => setPicked(new Set())} disabled={picked.size === 0}>
                     Снять отметки
                   </Button>
+                  {cleanupFolder ? (
+                    <Button variant="outline" onClick={() => void cleanupStaged()} disabled={busy}>
+                      Убрать временные копии
+                    </Button>
+                  ) : null}
                 </div>
                 {folderResult.matches.map((match) => {
                   const images = imagesByMatch[match.key] ?? [];
@@ -955,6 +1193,16 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
                                   <div
                                     key={image.id}
                                     onClick={() => togglePicked(image.id)}
+                                    onContextMenu={(e) => {
+                                      // Правая кнопка — меню действий над отмеченными.
+                                      // Если правый клик был по неотмеченной картинке,
+                                      // отметкой становится она одна — иначе меню
+                                      // действовало бы «не по тому».
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      if (!picked.has(image.id)) setPicked(new Set([image.id]));
+                                      setMenuAt({ x: e.clientX, y: e.clientY });
+                                    }}
                                     title={image.name}
                                     style={{
                                       position: 'relative',
@@ -1369,6 +1617,34 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
           </SectionCard>
         </div>
       ) : null}
+
+      {/* Меню действий над отмеченными файлами (промт КАРМАНА #158).
+          Открывается правой кнопкой по картинке и кнопкой «Действия…». */}
+      <FileActionsMenu
+        open={menuAt != null}
+        at={menuAt}
+        count={picked.size}
+        available={(id) => (id === 'printWizard' ? osPrintWizard : true)}
+        onAction={(id) => void runFileAction(id)}
+        onClose={() => setMenuAt(null)}
+      />
+
+      {/* Отправка коллеге или в чат: выбор получателя. */}
+      <SendFileToColleagueDialog
+        open={sendMode != null}
+        fileName={
+          stagedForSend
+            ? `${stagedForSend.names.length} фото — ${stagedForSend.names.slice(0, 3).join(', ')}${
+                stagedForSend.names.length > 3 ? '…' : ''
+              }`
+            : ''
+        }
+        onClose={() => {
+          setSendMode(null);
+          setStagedForSend(null);
+        }}
+        onSend={(recipientUserId) => sendStagedTo(recipientUserId)}
+      />
     </div>
   );
 }
