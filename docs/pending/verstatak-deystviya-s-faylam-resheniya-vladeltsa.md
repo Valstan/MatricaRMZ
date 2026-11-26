@@ -43,5 +43,5 @@
 4. **Полевая приёмка глазами владельца.** CDP-смоук на стенде `lane1` прошёл, но живой приёмки на
    рабочем компьютере оператора не было.
 
-**Куда смотреть:** план — [`../plans/desktop-file-actions-2026-11.md`](../plans/desktop-file-actions-2026-11.md);
+**Куда смотреть:** план — [`../plans/_archive/desktop-file-actions-2026-11.md`](../plans/_archive/desktop-file-actions-2026-11.md);
 кадры приёмки — [`../evidence/desktop-file-actions-144/`](../evidence/desktop-file-actions-144/README.md).
