@@ -4,7 +4,7 @@
 >
 > Промт из библиотеки — **задание владельца, а не готовое решение** (`AGENTS.md` §«Промты и планы проекта из КАРМАНА»): он сверён с нашим кодом и уточнён ниже. Каждое уточнение помечено — чем решено и почему.
 
-**Статус:** код готов 26.11.2026 (ветка `feat/file-search-engine-suggestions`, PR **#2079** слит). **Живая приёмка пройдена 26.11.2026** (CDP-смоук на стенде `lane1`, 24/24 PASS; доказательства — [`../evidence/file-search-155/`](../evidence/file-search-155/README.md)). **Дата:** 2026-11-26. **Нить:** поиск по файлам → подсказки номера двигателя + режим «Фото двигателя».
+**Статус:** код готов 26.11.2026 (ветка `feat/file-search-engine-suggestions`, PR **#2079** слит). **Живая приёмка пройдена 26.11.2026** (CDP-смоук на стенде `lane1`, 24/24 PASS; доказательства — [`../../evidence/file-search-155/`](../../evidence/file-search-155/README.md)). **Повтор приёмки на свежем `main` после мержа #2120 (переписал сервис поиска по папкам): 28/28 PASS** — [`../../evidence/file-search-155/recheck-2026-11-26/`](../../evidence/file-search-155/recheck-2026-11-26/README.md). **Дата:** 2026-11-26. **Нить:** поиск по файлам → подсказки номера двигателя + режим «Фото двигателя». **План в архиве — нитка закрыта.**
 
 ## Заводская линза (три строки)
 
@@ -69,7 +69,7 @@
 План требовал скриншот трёх режимов рядом со строкой поиска — их сняли живьём на Windows-клиенте
 (Electron + CDP), а не «по коду». Драйвер: `.claude/skills/verifier-electron/scripts/cdp-file-search-engine-suggest.mjs`
 (в репозитории), отчёт — `.verifier-electron/cdp-file-search-engine-suggest-report.json`,
-кадры — [`../evidence/file-search-155/`](../evidence/file-search-155/README.md).
+кадры — [`../../evidence/file-search-155/`](../../evidence/file-search-155/README.md).
 
 **Стенд:** именованный `lane1` — backend `127.0.0.1:3002` (БД `matricarmz_dev_lane1`), Vite `5174`,
 CDP `9223`, вход `verify`. Фикстуры: двигатели `0889`, `Э06АТ0889`, `Э07АТ0889`, `Э45АТ08891`
@@ -102,7 +102,7 @@ CDP `9223`, вход `verify`. Фикстуры: двигатели `0889`, `Э0
 - **Печать и действия над найденным** — отдельные заявки («печать из результатов поиска», «контекстное меню по выбранным файлам»), здесь не дублируются.
 
 > Решения выше — «закрытые по умолчанию» (по правилу §«Промты проекта — раздел КАРМАНА»). Открытым
-> пунктом для владельца остаётся весь список: [`../pending/poisk-po-fajlam-podskazki-nomera-resheniya-vladeltsa.md`](../pending/poisk-po-fajlam-podskazki-nomera-resheniya-vladeltsa.md).
+> пунктом для владельца остаётся весь список: [`../../pending/poisk-po-fajlam-podskazki-nomera-resheniya-vladeltsa.md`](../../pending/poisk-po-fajlam-podskazki-nomera-resheniya-vladeltsa.md).
 
 ## Границы (что сознательно не входит)
 

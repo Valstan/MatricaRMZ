@@ -207,11 +207,20 @@ const HELPERS = `
   };
   // Выпадашка подсказок живёт в портале у document.body (SuggestInput → createPortal).
   const suggestionPopup = () => [...document.querySelectorAll('div')].filter(visible).find((d) => (d.getAttribute('style') ?? '').includes('z-index: 5000'));
-  const suggestionItems = () => {
+  // Строка подсказки — ДВА блока: жирный номер двигателя и второстепенный
+  // пояснительный текст (внутренний номер · номер РМЗ). Текст строки целиком
+  // склеивает их без пробела («Э06АТ0889RMZ3»), поэтому номер берём из ПЕРВОГО
+  // блока, а не из текста строки: иначе проверка измеряет не то.
+  const suggestionRows = () => {
     const popup = suggestionPopup();
     if (!popup) return [];
-    return [...popup.querySelectorAll('[data-idx]')].filter(visible).map((el) => txt(el));
+    return [...popup.querySelectorAll('[data-idx]')].filter(visible).map((el) => ({
+      label: el.firstElementChild ? txt(el.firstElementChild) : txt(el),
+      desc: el.children[1] ? txt(el.children[1]) : '',
+      text: txt(el),
+    }));
   };
+  const suggestionItems = () => suggestionRows().map((r) => r.label);
   const modeButtons = () => {
     const labels = ['В файлах', 'В папках по названию', 'Фото двигателя'];
     return labels.map((label) => {
@@ -415,12 +424,14 @@ async function main() {
      input.focus();
      setVal(input, '0889');
      await wait(1800);
-     return { ok: true, value: input.value, items: suggestionItems() };`,
+     return { ok: true, value: input.value, rows: suggestionRows() };`,
   );
   note(typed.ok, 'в строке поиска набраны последние 4 цифры номера', typed.ok ? undefined : typed);
-  const items = typed.items ?? [];
-  const labels = items.map((i) => i.split(' ')[0]);
-  note(items.length > 0, 'выпадают подсказки с полными номерами двигателей', { items });
+  const rows = typed.rows ?? [];
+  const labels = rows.map((r) => r.label);
+  note(rows.length > 0, 'выпадают подсказки с полными номерами двигателей', {
+    items: rows.map((r) => (r.desc ? `${r.label} (${r.desc})` : r.label)),
+  });
   note(
     labels.includes('Э06АТ0889') && labels.includes('Э07АТ0889'),
     'в подсказках полные номера, а не набранные цифры',
@@ -438,7 +449,10 @@ async function main() {
     ws,
     `const popup = suggestionPopup();
      if (!popup) return { ok: false, reason: 'выпадашка не открыта' };
-     const item = [...popup.querySelectorAll('[data-idx]')].filter(visible).find((el) => txt(el).startsWith('Э06АТ0889'));
+     const item = [...popup.querySelectorAll('[data-idx]')].filter(visible).find((el) => {
+       const label = el.firstElementChild ? txt(el.firstElementChild) : txt(el);
+       return label === 'Э06АТ0889';
+     });
      if (!item) return { ok: false, reason: 'подсказка «Э06АТ0889» не найдена' };
      click(item); await wait(800);
      const input = searchInput();
