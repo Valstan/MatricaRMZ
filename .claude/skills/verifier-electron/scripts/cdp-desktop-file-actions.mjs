@@ -37,7 +37,6 @@ import { join, resolve } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
 const require = createRequire(import.meta.url);
-const requireFromApp = createRequire(new URL('../../../../electron-app/package.json', import.meta.url));
 const requireFromBackend = createRequire(new URL('../../../../backend-api/package.json', import.meta.url));
 
 const PORT = process.env.MATRICA_CDP_PORT || '9222';
@@ -834,12 +833,21 @@ async function main() {
       if (!apply) return { ok: false, reason: 'кнопки «Приложить» нет' };
       d.click(apply);
       await d.wait(6000);
+      // Список вложений длиннее порога сворачивается в кнопку «▶ Показать файлы (N)» —
+      // и тогда ИМЁН в тексте страницы нет: есть только счётчик и галерея. Оператор
+      // список разворачивает ⇒ и приёмка должна смотреть так же, а не искать имя
+      // в тексте, которого на экране нет (проверка «видноA/видноB» была бы враньём).
+      const toggle = Array.from(document.querySelectorAll('button')).filter(d.visible).find((b) => d.txt(b).startsWith('▶ Показать файлы'));
+      let развёрнут = false;
+      if (toggle) { d.click(toggle); await d.wait(1200); развёрнут = true; }
       const body = document.body.innerText;
       return {
         ok: true,
         видноA: body.includes(${JSON.stringify(FILE_A)}),
         видноB: body.includes(${JSON.stringify(FILE_B)}),
         пикерОстался: Boolean(document.querySelector('[data-attachments-desktop-picker]')),
+        списокРазвёрнут: развёрнут,
+        счётчик: (body.match(/Всего:\\s*\\d+\\s*·\\s*Показано:\\s*\\d+/) || [''])[0],
       };
     })()`,
   );
