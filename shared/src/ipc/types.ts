@@ -1345,6 +1345,37 @@ export type MatricaApi = {
      * ok:false + cancelled (молчим, это не ошибка). Десктоп: всегда ok:false.
      */
     qrScan: () => Promise<{ ok: true; text: string } | { ok: false; error: string; cancelled?: boolean }>;
+    /**
+     * Снять документ со сканера (промт КАРМАНА #148). Способ захвата — WIA
+     * (Windows Image Acquisition), поэтому сканер виден без настроек и без привязки
+     * к модели: у МФУ и у отдельного сканера один и тот же путь «драйвер → WIA →
+     * кадр».
+     *
+     * `label` — человеческое имя карточки объекта: по нему и по штампу времени
+     * строится имя файла (например «Двигатель 41-26 - скан 26.11.2026 14-32-07.jpg»).
+     * Формат — JPG, качество 80 %.
+     *
+     * Кадр возвращается во ВРЕМЕННУЮ папку: сначала оператор называет файл
+     * (`scan.place` кладёт его в папку объекта под этим именем), потом он уходит на
+     * сервер обычной загрузкой — как файл, взятый с диска.
+     *
+     * Планшет: канала нет — там нет ни сканера, ни драйвера WIA; отказ приходит
+     * с названной причиной.
+     */
+    document: (args: { label?: string }) => Promise<
+      { ok: true; path: string; fileName: string } | { ok: false; error: string }
+    >;
+    /**
+     * Положить снятый кадр в папку файлов объекта под именем, которое дал оператор.
+     *
+     * Тем же путём, что и файл с диска: папка объекта на диске → запись о файле на
+     * сервере → синхронизация. Право — то же, что у загрузки (`files.upload`).
+     */
+    place: (args: { path: string; fileName: string; label?: string }) => Promise<
+      { ok: true; path: string; fileName: string } | { ok: false; error: string }
+    >;
+    /** Убрать кадр, который оператор не стал прикладывать. */
+    discard: (args: { path: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
   };
   activity: {
     report: (args: { activeDate: string; activeMs: number }) => void;

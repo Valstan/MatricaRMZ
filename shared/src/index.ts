@@ -169,4 +169,5 @@ export * from './domain/syncTableDomains.js';
 export * from './domain/printTemplate.js';
 export * from './domain/printForms.js';
 export * from './domain/printDocuments.js';
+export * from './domain/scanDocument.js';
 export * from './labels/auditAction.js';

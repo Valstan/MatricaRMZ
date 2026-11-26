@@ -9,7 +9,7 @@ import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { useConfirm } from './ConfirmContext.js';
 import { useDesktopFiles } from './DesktopFilesContext.js';
 import { takeDesktopAttachIntent, useDesktopAttachIntent } from './DesktopAttachIntent.js';
-import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
+import { useFileUploadFlow, type UploadTask } from '../hooks/useFileUploadFlow.js';
 import { isAndroidPlatform } from '../platform.js';
 import { escapeHtml, printSectionsDirect } from '../utils/printPreview.js';
 
@@ -91,6 +91,21 @@ function renameCameraShot(file: File): File {
   return new File([file], `Фото ${stamp}.${ext}`, { type: file.type });
 }
 
+/**
+ * Причина отказа моста планшета без служебной приставки.
+ *
+ * Шим отвечает «канал не заведён на планшете: scan:document — <причина>». Первая
+ * часть — для инженера; оператору нужна причина, а он видит «Скан не получился:
+ * канал не заведён на планшете» и решает, что программа сломалась. Поэтому
+ * приставку отбрасываем (формат ответа задан шимом,
+ * android-app/src/shims/electron.ts).
+ */
+function humanReason(error: string): string {
+  const text = String(error || '');
+  const at = text.lastIndexOf('— ');
+  return at >= 0 ? text.slice(at + 2).trim() : text;
+}
+
 const LIST_TOGGLE_STYLE: React.CSSProperties = {
   marginTop: 10,
   width: '100%',
@@ -160,6 +175,14 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   const isAndroid = isAndroidPlatform();
   const androidPickRef = useRef<HTMLInputElement>(null);
   const androidCameraRef = useRef<HTMLInputElement>(null);
+  // Разрулив «с диска / со сканера» (промт КАРМАНА #148): одна кнопка «Добавить
+  // файл» открывает выбор источника, а не две отдельные кнопки — оператору не
+  // надо знать, где сканер, он просто говорит «со сканера».
+  const [addChoiceOpen, setAddChoiceOpen] = useState(false);
+  // Окно скана: подсказка «положите документ в сканер и нажмите „Сканировать“».
+  const [scanDialogOpen, setScanDialogOpen] = useState(false);
+  // Идёт съём кадра: кнопку «Сканировать» в это время жать нельзя.
+  const [scanBusy, setScanBusy] = useState(false);
 
   /**
    * Намерение с Верстака: оператор выделил файлы и выбрал карточку — «прикрепить к карточке».
@@ -231,17 +254,19 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     };
   }, [props.canView, listKey, list, listCollapsed]);
 
-  async function addFromPaths(paths: string[]) {
-    if (!props.canUpload) return;
-    const uploads = await uploadFlow.buildTasks(paths);
-    if (!uploads) {
-        setBusy('Загрузка отменена пользователем');
-        setTimeout(() => setBusy(''), 1400);
-        return;
-    }
+  /**
+   * Загрузить готовые файлы на сервер и записать их в карточку.
+   *
+   * Общий шаг для файла с диска и для скана: загрузка (с живым прогрессом) →
+   * запись в карточку её же `onChange`. Скан идёт сюда же — иначе он был бы
+   * «каким-то другим вложением»: без записи в карточку он и на сервер не уехал бы
+   * тем же путём, что остальные файлы.
+   */
+  async function uploadTasks(tasks: UploadTask[]) {
+    if (!props.canUpload || tasks.length === 0) return;
     setBusy('Загрузка файлов...');
     try {
-      const uploadResult = await uploadFlow.runUploads<FileRef>(uploads, async (task, transferId) => {
+      const uploadResult = await uploadFlow.runUploads<FileRef>(tasks, async (task, transferId) => {
         const r = await window.matrica.files.upload({ path: task.path, fileName: task.fileName, transferId, ...(props.scope ? { scope: props.scope } : {}) });
         return r.ok ? { ok: true as const, value: r.file } : { ok: false as const, error: r.error };
       });
@@ -279,6 +304,82 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
       const reason = e instanceof Error ? e.message : String(e);
       setBusy(`Неуспешно: ${reason}`);
       setTimeout(() => setBusy(''), 4500);
+    }
+  }
+
+  /** Файл с диска: спросить имя у оператора и загрузить. */
+  async function addFromPaths(paths: string[]) {
+    if (!props.canUpload) return;
+    const uploads = await uploadFlow.buildTasks(paths);
+    if (!uploads) {
+        setBusy('Загрузка отменена пользователем');
+        setTimeout(() => setBusy(''), 1400);
+        return;
+    }
+    await uploadTasks(uploads);
+  }
+
+  /** Файл с диска — системный диалог выбора (main). */
+  async function pickFilesFromDisk() {
+    const pickResult = await window.matrica.files.pick();
+    if (pickResult.ok && pickResult.paths) {
+      await addFromPaths(pickResult.paths);
+    }
+  }
+
+  /**
+   * Скан документа (промт КАРМАНА #148).
+   *
+   * Сценарий без настроек: оператор жмёт «Сканировать», программа снимает кадр
+   * со сканера сама (WIA — штатный слой драйверов Windows, модель сканера не важна),
+   * потом предлагает имя файла и ждёт, пока оператор его поправит.
+   *
+   * Отказ называет причину, а не молчит: на планшете канала нет вовсе — мост
+   * отвечает, почему (см. android-app/src/core/tabletDomains.ts), и оператор видит
+   * это как «сканер тут не предусмотрен», а не как поломку программы.
+   */
+  async function runScan() {
+    if (!props.canUpload || scanBusy) return;
+    setScanBusy(true);
+    setBusy('Сканируем документ...');
+    try {
+      const shot = await window.matrica.scan.document({ label: objectLabel });
+      if (!shot.ok) {
+        // На планшете канала нет вовсе — мост отвечает почему. Говорим это
+        // словами оператора, а не служебной приставкой «канал не заведён».
+        setBusy(isAndroid ? `Скан на планшете недоступен: ${humanReason(shot.error)}` : `Скан не получился: ${shot.error}`);
+        setTimeout(() => setBusy(''), 9000);
+        return;
+      }
+      setScanDialogOpen(false);
+      setBusy('Скан готов — проверьте имя файла.');
+      // Имя предлагает программа по правилу «карточка + скан + время», но оператор
+      // правит его сам: текст выделен целиком, печатать можно сразу.
+      const chosen = await uploadFlow.promptName(shot.fileName, {
+        autoSelect: true,
+        lead: 'Программа назвала файл по правилу «карточка + скан + время». Напишите своё — текст выделен.',
+      });
+      if (!chosen) {
+        // Оператор отказался — убираем кадр, чтобы в папке объекта не осталось мусора.
+        await window.matrica.scan.discard({ path: shot.path }).catch(() => undefined);
+        setBusy('Сканирование отменено');
+        setTimeout(() => setBusy(''), 1800);
+        return;
+      }
+      // Кладём кадр в папку объекта под ИМЕНЕМ оператора — тем же путём, что и файл
+      // с диска. Только после этого он уходит на сервер обычной загрузкой.
+      const placed = await window.matrica.scan.place({ path: shot.path, fileName: chosen, label: objectLabel });
+      if (!placed.ok) {
+        setBusy(`Скан не попал в объект: ${placed.error}`);
+        setTimeout(() => setBusy(''), 9000);
+        return;
+      }
+      await uploadTasks([{ path: placed.path, fileName: placed.fileName }]);
+    } catch (e) {
+      setBusy(`Скан не получился: ${e instanceof Error ? e.message : String(e)}`);
+      setTimeout(() => setBusy(''), 9000);
+    } finally {
+      setScanBusy(false);
     }
   }
 
@@ -599,9 +700,32 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
                 void uploadBlobs(picked.map((f) => renameCameraShot(f)));
               }}
             />
-            <Button variant="ghost" onClick={() => androidPickRef.current?.click()}>
+            <Button variant="ghost" title="Добавить файл: с диска или со сканера" onClick={() => setAddChoiceOpen((v) => !v)}>
               Добавить файл
             </Button>
+            {/* Планшет. Тот же выбор источника, но «Со сканера» тут заведомо не
+                работает — и об этом сказано ПРЯМО, а не спрятано под серой кнопкой:
+                сканера на планшете нет, документ сканируется на компьютере, где
+                сканер подключён, и приезжает сюда как обычное вложение. */}
+            {addChoiceOpen && (
+              <div
+                data-attachments-add-choice
+                style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
+              >
+                <Button variant="ghost" onClick={() => { setAddChoiceOpen(false); androidPickRef.current?.click(); }}>
+                  С диска
+                </Button>
+                <Button variant="ghost" onClick={() => { setAddChoiceOpen(false); void runScan(); }}>
+                  🖨 Со сканера
+                </Button>
+                <Button variant="ghost" onClick={() => setAddChoiceOpen(false)}>
+                  Отмена
+                </Button>
+                <div style={{ fontSize: 12, color: '#64748b' }}>
+                  Сканера на планшете нет.
+                </div>
+              </div>
+            )}
             <Button variant="ghost" onClick={() => androidCameraRef.current?.click()}>
               📷 Сделать фото
             </Button>
@@ -611,15 +735,29 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           <>
             <Button
               variant="ghost"
-              onClick={async () => {
-                const pickResult = await window.matrica.files.pick();
-                if (pickResult.ok && pickResult.paths) {
-                  await addFromPaths(pickResult.paths);
-                }
-              }}
+              title="Добавить файл: с диска или со сканера"
+              onClick={() => setAddChoiceOpen((v) => !v)}
             >
               Добавить файл
             </Button>
+            {/* Выбор источника — рядом с кнопкой, а не в другом экране: оператор
+                говорит «со сканера» и не знает, где сканер (промт КАРМАНА #148). */}
+            {addChoiceOpen && (
+              <div
+                data-attachments-add-choice
+                style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
+              >
+                <Button variant="ghost" onClick={() => { setAddChoiceOpen(false); void pickFilesFromDisk(); }}>
+                  С диска
+                </Button>
+                <Button variant="ghost" onClick={() => { setAddChoiceOpen(false); setScanDialogOpen(true); }}>
+                  🖨 Со сканера
+                </Button>
+                <Button variant="ghost" onClick={() => setAddChoiceOpen(false)}>
+                  Отмена
+                </Button>
+              </div>
+            )}
             <Button variant="ghost" title="Загрузить то, что скопировано в буфер обмена" onClick={() => void addFromClipboard()}>
               Вставить из буфера
             </Button>
@@ -753,6 +891,32 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           </div>
           <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
             Файл останется и на Верстаке — карточка получает ссылку на него, а не копию.
+          </div>
+        </div>
+      )}
+      {/* Окно скана (промт КАРМАНА #148). Сценарий БЕЗ НАСТРОЕК: программа
+          говорит, что делать, и ждёт оператора — тот кладёт документ в сканер и
+          жмёт «Сканировать». Никаких «выберите устройство», «разрешение» и
+          «драйвер» оператор не видит: WIA сама находит сканер в системе. */}
+      {scanDialogOpen && props.canUpload && !isAndroid && (
+        <div
+          data-attachments-scan
+          style={{ marginTop: 10, padding: 12, border: '1px solid #e5e7eb', borderRadius: 12, background: '#f8fafc' }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Сканирование документа</div>
+          <div style={{ fontSize: 13, color: '#334155' }}>
+            Как это работает: положите документ в сканер и нажмите «Сканировать».
+          </div>
+          <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
+            Формат — JPG, качество 80 %. Программа сама предложит имя файла — его можно будет изменить.
+          </div>
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button disabled={scanBusy} onClick={() => void runScan()}>
+              Сканировать
+            </Button>
+            <Button variant="ghost" onClick={() => setScanDialogOpen(false)}>
+              Отмена
+            </Button>
           </div>
         </div>
       )}
