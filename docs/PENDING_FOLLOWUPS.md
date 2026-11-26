@@ -56,6 +56,7 @@
 
 - [🟡 Управляющие кнопки вправо: остаток обхода — подвалы модалок (промт #141) 🗓 since:2026-11-25](pending/knopki-vpravo-obhod-renderer.md)
 - [🟡 Совет специалистов: три решения владельца (состав, обязательность, место протоколов) 🗓 since:2026-11-25](pending/sovet-specialistov-tri-resheniya-vladeltsa.md)
+- [🟢 Кнопка «где искать»: остальные списки и серверный слой 🗓 since:2026-11-26](pending/gde-iskat-ostatniye-spiski-i-servernyy-sloy.md)
 
 - [✅ Кит перетаскивания: живой прогон второго пути (карточки) доведён 🗓 since:2026-11-24](pending/kit-peretaskivaniya-zhivoy-progon-vtorogo-pute.md)
 - [🟡 Списки вне кита: 39 таблиц-страниц ещё не переведены 🗓 since:2026-11-25](pending/list-kit-remaining-pages.md)
