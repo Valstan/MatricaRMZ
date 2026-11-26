@@ -22,7 +22,7 @@ import {
   productionProgramGroupKey,
   productionProgramMoveGroup,
   productionProgramMoveRowWithinGroup,
-  productionProgramNumbering,
+  productionProgramNumberingPlan,
   productionProgramResolvePendingRows,
   productionProgramRowFromEngine,
   productionProgramRowTone,
@@ -261,6 +261,17 @@ type ScreenRow = {
   engine: EngineListItem | null;
   /** Живая подпись «Организация»: заказчик + три цифры номера договора. */
   organization: string;
+  /**
+   * Сквозной «№ п/п» — по позиции показа, а не по карте по id.
+   *
+   * Карта нумерации по идентификатору строки слепа к двум бедам: строка без
+   * идентификатора в неё не попадает (номер пустой), а две строки с одинаковым
+   * идентификатором делят один номер (повтор и пропуск сквозного). Номер по
+   * позиции показа от обеих бед свободен.
+   */
+  global: number;
+  /** «№ п/п» внутри своего договора — с единицы в каждом договоре. */
+  inContract: number;
 };
 
 /** Статус программы: подпись и цвет плашки. */
@@ -1199,16 +1210,33 @@ export function ProductionProgramPage(props: Props) {
   }, [contracts]);
 
   /**
-   * Строки плана, сгруппированные по договору (владелец 10.11.2026).
+   * Две нумерации строк: общая по программе и своя внутри договора. Считаются
+   * по позиции **показа** — после перетаскивания сохранённые номера разъезжаются,
+   * и цифры на экране перестают быть правдой.
+   *
+   * План нумерации доменный (`productionProgramNumberingPlan`): в нём и порядок
+   * показа, и оба номера. Экран, печатный лист и файл выгрузки берут его же —
+   * одна считалка на три места, иначе цифры разъезжаются.
+   */
+  const numberingPlan = useMemo(() => productionProgramNumberingPlan(rows), [rows]);
+
+  /**
+   * Строка плана на экране — сгруппирована по договору (владелец 10.11.2026).
    *
    * Порядок групп — **как в печати**: по порядку строк (порядок первого
    * появления), а не по названию договора. Иначе экран и печать показывают
    * разный порядок, и перетащить группу некуда. Раньше тут стояла сортировка по
    * названию — её убрали 20.11.2026 (план нити «порядок»).
+   *
+   * Строки идут в **порядке показа** из домена (`productionProgramNumberingPlan`):
+   * группы собраны вместе, а сквозной номер посчитан по этому порядку. Номер по
+   * позиции в плоском массиве на экране прыгал: строки одного договора в массиве
+   * разбросаны, и показ их переставлял.
    */
   const groups = useMemo(() => {
     const byKey = new Map<string, { key: string; label: string; items: ScreenRow[] }>();
-    for (const row of rows) {
+    for (const index of numberingPlan.displayOrder) {
+      const row = rows[index]!;
       const engine = engineById.get(String(row.engineId ?? '')) ?? null;
       const contractId = String(row.contractId ?? '');
       const organization =
@@ -1217,23 +1245,25 @@ export function ProductionProgramPage(props: Props) {
           contractNumber: contractNumberOf(engine),
         }) || String(row.groupLabel ?? '');
       const label = contractLabelById.get(contractId) || String(row.groupLabel ?? '') || 'Без договора';
-      const key = contractId || `без-договора:${label}`;
+      // Ключ группы — доменный (`productionProgramGroupKey`): он же у печати, у
+      // выгрузки и у перетаскивания. Свой ключ на экране (только договор) делил
+      // строки по группам иначе, чем лист, — и цифры разъезжались.
+      const key = productionProgramGroupKey(row);
       let group = byKey.get(key);
       if (!group) {
         group = { key, label, items: [] };
         byKey.set(key, group);
       }
-      group.items.push({ row, engine, organization });
+      group.items.push({
+        row,
+        engine,
+        organization,
+        global: numberingPlan.global[index] ?? 0,
+        inContract: numberingPlan.inContract[index] ?? 0,
+      });
     }
     return [...byKey.values()];
-  }, [rows, engineById, contractLabelById, contractNumberOf]);
-
-  /**
-   * Две нумерации строк: общая по программе и своя внутри договора. Считаются
-   * по позиции — после перетаскивания сохранённые номера разъезжаются, и цифры
-   * на экране перестают быть правдой.
-   */
-  const numbering = useMemo(() => productionProgramNumbering(rows), [rows]);
+  }, [rows, numberingPlan, engineById, contractLabelById, contractNumberOf]);
 
   /**
    * Перетаскивание строк плана — **общий слой кита** (промт КАРМАНА #67, шов с ПП).
@@ -1261,7 +1291,8 @@ export function ProductionProgramPage(props: Props) {
     const lastRowIdByGroup = new Map<string, string>();
     const rowIds = new Set<string>();
     for (const group of groups) {
-      const domainKey = group.items[0] ? productionProgramGroupKey(group.items[0].row) : group.key;
+      // Ключ группы — доменный: он уже в ключе самой группы (общий с печатью).
+      const domainKey = group.key;
       for (const item of group.items) {
         const rowId = String(item.row.id);
         byRowId.set(rowId, domainKey);
@@ -1308,7 +1339,8 @@ export function ProductionProgramPage(props: Props) {
     const rowKeysOf = new Map<string, string[]>();
     const groupOfRow = new Map<string, string>();
     for (const group of groups) {
-      const domainKey = group.items[0] ? productionProgramGroupKey(group.items[0].row) : group.key;
+      // Ключ группы — доменный: он уже в ключе самой группы (общий с печатью).
+      const domainKey = group.key;
       const rowKeys = group.items.map((item) => String(item.row.id));
       groupKeyList.push(domainKey);
       rowKeysOf.set(domainKey, rowKeys);
@@ -1899,7 +1931,8 @@ export function ProductionProgramPage(props: Props) {
   /** Колонки для печати и копии ВЫДЕЛЕННЫХ строк — те же, что в печатной форме плана. */
   const selectionColumns = useMemo<ListContextColumn<ScreenRow>[]>(
     () => [
-      { title: '№ п/п', value: (r) => String(numbering.get(String(r.row.id))?.global ?? '') },
+      // Номер — тот же, что на экране (позиция показа), а не из карты по id.
+      { title: '№ п/п', value: (r) => String(r.global) },
       { title: 'Организация, договор', value: (r) => r.organization || '—' },
       {
         title: 'Двигатель',
@@ -1912,7 +1945,7 @@ export function ProductionProgramPage(props: Props) {
       { title: 'Состояние', value: (r) => programStateLabel(r.row.state) },
       { title: 'Примечание', value: (r) => r.row.note ?? '' },
     ],
-    [numbering],
+    [],
   );
 
   const printSelectedRows = useCallback(
@@ -2534,7 +2567,7 @@ export function ProductionProgramPage(props: Props) {
                       </tr>
                     ) : null}
                     {groups.map((group) => {
-                      const groupKey = group.items[0] ? productionProgramGroupKey(group.items[0].row) : group.key;
+                      const groupKey = group.key;
                       return (
                         <React.Fragment key={group.key}>
                           <tr
@@ -2573,7 +2606,6 @@ export function ProductionProgramPage(props: Props) {
                             // Тон строки — по факту из карточки (тот же домен, что и печать),
                             // а ручная отметка оператора сильнее факта.
                             const tone = productionProgramRowTone(engine, r.operatorNote);
-                            const num = numbering.get(r.id);
                             const isSelected = selection.isSelected(String(r.id));
                             // Марка и номер — по тому же правилу, что печать и выгрузка
                             // (живая карточка, снимок строки — запасной вариант).
@@ -2649,8 +2681,11 @@ export function ProductionProgramPage(props: Props) {
                                     label={engineCellLabel || `строка ${r.id}`}
                                   />
                                 </td>
-                                <td>{num?.global ?? ''}</td>
-                                <td>{num?.inContract ?? ''}</td>
+                                {/* Номер — по позиции показа (доменный план нумерации),
+                                    а не по карте по идентификатору: карта слепа к строке
+                                    без идентификатора и к двум строкам с одинаковым. */}
+                                <td>{item.global}</td>
+                                <td>{item.inContract}</td>
                               <td title={item.organization}>{item.organization || '—'}</td>
                               <td>
                                 {/* Номер двигателя — ссылка в карточку (промт КАРМАНА #64):
