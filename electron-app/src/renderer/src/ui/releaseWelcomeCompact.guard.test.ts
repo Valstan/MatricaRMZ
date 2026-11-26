@@ -118,6 +118,18 @@ describe('окно приветствия: снежное оформление',
   });
 });
 
+describe('окно приветствия: детали завода берут цвет оформления', () => {
+  it('каждая деталь рисуется через currentColor — иначе гайка уходит в чёрный', () => {
+    // Деталь без currentColor рисуется зашитым цветом и выбивается из палитры оформления:
+    // гайка без fill="currentColor" была чёрной и не брала ни зелёный, ни красный.
+    const cases = [...decorSource.matchAll(/case '(\w+)':\s*\n\s*return \(\s*\n([\s\S]*?)\n\s*\);/g)];
+    expect(cases.length, 'в renderEnginePartSvg должно быть 8 деталей завода').toBe(8);
+    for (const [, kind, body] of cases) {
+      expect(body, `деталь ${kind} должна брать цвет оформления`).toContain('currentColor');
+    }
+  });
+});
+
 describe('окно приветствия: prefers-reduced-motion выключает все три оформления', () => {
   it('новые анимации попали в блок reduced-motion', () => {
     const idx = css.indexOf('@media (prefers-reduced-motion: reduce)');
