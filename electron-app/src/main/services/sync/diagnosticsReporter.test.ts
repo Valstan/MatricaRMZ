@@ -51,4 +51,16 @@ describe('снимок диагностики клиента', () => {
       expect(Object.keys(tables)).toContain(name);
     }
   });
+
+  it('журнал действий в снимке есть — иначе его очередь не видит ни сервер, ни автолечение', async () => {
+    // Инцидент 26.11.2026 (PC20): три строки `audit_log` висели двое суток, тревога
+    // дошла только потому, что оператор жал кнопку. Таблицы не было в снимке.
+    const snapshot = await buildDiagnosticsSnapshot(makeDb());
+    const tables = snapshot.tables as Record<string, any>;
+    expect(Object.keys(tables)).toContain('audit_log');
+    expect(tables.audit_log).toMatchObject({
+      pendingCount: expect.any(Number),
+      stuckCount: expect.any(Number),
+    });
+  });
 });

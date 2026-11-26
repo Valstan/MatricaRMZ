@@ -10,6 +10,12 @@ export const SettingsKey = {
   // Sync cursors / diagnostics
   LastPulledServerSeq: 'lastPulledServerSeq',
   LastSyncAt: 'lastSyncAt',
+  /**
+   * Последний ПОЛНОСТЬЮ успешный прогон синка (push + pull). Живёт в базе, а не в
+   * памяти: счётчик в памяти после перезапуска пуст, и отчёт администратору читался
+   * как «последний успешный синк: не было» (инцидент 26.11.2026 — тревога на PC20).
+   */
+  LastSuccessfulSyncAt: 'sync.lastSuccessfulSyncAt',
   LastAppliedAt: 'lastAppliedAt',
   DiagnosticsLastSentAt: 'diagnostics.lastSentAt',
   DiagnosticsSchemaLastFetchedAt: 'diagnostics.schemaLastFetchedAt',

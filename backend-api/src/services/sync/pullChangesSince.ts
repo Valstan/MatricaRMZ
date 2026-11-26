@@ -406,7 +406,7 @@ export async function pullChangesSince(
 
     // Privacy filtering for non-admin
     if (!actorIsAdmin && isPrivacy) {
-      const pf = privacyFilterForTable(tableName, pgTable, actorId, actorIsPending);
+      const pf = privacyFilterForTable(tableName, pgTable, actorId, actorIsPending, actor.username);
       if (pf) {
         if (tableName === SyncTableName.Notes && sharedNoteIds.size > 0) {
           // Include notes owned by actor OR shared with actor

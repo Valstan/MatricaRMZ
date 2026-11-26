@@ -3,7 +3,7 @@ import { hostname } from 'node:os';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { SyncTableName, formatPendingExportReport, formatStuckPendingReport } from '@matricarmz/shared';
+import { SyncTableName, STUCK_PENDING_MINUTES, formatPendingExportReport, formatStuckPendingReport } from '@matricarmz/shared';
 
 import type { IpcContext } from '../ipcContext.js';
 import {
@@ -26,7 +26,7 @@ import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetString } 
 import { parseBlockedRows, serializeBlockedRows } from '../../services/sync/blockedRows.js';
 import { httpAuthed } from '../../services/httpClient.js';
 import { httpFailureText } from '../../services/httpFailureText.js';
-import { resetLocalDatabase, resetSyncState } from '../../services/syncService.js';
+import { countStuckPendingLocalChanges, resetLocalDatabase, resetSyncState } from '../../services/syncService.js';
 import { readPendingExportState } from '../../services/sync/pendingExportState.js';
 import { AUTO_SYNC_MS } from '../../services/syncControl.js';
 import { isViewMode } from '../ipcContext.js';
@@ -139,11 +139,37 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
   // ничего не пишет сам и не должен знать, кто администратор.
   ipcMain.handle('sync:stuckPending:report', async () => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'режим просмотра' };
+    // Проба СЕЙЧАС, а не по последнему троттлированному снимку: к моменту нажатия
+    // очередь уже могла уехать, и отчёт описывал состояние, которого нет (инцидент
+    // 26.11.2026, PC20: push ушёл в 08:31:29, отчёт — в 08:31:34, через 5 секунд).
+    const fresh = await countStuckPendingLocalChanges();
+    if (!fresh) {
+      // Проба не выполнилась (нет доступа к локальной базе) — состояние НЕИЗВЕСТНО.
+      // Молчать нельзя, но и отчёт с выдуманными числами тоже нельзя.
+      return { ok: false as const, error: 'не удалось проверить очередь (нет доступа к локальной базе)' };
+    }
+    // Баннер в интерфейсе погаснет сам: проба менеджера ходит раз в 30 секунд.
+    if (!(fresh.count > 0)) {
+      // Очередь пуста — тревога не нужна: поднимать её значит пугать администратора
+      // тем, что уже починено. Отчёт на сервер не уходит.
+      return {
+        ok: true as const,
+        alerted: false,
+        reason: 'Очередь уже уехала на сервер — тревога не нужна.',
+        text: '',
+        chatSent: false,
+      };
+    }
     const status = ctx.mgr.getStatus();
-    const stuck = status.stuckPending;
-    if (!stuck || !(stuck.count > 0)) return { ok: false as const, error: 'застрявших записей нет' };
+    const stuck = fresh;
     const clientId = String((await settingsGetString(ctx.dataDb(), SettingsKey.ClientId)) ?? '').trim();
     if (!clientId) return { ok: false as const, error: 'не известен id машины' };
+    // «Последний успешный синк» — из БАЗЫ: счётчик в памяти пуст сразу после
+    // перезапуска программы, и строка читалась как «не было» (инцидент 26.11.2026).
+    const persistedLastSyncAt = await settingsGetNumber(ctx.dataDb(), SettingsKey.LastSuccessfulSyncAt, 0);
+    const lastSyncAt = persistedLastSyncAt > 0 ? persistedLastSyncAt : (status.lastSyncAt ?? null);
+    // Причина отказа — даже офлайн-класса: иначе тревога уходит без объяснения.
+    const failureReason = status.lastFailureReason ?? status.lastError ?? null;
     // Текст отчёта собираем на клиенте ДО отправки: если канал перехватил антивирус
     // (инцидент 23.11.2026 — страница Kaspersky вместо ответа сервера), отчёт всё равно
     // должен попасть к администратору — хотя бы через буфер обмена.
@@ -154,10 +180,10 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
       stuck: {
         count: stuck.count,
         oldestPendingAt: stuck.oldestPendingAt ?? null,
-        thresholdMinutes: stuck.thresholdMinutes,
+        thresholdMinutes: STUCK_PENDING_MINUTES,
         byTable: stuck.byTable ?? [],
-        lastError: status.lastError ?? null,
-        lastSyncAt: status.lastSyncAt ?? null,
+        lastError: failureReason,
+        lastSyncAt,
       },
       trigger: 'manual',
       appVersion: app.getVersion(),
@@ -174,10 +200,10 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
             clientId,
             count: stuck.count,
             oldestPendingAt: stuck.oldestPendingAt ?? null,
-            thresholdMinutes: stuck.thresholdMinutes,
+            thresholdMinutes: STUCK_PENDING_MINUTES,
             byTable: stuck.byTable ?? [],
-            lastError: status.lastError ?? null,
-            lastSyncAt: status.lastSyncAt ?? null,
+            lastError: failureReason,
+            lastSyncAt,
             appVersion: app.getVersion(),
             hostName: hostname(),
           }),

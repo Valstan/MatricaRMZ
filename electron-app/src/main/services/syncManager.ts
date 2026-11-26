@@ -22,7 +22,7 @@ import { computeLocalDirtyAction, computeNextSyncDelayMs, computeWakeIdlePauseMs
 import { SLOW_LOOP_P99_MS, lagMetadata } from './eventLoopLagMetrics.js';
 import type { EventLoopLag } from './eventLoopLagMetrics.js';
 import { logPerfWarn } from './logService.js';
-import { SettingsKey, settingsGetString } from './settingsStore.js';
+import { SettingsKey, settingsGetString, settingsSetNumber } from './settingsStore.js';
 import type { SyncControl } from './syncControl.js';
 
 type RunSyncOpts = Parameters<typeof runSync>[3];
@@ -67,6 +67,13 @@ export class SyncManager implements SyncControl {
   private state: SyncStatus['state'] = 'idle';
   private lastSyncAt: number | null = null;
   private lastError: string | null = null;
+  /**
+   * Причина последнего неуспешного прогона — в том числе офлайн-класса (ошибку
+   * «нужна сеть» в `lastError` обнуляют: машина не в сети — это не поломка).
+   * В отчёте администратору причина нужна всегда, иначе тревога уходит без
+   * объяснения (инцидент 26.11.2026, PC20).
+   */
+  private lastFailureReason: string | null = null;
   private lastResult: SyncRunResult | null = null;
   private timer: NodeJS.Timeout | null = null;
   private nextAt: number | null = null;
@@ -143,6 +150,7 @@ export class SyncManager implements SyncControl {
       state: this.state,
       lastSyncAt: this.lastSyncAt,
       lastError: this.lastError,
+      lastFailureReason: this.lastFailureReason,
       lastResult: this.lastResult,
       nextAutoSyncInMs,
       stuckPending: this.stuckPending,
@@ -481,7 +489,13 @@ export class SyncManager implements SyncControl {
       }
       const offline = !r.ok && isOfflineSyncError(r.error ?? '');
       this.lastResult = r;
-      if (r.ok) this.lastSyncAt = nowMs();
+      if (r.ok) {
+        this.lastSyncAt = nowMs();
+        // Время последнего успешного прогона — В БАЗЕ: счётчик в памяти после
+        // перезапуска пуст, и отчёт администратору читался как «последний успешный
+        // синк: не было» (инцидент 26.11.2026, тревога на PC20).
+        void settingsSetNumber(this.db, SettingsKey.LastSuccessfulSyncAt, this.lastSyncAt).catch(() => {});
+      }
       // Ф2: досылаем снятия резерва, сделанные оффлайн у станка. Сеть только что
       // была — момент лучший. БЕЗ await: флеш ходит по сети, а мы ещё под inFlight,
       // и его ретраи задержали бы следующий синк на всё время недоступности сервера.
@@ -490,6 +504,9 @@ export class SyncManager implements SyncControl {
       }
       this.state = r.ok || offline ? 'idle' : 'error';
       this.lastError = !r.ok && !offline ? (r.error ?? 'unknown') : null;
+      // Причина отказа остаётся даже для офлайн-класса: в отчёте администратору
+      // «Ошибка синка» не должна молчать (инцидент 26.11.2026).
+      this.lastFailureReason = r.ok ? null : (r.error ?? 'unknown error');
       return r;
     } finally {
       this.inFlight = false;

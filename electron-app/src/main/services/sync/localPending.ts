@@ -80,9 +80,14 @@ const DEFERRED_TABLES = new Set(['card_drafts']);
  * синк и крутил спиннер «N документов». Бизнес-журналы (`work_order.*` и пр.)
  * сюда НЕ входят — они важны и должны уезжать сразу. Телеметрия доезжает
  * попутным синком: плановым тиком (~5 мин), пробуждением или любой другой правкой.
+ *
+ * Правило одно на клиенте — и проба очереди, и снимок диагностики (иначе сервер
+ * увидит в снимке «застрявшую телеметрию» и поднимет тревогу: инцидент 26.11.2026).
  */
-function deferredRowFilter(table: string): string {
-  return table === 'audit_log' ? ` AND action NOT LIKE 'ui.%'` : '';
+export const DEFERRED_AUDIT_ACTION_PREFIX = 'ui.%';
+
+export function deferredRowFilter(table: string): string {
+  return table === 'audit_log' ? ` AND action NOT LIKE '${DEFERRED_AUDIT_ACTION_PREFIX}'` : '';
 }
 
 export function buildPendingCountSql(tables: readonly string[]): string {

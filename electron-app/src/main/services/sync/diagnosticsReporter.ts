@@ -9,6 +9,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
   attributeDefs,
   attributeValues,
+  auditLog,
   entities,
   entityTypes,
   erpEngineInventoryLines,
@@ -19,8 +20,19 @@ import { STUCK_PENDING_MINUTES, isStuckPending, stuckPendingCutoff } from '@matr
 import type { SnapshotSection } from './types.js';
 import { nowMs } from './progressEmitter.js';
 import { logMessage } from '../logService.js';
+import { DEFERRED_AUDIT_ACTION_PREFIX } from './localPending.js';
 
 const DIAGNOSTICS_SEND_INTERVAL_MS = 10 * 60_000;
+
+/** Таблицы, по которым снимок считает состояние. */
+type SnapshotTable =
+  | typeof entityTypes
+  | typeof entities
+  | typeof attributeDefs
+  | typeof attributeValues
+  | typeof operations
+  | typeof erpEngineInventoryLines
+  | typeof auditLog;
 
 function hashSnapshot(count: number, maxUpdatedAt: number | null, sumUpdatedAt: number | null) {
   const raw = `${count}|${maxUpdatedAt ?? ''}|${sumUpdatedAt ?? ''}`;
@@ -36,22 +48,21 @@ function hashSnapshot(count: number, maxUpdatedAt: number | null, sumUpdatedAt: 
  */
 async function stuckPendingStats(
   db: BetterSQLite3Database,
-  table:
-    | typeof entityTypes
-    | typeof entities
-    | typeof attributeDefs
-    | typeof attributeValues
-    | typeof operations
-    | typeof erpEngineInventoryLines,
+  table: SnapshotTable,
 ): Promise<{ stuckCount: number; oldestPendingAt: number | null }> {
   const cutoff = stuckPendingCutoff(nowMs(), STUCK_PENDING_MINUTES);
-  const row = await db
+  // Телеметрия интерфейса (`ui.*`) в застрявшие не считается — то же правило, что
+  // у пробы очереди на машине (sync/localPending.ts). Иначе снимок показал бы
+  // «застрявшую телеметрию», и сервер поднял бы тревогу (инцидент 26.11.2026).
+  const deferredCond =
+    table === auditLog ? sql`${auditLog.action} not like ${DEFERRED_AUDIT_ACTION_PREFIX}` : undefined;
+  const query = db
     .select({
       stuckCount: sql<number>`coalesce(sum(case when ${table.syncStatus} = 'pending' and ${table.updatedAt} < ${cutoff} then 1 else 0 end), 0)`,
       oldestPendingAt: sql<number | null>`min(case when ${table.syncStatus} = 'pending' and ${table.updatedAt} < ${cutoff} then ${table.updatedAt} end)`,
     })
-    .from(table)
-    .limit(1);
+    .from(table);
+  const row = await (deferredCond ? query.where(deferredCond) : query).limit(1);
   const r = row[0];
   return {
     stuckCount: Math.max(0, Number(r?.stuckCount ?? 0) || 0),
@@ -61,13 +72,7 @@ async function stuckPendingStats(
 
 async function snapshotTable(
   db: BetterSQLite3Database,
-  table:
-    | typeof entityTypes
-    | typeof entities
-    | typeof attributeDefs
-    | typeof attributeValues
-    | typeof operations
-    | typeof erpEngineInventoryLines,
+  table: SnapshotTable,
 ): Promise<SnapshotSection> {
   const row = await db
     .select({
@@ -225,6 +230,10 @@ export async function buildDiagnosticsSnapshot(db: BetterSQLite3Database) {
     // снимке не было видно застрявшую очередь именно по ней: сервер (и автолечение)
     // считал парк здоровым (инцидент 25.11.2026 — 622 строки на Android-машине).
     erp_engine_inventory_lines: await snapshotTable(db, erpEngineInventoryLines),
+    // Журнал действий (`audit_log`). Таблицы не было в снимке — и потому её очередь
+    // не видел НИ сервер, НИ автолечение: тревога доходила только потому, что
+    // оператор жал кнопку (инцидент 26.11.2026 — 3 строки на PC20 висели двое суток).
+    audit_log: await snapshotTable(db, auditLog),
   };
   const types = await db
     .select({ id: entityTypes.id, code: entityTypes.code })

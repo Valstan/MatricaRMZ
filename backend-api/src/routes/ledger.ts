@@ -12,6 +12,7 @@ import { makePullReadFilter, isPullTableAllowedForRole } from '../services/sync/
 import {
   isPrivacyTable,
   makePrivacyRowFilter,
+  privacyFilterForTable,
   getSharedNoteIds,
   getVisibleChatRoomIds,
   getOwnedNoteIds,
@@ -295,6 +296,8 @@ ledgerRouter.get('/state/query', async (req, res) => {
           isAdmin: queryIsAdmin,
           isPending: queryIsPending,
           isSuperadmin: String(actor.role ?? '').toLowerCase() === 'superadmin',
+          // Журнал действий виден оператору своими строками — по логину (26.11.2026).
+          username: String(actor.username ?? ''),
         },
         { sharedNoteIds, ownedNoteIds, visibleRoomIds },
       );
@@ -309,7 +312,7 @@ ledgerRouter.get('/state/query', async (req, res) => {
   if (!isPullTableAllowedForRole(queryTable, actor.role)) {
     return res.json({ ok: true, rows: [] });
   }
-  const readFilter = await makePullReadFilter({ id: String(actor.id), role: String(actor.role) });
+  const readFilter = await makePullReadFilter({ id: String(actor.id), role: String(actor.role), username: String(actor.username ?? '') });
   const visibleRows = privacyRows.filter((r) => readFilter(queryTable, r));
   return res.json({ ok: true, rows: visibleRows });
 });
@@ -354,6 +357,22 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
     if (cursorId && 'id' in pgTable) {
       conditions.push(gt(pgTable.id, cursorId));
     }
+    // Журнал действий оператору виден своими строками (решение владельца 26.11.2026).
+    // Сужаем выборку В SQL: иначе холодный снапшот тащил бы всю таблицу журнала
+    // (десятки тысяч строк), чтобы отдать оператору его сотни.
+    const snapRole = String(actor.role ?? '').toLowerCase();
+    const snapIsAdmin = snapRole === 'admin' || snapRole === 'superadmin';
+    const snapIsPending = snapRole === 'pending';
+    if (!snapIsAdmin && tableName === SyncTableName.AuditLog) {
+      const auditFilter = privacyFilterForTable(
+        tableName,
+        pgTable,
+        String(actor.id),
+        snapIsPending,
+        actor.username,
+      );
+      if (auditFilter) conditions.push(auditFilter);
+    }
     if (conditions.length === 1) {
       query = query.where(conditions[0]);
     } else if (conditions.length > 1) {
@@ -375,9 +394,6 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
     // them per actor just like /state/changes (pullChangesSince) already does;
     // otherwise an operator could pull everyone's chats/notes via a cold sync.
     // (security-hardening-2026-06 H1-A — closes the snapshot privacy gap)
-    const snapRole = String(actor.role ?? '').toLowerCase();
-    const snapIsAdmin = snapRole === 'admin' || snapRole === 'superadmin';
-    const snapIsPending = snapRole === 'pending';
     let privacyRows = syncRows as Array<Record<string, unknown>>;
     if (!snapIsAdmin && isPrivacyTable(tableName)) {
       if (snapIsPending && !snapIsAdmin) {
@@ -395,6 +411,8 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
             isAdmin: snapIsAdmin,
             isPending: snapIsPending,
             isSuperadmin: String(actor.role ?? '').toLowerCase() === 'superadmin',
+            // Журнал действий виден оператору своими строками — по логину (26.11.2026).
+            username: String(actor.username ?? ''),
           },
           { sharedNoteIds, ownedNoteIds, visibleRoomIds },
         );
@@ -405,7 +423,7 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
 
     // Shared pull read-authz: credential strip (everyone) + sensitive PII/HR for
     // non-self operators. (security-hardening-2026-06 H1-B)
-    const readFilter = await makePullReadFilter({ id: String(actor.id), role: String(actor.role) });
+    const readFilter = await makePullReadFilter({ id: String(actor.id), role: String(actor.role), username: String(actor.username ?? '') });
     const visibleRows = privacyRows.filter((r: any) => readFilter(tableName, r as Record<string, unknown>));
 
     return res.json({
@@ -482,7 +500,7 @@ ledgerRouter.get('/state/changes', async (req, res) => {
   });
   // Shared pull read-authz: credentials (everyone) + sensitive PII/HR for
   // non-self operators. audit_log is skipped upstream in pullChangesSince. (H1-B)
-  const readFilter = await makePullReadFilter({ id: String(actor.id), role: String(actor.role) });
+  const readFilter = await makePullReadFilter({ id: String(actor.id), role: String(actor.role), username: String(actor.username ?? '') });
   const visible = filtered.filter((ch) => {
     try {
       return readFilter(String(ch.table), JSON.parse(String(ch.payload_json ?? '{}')));
@@ -577,7 +595,7 @@ ledgerRouter.get('/row-history', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'таблица недоступна роли' });
     }
     const versions = await listRowHistory(parsed.data.table, parsed.data.row_id, parsed.data.limit ?? 50);
-    const filter = await makePullReadFilter({ id: actor.id, role: actor.role });
+    const filter = await makePullReadFilter({ id: actor.id, role: actor.role, username: String(actor.username ?? '') });
     const visible = versions.filter((v) => v.row && typeof v.row === 'object' && filter(entry.syncName, v.row as Record<string, unknown>));
     return res.json({ ok: true, table: parsed.data.table, row_id: parsed.data.row_id, versions: visible });
   } catch (e) {
