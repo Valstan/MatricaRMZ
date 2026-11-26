@@ -22,6 +22,9 @@ const PANE = src('./DesktopPane.tsx');
 const PANEL = src('./DesktopFileActionsPanel.tsx');
 const TARGET = src('./DesktopAttachTargetDialog.tsx');
 const INTENT = src('./DesktopAttachIntent.ts');
+const BUS = src('./DesktopTrashBus.ts');
+const APP = src('../App.tsx');
+const MENU = src('../shellV2/menuActions.ts');
 
 describe('якоря смоуков на месте', () => {
   const ANCHORS = [
@@ -214,5 +217,72 @@ describe('действия над выделенными файлами (про�
   it('присланный файл помечен как присланный — от кого и когда', () => {
     expect(PANE).toContain('desktopFileOriginText');
     expect(PANE).toContain('data-desktop-file-origin');
+  });
+});
+
+// Корзина Верстака (промт КАРМАНА #145).
+//
+// Главный дефект был не в логике корзины, а в СЛОЁ: полотно несёт `zIndex: 1`, а кнопка
+// корзины стояла абсолютным положением без своего слоя (`z-index: auto` → слой 0).
+// По правилу painting полотно рисуется ПОВЕРХ кнопки и перехватывает hit-test, а его фон
+// прозрачен — ярлык было видно и он не нажимался. Клик, ПКМ и дроп в корзину не доходили
+// ни на одном клиенте сразу: код-то один и тот же.
+//
+// Лечение — не «поднять z-index», а перевести корзину в ту же модель, что и остальные
+// плитки: она рисуется ВНУТРИ полотна, клеткой сетки, и перекрыть её теперь нечем.
+describe('корзина — плитка Верстака, а не прибитый угол (промт КАРМАНА #145)', () => {
+  const TILE = PANE.slice(PANE.indexOf('function trashTile'), PANE.indexOf('const lassoBox'));
+
+  it('корзина рисуется плиткой сетки, а не элементом, прибитым в угол', () => {
+    expect(PANE).toContain('trashTile(grid.trash)');
+    expect(TILE).toContain('tileOrigin(place, m)');
+    // Прежние «right: 16 / bottom: 12» — то самое абсолютное положение, из-за которого
+    // место корзины не переживало перезапуск и её нельзя было переставить.
+    expect(TILE).not.toContain('right: 16');
+    expect(TILE).not.toContain('bottom: 12');
+  });
+
+  it('корзина живёт в одном слое с остальными плитками — её нечем перекрыть', () => {
+    // Свой слой внутри полотна = тот самый баг с перехватом клика.
+    expect(TILE).not.toContain('zIndex');
+  });
+
+  it('место корзины пишется в профиль отдельным полем, а не координатой ярлыка', () => {
+    expect(PANE).toContain('desktopSetTrashPos');
+    expect(PANE).toContain('desktopResetTrashPos');
+  });
+
+  it('содержимое корзины рисуется порталом — иначе всплывашка режется краем полотна', () => {
+    expect(PANE).toContain('data-desktop-trash-popup');
+    expect(PANE).toContain('<PopupLayer>');
+  });
+
+  it('пустая корзина тоже открывается и говорит, что она пуста', () => {
+    // Прежде условие было «trashOpen && trash.length > 0»: клик по пустой корзине не
+    // делал ровно ничего, и оператор видел «неработающую» кнопку.
+    expect(PANE).not.toContain('trashOpen && trash.length > 0');
+    expect(PANE).toContain('Корзина пуста');
+  });
+
+  it('очистка говорит, что удаляются только ярлыки: файлы остаются', () => {
+    // Правило проекта: Верстак убирает свой ярлык и никогда не удаляет файл. Оператор,
+    // ждущий обратного, должен видеть это ДО подтверждения.
+    expect(PANE).toContain('Файлы при этом НЕ удаляются');
+    expect(PANE).toContain('файл останется');
+  });
+
+  it('корзину нельзя положить в саму себя — её можно было бы потерять', () => {
+    expect(PANE).toContain('isDesktopTrashShortcut');
+    expect(PANE).toContain('Корзину нельзя положить в саму себя');
+  });
+
+  it('пункт МЕНЮ «Корзина» открывает ВЕРСТАЧНУЮ корзину, а не пустоту', () => {
+    // Раньше у пункта был свой `trashOpen` в оболочке, который НИЧЕГО НЕ РИСОВАЛ
+    // (исторически — «Корзина кнопок», фичу убрали, пункт остался).
+    expect(MENU).toContain("id: 'basket'");
+    expect(APP).toContain('openDesktopTrash()');
+    expect(APP).not.toContain('trashButtonRef');
+    expect(APP).not.toContain('trashPopupRef');
+    expect(BUS).toContain('openDesktopTrash');
   });
 });

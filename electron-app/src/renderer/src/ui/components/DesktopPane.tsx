@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
   DESKTOP_CELL_H,
   DESKTOP_CELL_W,
+  DESKTOP_TRASH_SHORTCUT_ID,
   desktopAddFolder,
   desktopDeleteFolder,
   desktopEmptyTrash,
@@ -19,12 +20,15 @@ import {
   desktopPutShortcut,
   desktopRenameFolder,
   desktopRenameShortcut,
+  desktopResetTrashPos,
   desktopRestoreFromTrash,
   desktopSelectedFileShortcuts,
   desktopSetPositions,
+  desktopSetTrashPos,
   desktopSurfaceShortcuts,
   desktopTileMetrics,
   desktopTrashShortcuts,
+  isDesktopTrashShortcut,
   type DesktopAttachTarget,
   type DesktopPlacement,
   type DesktopShortcut,
@@ -38,8 +42,10 @@ import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useConfirm } from './ConfirmContext.js';
 import { DesktopAttachTargetDialog } from './DesktopAttachTargetDialog.js';
 import { DesktopFileActionsPanel } from './DesktopFileActionsPanel.js';
+import { PopupLayer, POPUP_Z_INDEX } from './PopupLayer.js';
 import { SendFileToColleagueDialog } from './SendFileToColleagueDialog.js';
 import { setDesktopAttachIntent } from './DesktopAttachIntent.js';
+import { useDesktopTrashRequest } from './DesktopTrashBus.js';
 
 // MIME-тип DnD внутри Верстака: сторонние перетаскивания (файлы из
 // проводника, текст) им не прикидываются и молча игнорируются.
@@ -64,7 +70,7 @@ function isTypingTarget(el: Element | null): boolean {
 
 /**
  * «Верстак» — правая зона экрана «чат + Верстак» (этап 5 пакета
- * 2026-08-19б): ярлыки-ссылки, папки окном поверх, корзина в правом нижнем углу.
+ * 2026-08-19б): ярлыки-ссылки, папки окном поверх, корзина среди ярлыков.
  * Всё состояние живёт снаружи (ключ `desktop` в ui_profile_json) — компонент
  * получает снимок и репортит изменения через onChange.
  *
@@ -73,6 +79,13 @@ function isTypingTarget(el: Element | null): boolean {
  * плитка, чья ячейка в текущей ширине не существует, показывается на свободном месте, но
  * сохранённую координату не теряет: иначе одно движение разделителя переписало бы Верстак на
  * всех машинах пользователя (запись профиля = две строки в ledger, грабля M79).
+ *
+ * Корзина — такая же плитка сетки (встроенная, как «Скрипты обслуживания»): её можно
+ * переставить, её место живёт в профиле отдельным полем `trashPos` и потому переживает
+ * и перезапуск, и вторую машину. Раньше это был постоянный элемент, прибитый к правому
+ * нижнему углу абсолютным положением, — и он не получал ни клика, ни ПКМ, ни дропа:
+ * полотно (`zIndex: 1`) перекрывало кнопку (`z-index: auto`), а прозрачный фон полотна
+ * не выдавал этого — ярлык был виден и не нажимался.
  */
 export function DesktopPane(props: {
   desktop: UserUiProfileDesktop;
@@ -98,6 +111,7 @@ export function DesktopPane(props: {
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
+  /** Открыта ли всплывашка корзины. Это ВЕРСТАЧНАЯ корзина — та же, что и в меню. */
   const [trashOpen, setTrashOpen] = useState(false);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
@@ -116,6 +130,10 @@ export function DesktopPane(props: {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  /** Плитка корзины — к ней привязывается всплывашка с содержимым. */
+  const trashTileRef = useRef<HTMLButtonElement | null>(null);
+  /** Узел всплывашки корзины: ею меряем и вешаем по координатам окна. */
+  const trashPopupRef = useRef<HTMLDivElement | null>(null);
   /** Что именно тащим. Внутри одного рендерера ref надёжнее dataTransfer: тот отдаёт
    *  значения только в drop-событии, а подсветка нужна уже на dragover. */
   const dragIdsRef = useRef<string[]>([]);
@@ -135,6 +153,74 @@ export function DesktopPane(props: {
       window.removeEventListener('keydown', onKey);
     };
   }, [ctxMenu]);
+
+  // Пункт МЕНЮ «Корзина» открывает ВЕРСТАЧНУЮ корзину — ту же самую, что и ярлык на
+  // Верстаке. Раньше у пункта был свой `trashOpen` в оболочке, который ничего не рисовал:
+  // кнопка открывала пустоту, и оператор заключал, что корзина сломана.
+  const openTrash = useCallback(() => setTrashOpen(true), []);
+  useDesktopTrashRequest(openTrash);
+
+  /**
+   * Всплывашка корзины живёт в портале, поэтому её место считается по факту: прямоугольник
+   * плитки корзины и измеренный размер самой всплывашки (координаты окна, `position: fixed`).
+   *
+   * Всплывашка встаёт НАД плиткой: под корзиной обычно пустое полотно, и ярлык из корзины
+   * можно утащить обратно на Верстак, не пробираясь под неё.
+   */
+  const [trashPopupStyle, setTrashPopupStyle] = useState<React.CSSProperties>({ visibility: 'hidden' });
+  useLayoutEffect(() => {
+    if (!trashOpen) {
+      setTrashPopupStyle({ visibility: 'hidden' });
+      return;
+    }
+    const measure = () => {
+      const tile = trashTileRef.current;
+      const node = trashPopupRef.current;
+      if (!tile || !node) return;
+      const t = tile.getBoundingClientRect();
+      const m = node.getBoundingClientRect();
+      const margin = 8;
+      const width = 320;
+      let left = t.left + t.width / 2 - width / 2;
+      if (left + width > window.innerWidth - margin) left = window.innerWidth - margin - width;
+      if (left < margin) left = margin;
+      const roomAbove = t.top - margin;
+      const roomBelow = window.innerHeight - t.bottom - margin;
+      const putAbove = roomAbove >= m.height || roomBelow < m.height;
+      const top = putAbove ? Math.max(margin, t.top - margin - m.height) : t.bottom + margin;
+      setTrashPopupStyle({
+        position: 'fixed',
+        left: Math.round(left),
+        top: Math.round(top),
+        width,
+        zIndex: POPUP_Z_INDEX,
+        maxHeight: Math.max(140, Math.round(window.innerHeight * 0.55)),
+        visibility: 'visible',
+      });
+    };
+    measure();
+    const onChange = () => measure();
+    window.addEventListener('resize', onChange);
+    // Прокрутка любого контейнера двигает плитку — всплывашка обязана ехать за ней.
+    window.addEventListener('scroll', onChange, true);
+    return () => {
+      window.removeEventListener('resize', onChange);
+      window.removeEventListener('scroll', onChange, true);
+    };
+  }, [trashOpen]);
+
+  // Клик мимо — закрыть всплывашку корзины (как у всякой панели).
+  useEffect(() => {
+    if (!trashOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (trashPopupRef.current?.contains(target)) return;
+      if (trashTileRef.current?.contains(target)) return;
+      setTrashOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [trashOpen]);
 
   const openFolder = openFolderId ? desktop.folders.find((f) => f.id === openFolderId) ?? null : null;
   const surface = desktopSurfaceShortcuts(desktop);
@@ -199,8 +285,16 @@ export function DesktopPane(props: {
           cells: desktopTileMetrics(tileStep(s.id)).cells,
         })),
         cols,
+        // Корзина — встроенная плитка той же сетки. Её место живёт в профиле отдельным
+        // полем `trashPos`: есть — стоит там, куда поставили; нет — встаёт по потоку
+        // (правый нижний угол полотна).
+        trash: {
+          id: DESKTOP_TRASH_SHORTCUT_ID,
+          ...(desktop.trashPos ? { pos: desktop.trashPos } : {}),
+          cells: 1,
+        },
       }),
-    [desktop.folders, surface, cols, tileStep],
+    [desktop.folders, desktop.trashPos, surface, cols, tileStep],
   );
   const placeById = useMemo(() => new Map(grid.shortcuts.map((p) => [p.id, p])), [grid]);
 
@@ -254,6 +348,14 @@ export function DesktopPane(props: {
 
   // ─── перетаскивание ───────────────────────────────────────────────────────
   function startDrag(e: React.DragEvent, shortcutId: string) {
+    // Корзина — не ярлык: её не выделяем (в выделении живут ярлыки, которые можно убрать).
+    if (isDesktopTrashShortcut(shortcutId)) {
+      dragIdsRef.current = [shortcutId];
+      dragAnchorRef.current = shortcutId;
+      e.dataTransfer.setData(DND_SHORTCUT, shortcutId);
+      e.dataTransfer.effectAllowed = 'move';
+      return;
+    }
     // Тащат невыделенное — выделение переезжает на него: иначе жест «схватил и потянул»
     // молча перенёс бы не то, что оператор видит выделенным.
     const ids = selected.has(shortcutId) ? [...selected] : [shortcutId];
@@ -295,6 +397,31 @@ export function DesktopPane(props: {
     return { col: Math.min(Math.max(col, 0), cols - 1), row: Math.max(row, 0) };
   }
 
+  /**
+   * Плитка, стоящая на занятой клетке, теряет координату и уходит в поток.
+   *
+   * Иначе две плитки хранили бы одну ячейку, и кто из них останется на месте, решал бы
+   * порядок массива. Для корзины это особенно важно: она должна встать ТУДА, куда её
+   * поставили, — иначе перестановка выглядела бы как «ничего не произошло».
+   */
+  function displaceTilesAt(
+    next: UserUiProfileDesktop,
+    taken: Set<string>,
+    moving: Set<string>,
+  ): UserUiProfileDesktop {
+    const displaced = next.shortcuts.map((s) => {
+      if (moving.has(s.id) || !s.pos) return s;
+      const cells = desktopTileMetrics(tileStep(s.id)).cells;
+      let hit = false;
+      for (let i = 0; i < cells; i += 1) if (taken.has(`${s.pos.row}:${s.pos.col + i}`)) hit = true;
+      if (!hit) return s;
+      const { pos: _pos, ...rest } = s;
+      return rest;
+    });
+    if (!displaced.some((s, i) => s !== next.shortcuts[i])) return next;
+    return { ...next, shortcuts: displaced };
+  }
+
   /** Дроп на свободное место: перенос с координатой, возврат из корзины, выход из папки. */
   function dropOnSurface(e: React.DragEvent) {
     e.preventDefault();
@@ -304,6 +431,17 @@ export function DesktopPane(props: {
     if (ids.length === 0 || !anchor) return;
     const cell = cellFromPoint(e.clientX, e.clientY);
     if (!cell) return;
+
+    // Корзина переезжает: её место живёт отдельным полем профиля, а не координатой
+    // ярлыка, — и в `shortcuts` её нет вовсе (встроенная плитка).
+    if (isDesktopTrashShortcut(anchor)) {
+      // Плитка, стоявшая на новом месте корзины, уходит в поток — иначе корзина
+      // не сдвинулась бы, а оператор решил бы, что её «не таскается».
+      let next = displaceTilesAt(desktop, new Set([`${cell.row}:${cell.col}`]), new Set());
+      next = desktopSetTrashPos(next, cell);
+      if (next !== desktop) onChange(next);
+      return;
+    }
 
     const byId = new Map(desktop.shortcuts.map((s) => [s.id, s]));
     let next = desktop;
@@ -338,17 +476,7 @@ export function DesktopPane(props: {
       const cells = desktopTileMetrics(tileStep(u.id)).cells;
       for (let i = 0; i < cells; i += 1) taken.add(`${u.pos.row}:${u.pos.col + i}`);
     }
-    const moving = new Set(ids);
-    const displaced = next.shortcuts.map((s) => {
-      if (moving.has(s.id) || !s.pos) return s;
-      const cells = desktopTileMetrics(tileStep(s.id)).cells;
-      let hit = false;
-      for (let i = 0; i < cells; i += 1) if (taken.has(`${s.pos.row}:${s.pos.col + i}`)) hit = true;
-      if (!hit) return s;
-      const { pos: _pos, ...rest } = s;
-      return rest;
-    });
-    if (displaced.some((s, i) => s !== next.shortcuts[i])) next = { ...next, shortcuts: displaced };
+    next = displaceTilesAt(next, taken, new Set(ids));
 
     next = desktopSetPositions(next, updates);
     if (next !== desktop) onChange(next);
@@ -653,12 +781,25 @@ export function DesktopPane(props: {
     onChange(desktopDeleteFolder(desktop, folderId, Date.now()));
   }
 
+  /**
+   * Очистка корзины по правой кнопке.
+   *
+   * Правило проекта: Верстак убирает СВОЙ ярлык и никогда не удаляет файл. Поэтому в
+   * подтверждении сказано прямо, что удаляются только ярлыки: файлы, на которые они
+   * ссылались, остаются в программе. Без этой оговорки оператор ждёт обратного.
+   */
   async function emptyTrashWithConfirm() {
     if (trash.length === 0) return;
+    const names = trash.slice(0, 8).map((s) => `«${s.label}»`).join(', ');
+    const more = trash.length > 8 ? ` и ещё ${trash.length - 8}` : '';
     const ok = await confirm({
       title: 'Очистить корзину?',
-      detail: `Ярлыки в корзине (${trash.length}) будут удалены окончательно.`,
-      confirmLabel: 'Очистить',
+      detail:
+        `Будут удалены ярлыки: ${names}${more}.\n\n` +
+        `Файлы при этом НЕ удаляются — из программы убираются только ярлыки. ` +
+        `Файл, на который ссылался ярлык, останется на месте.\n\n` +
+        `Отменить это действие будет нельзя.`,
+      confirmLabel: 'Очистить корзину',
     });
     if (!ok) return;
     setTrashOpen(false);
@@ -888,7 +1029,113 @@ export function DesktopPane(props: {
     );
   }
 
-  const trashHot = dragOverTarget === 'trash';
+  /**
+   * Корзина — плитка сетки, как остальные ярлыки: её можно переставить, и место её
+   * переживает перезапуск и вторую машину (оно живёт в профиле полем `trashPos`).
+   *
+   * Клик — показать содержимое, ПКМ — очистить, дроп ярлыка — убрать ярлык в корзину.
+   */
+  function trashTile(place: DesktopPlacement) {
+    const m = desktopTileMetrics(0);
+    const hot = dragOverTarget === 'trash';
+    const count = trash.length;
+    return (
+      <button
+        type="button"
+        draggable
+        ref={trashTileRef}
+        data-desktop-trash
+        onDragStart={(e) => startDrag(e, DESKTOP_TRASH_SHORTCUT_ID)}
+        onDragEnd={endDrag}
+        onClick={() => setTrashOpen((v) => !v)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setCtxMenu({ kind: 'trash', ...menuPos(e) });
+        }}
+        onDragOver={(e) => allowDrop(e, 'trash')}
+        onDragLeave={() => setDragOverTarget((t) => (t === 'trash' ? null : t))}
+        onDrop={(e) => {
+          // Как и у папки: без stopPropagation дроп доиграет полотном и ярлык вернётся на Верстак.
+          e.preventDefault();
+          e.stopPropagation();
+          const ids = draggedIds(e);
+          endDrag();
+          if (ids.length === 0) return;
+          const movable = ids.filter((id) => !isDesktopTrashShortcut(id));
+          if (movable.length === 0) {
+            // Корзину нельзя положить в саму себя — её можно было бы потерять.
+            notify('Корзину нельзя положить в саму себя — её можно только переставить.');
+            return;
+          }
+          const next = desktopMoveToTrashMany(desktop, movable, Date.now());
+          if (next !== desktop) {
+            clearSelection();
+            onChange(next);
+          }
+        }}
+        title={
+          count > 0
+            ? `Корзина: ${count}. Клик — показать содержимое, ПКМ — очистить. Перетащите ярлык сюда, чтобы убрать его.`
+            : 'Корзина пуста. Перетащите сюда ярлык, чтобы убрать его с Верстака.'
+        }
+        style={{
+          position: 'absolute',
+          ...tileOrigin(place, m),
+          width: m.width,
+          height: m.height,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 4,
+          padding: '7px 4px',
+          border: `1px solid ${hot ? theme.colors.borderStrong : theme.colors.border}`,
+          borderRadius: 10,
+          background: hot ? theme.colors.surface2 : theme.colors.surface,
+          color: theme.colors.text,
+          cursor: 'pointer',
+          overflow: 'hidden',
+        }}
+      >
+        <span style={{ fontSize: m.icon, lineHeight: `${m.iconLine}px` }} aria-hidden="true">
+          {count > 0 ? '🗑️' : '🗑'}
+        </span>
+        <span
+          style={{
+            fontSize: m.label,
+            lineHeight: `${m.labelLine}px`,
+            textAlign: 'center',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: m.width - 8,
+          }}
+        >
+          Корзина
+        </span>
+        {count > 0 && (
+          <span
+            data-desktop-trash-count
+            style={{
+              position: 'absolute',
+              top: 1,
+              right: 2,
+              fontSize: Math.max(9, m.label - 1),
+              lineHeight: `${m.labelLine - 1}px`,
+              padding: '0 4px',
+              borderRadius: 6,
+              border: `1px solid ${theme.colors.border}`,
+              background: theme.colors.surface2,
+              color: theme.colors.muted,
+            }}
+          >
+            {count}
+          </span>
+        )}
+      </button>
+    );
+  }
+
   const lassoBox = lasso
     ? {
         left: Math.min(lasso.x0, lasso.x1),
@@ -1006,6 +1253,7 @@ export function DesktopPane(props: {
             const place = placeById.get(s.id);
             return place ? shortcutTile(s, { place }) : null;
           })}
+          {grid.trash ? trashTile(grid.trash) : null}
           {desktop.folders.length === 0 && surface.length === 0 && (
             <div style={{ position: 'absolute', top: 4, left: 4, color: theme.colors.muted, fontSize: 13, padding: 16, maxWidth: 420 }}>
               Верстак пуст. Кнопка «На Верстак» в МЕНЮ добавит сюда ярлык текущего раздела;
@@ -1043,90 +1291,71 @@ export function DesktopPane(props: {
         </div>
       </div>
 
-      {/* Корзина — постоянный элемент, правый нижний угол */}
-      <button
-        type="button"
-        data-desktop-trash
-        onClick={() => setTrashOpen((v) => trash.length > 0 && !v)}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setCtxMenu({ kind: 'trash', ...menuPos(e) });
-        }}
-        onDragOver={(e) => allowDrop(e, 'trash')}
-        onDragLeave={() => setDragOverTarget((t) => (t === 'trash' ? null : t))}
-        onDrop={(e) => {
-          // Как и у папки: без stopPropagation дроп доиграет полотном и ярлык вернётся на Верстак.
-          e.preventDefault();
-          e.stopPropagation();
-          const ids = draggedIds(e);
-          endDrag();
-          if (ids.length === 0) return;
-          const next = desktopMoveToTrashMany(desktop, ids, Date.now());
-          if (next !== desktop) {
-            clearSelection();
-            onChange(next);
-          }
-        }}
-        title={trash.length > 0 ? `Корзина: ${trash.length}. Клик — показать содержимое, ПКМ — очистить.` : 'Корзина пуста. Перетащите сюда ярлык, чтобы удалить.'}
-        style={{
-          position: 'absolute',
-          right: 16,
-          // Панель действий над выделенными файлами встаёт у низа Верстака — корзина
-          // поднимается над ней, иначе панель накрыла бы её целиком.
-          bottom: selectedFiles.length > 0 ? 68 : 12,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: 2,
-          padding: '8px 12px',
-          borderRadius: 10,
-          border: `1px solid ${trashHot ? theme.colors.borderStrong : theme.colors.border}`,
-          background: trashHot ? theme.colors.surface2 : theme.colors.surface,
-          color: theme.colors.text,
-          cursor: 'pointer',
-        }}
-      >
-        <span style={{ fontSize: 26 }} aria-hidden="true">
-          {trash.length > 0 ? '🗑️' : '🗑'}
-        </span>
-        <span style={{ fontSize: 11, color: theme.colors.muted }}>Корзина{trash.length > 0 ? ` (${trash.length})` : ''}</span>
-      </button>
+      {/* Корзины здесь больше нет: она плитка сетки (см. `trashTile`) — как остальные
+          ярлыки, с сохранённым местом. Содержимое корзины — порталом (правило проекта:
+          меню не живёт в контексте наложения предка), см. ниже. */}
 
-      {/* Содержимое корзины — всплывашка над кнопкой; ярлык можно утащить обратно на Верстак */}
-      {trashOpen && trash.length > 0 && (
-        <div
-          style={{
-            position: 'absolute',
-            right: 16,
-            bottom: 78,
-            width: 320,
-            maxHeight: '55%',
-            overflowY: 'auto',
-            border: `1px solid ${theme.colors.border}`,
-            borderRadius: 12,
-            background: theme.colors.surface,
-            boxShadow: theme.colors.chatMenuShadow,
-            padding: 8,
-            zIndex: 5,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 6px 8px' }}>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>Корзина</span>
-            <button
-              type="button"
-              onClick={() => setTrashOpen(false)}
-              style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: theme.colors.muted }}
-              title="Закрыть"
-            >
-              ✕
-            </button>
+      {/* Содержимое корзины — порталом у плитки корзины; ярлык можно утащить обратно на Верстак */}
+      {trashOpen && (
+        <PopupLayer>
+          <div
+            ref={trashPopupRef}
+            data-desktop-trash-popup
+            style={{
+              ...trashPopupStyle,
+              overflowY: 'auto',
+              border: `1px solid ${theme.colors.border}`,
+              borderRadius: 12,
+              background: theme.colors.surface,
+              boxShadow: theme.colors.chatMenuShadow,
+              padding: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 6px 8px' }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>Корзина{trash.length > 0 ? ` (${trash.length})` : ''}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {trash.length > 0 && (
+                  <button
+                    type="button"
+                    data-desktop-trash-empty
+                    onClick={() => void emptyTrashWithConfirm()}
+                    style={{
+                      border: `1px solid ${theme.colors.border}`,
+                      borderRadius: 8,
+                      background: theme.colors.surface2,
+                      color: theme.colors.text,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      padding: '2px 8px',
+                    }}
+                    title="Очистить корзину (файлы при этом останутся)"
+                  >
+                    Очистить
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setTrashOpen(false)}
+                  style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: theme.colors.muted }}
+                  title="Закрыть"
+                >
+                  ✕
+                </button>
+              </span>
+            </div>
+            {trash.length === 0 ? (
+              <div style={{ fontSize: 12, color: theme.colors.muted, padding: '4px 6px 8px' }}>
+                Корзина пуста. Перетащите ярлык с Верстака сюда — ярлык уйдёт в корзину, а сам
+                файл останется в программе.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>{trash.map((s) => shortcutTile(s, { inTrash: true }))}</div>
+            )}
+            <div style={{ fontSize: 11, color: theme.colors.muted, padding: '6px 6px 2px' }}>
+              Перетащите ярлык на Верстак, чтобы вернуть; ПКМ по корзине — очистить.
+            </div>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>{trash.map((s) => shortcutTile(s, { inTrash: true }))}</div>
-          <div style={{ fontSize: 11, color: theme.colors.muted, padding: '6px 6px 2px' }}>
-            Перетащите ярлык на Верстак, чтобы вернуть; ПКМ по корзине — очистить.
-          </div>
-        </div>
+        </PopupLayer>
       )}
 
       {/* Окно папки поверх Верстака, ≈¾ зоны */}
@@ -1366,13 +1595,24 @@ export function DesktopPane(props: {
             </>
           )}
           {ctxMenu.kind === 'trash' && (
-            <CtxItem
-              label={trash.length > 0 ? `🧹 Очистить корзину (${trash.length})` : '🧹 Корзина пуста'}
-              onClick={() => {
-                setCtxMenu(null);
-                void emptyTrashWithConfirm();
-              }}
-            />
+            <>
+              <CtxItem
+                label={trash.length > 0 ? `🧹 Очистить корзину (${trash.length})` : '🧹 Корзина пуста'}
+                onClick={() => {
+                  setCtxMenu(null);
+                  void emptyTrashWithConfirm();
+                }}
+              />
+              {desktop.trashPos && (
+                <CtxItem
+                  label="📍 Вернуть корзину на место"
+                  onClick={() => {
+                    setCtxMenu(null);
+                    onChange(desktopResetTrashPos(desktop));
+                  }}
+                />
+              )}
+            </>
           )}
         </div>
       )}

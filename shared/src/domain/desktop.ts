@@ -61,6 +61,14 @@ export type UserUiProfileDesktop = {
    * файлы предложатся заново, а «принять» повторно положит их дубли.
    */
   inboxHandledIds?: string[];
+  /**
+   * Место корзины в сетке Верстака (клетка, не пиксель). Есть — корзина стоит там,
+   * куда её поставили; нет — стоит там, где встала по потоку (правый нижний угол).
+   *
+   * Отдельное поле, а не ярлык в `shortcuts`: корзина — встроенная плитка (как
+   * «Скрипты обслуживания»), и в лимит 200 ярлыков она не входит.
+   */
+  trashPos?: DesktopShortcutPos;
 };
 
 /** Счётчик использования ярлыков: id → дневной бакет `ГГГГ-ММ-ДД` → число открытий.
@@ -128,6 +136,65 @@ export function isBuiltinDesktopLink(link: unknown): boolean {
 export function stripBuiltinDesktopShortcuts(section: UserUiProfileDesktop): UserUiProfileDesktop {
   const shortcuts = section.shortcuts.filter((s) => !isBuiltinShortcutId(s.id));
   return shortcuts.length === section.shortcuts.length ? section : { ...section, shortcuts };
+}
+
+// ─── Корзина Верстака ────────────────────────────────────────────────────────
+//
+// Корзина — ВСТРОЕННАЯ плитка: она не хранится в `shortcuts` и подмешивается при
+// отрисовке, как «Скрипты обслуживания». Хранится только её место (`trashPos`).
+//
+// Почему не обычный ярлык (три причины, все из промта владельца):
+//   1. Корзина не входит в лимит 200 ярлыков. Обычным ярлыком она была бы причиной
+//      упереться в лимит — а лимит «живых ярлыков» как раз считается без корзины.
+//   2. Ярлык можно убрать в корзину, а корзину — нельзя: положить её в саму себя =
+//      потерять её насовсем. Отдельная плитка такого не позволяет by construction.
+//   3. Секция Верстака — LWW: разложенная сервером плитка жила бы до первого пуша
+//      любого клиента. Вычисляемая есть у всех и сразу (тот же довод, что у встроенных).
+//
+// Место корзины живёт в профиле, поэтому переживает и перезапуск, и вторую машину.
+
+/** Id плитки корзины. С префиксом `builtin:` — санитайзер и обрезка встроенных её не пустят. */
+export const DESKTOP_TRASH_SHORTCUT_ID = 'builtin:trash';
+export const DESKTOP_TRASH_LABEL = 'Корзина';
+export const DESKTOP_TRASH_ICON = '🗑️';
+
+/** Плитка корзины для отрисовки — подмешивается, как встроенные ярлыки. */
+export function desktopTrashTile(d: UserUiProfileDesktop): DesktopShortcut {
+  return {
+    id: DESKTOP_TRASH_SHORTCUT_ID,
+    label: DESKTOP_TRASH_LABEL,
+    icon: DESKTOP_TRASH_ICON,
+    folderId: null,
+    deletedAt: null,
+    createdAt: 0,
+    ...(d.trashPos ? { pos: d.trashPos } : {}),
+  };
+}
+
+/** Корзина ли это? По id — единственный, кто про неё знает. */
+export function isDesktopTrashShortcut(shortcutId: string | null | undefined): boolean {
+  return String(shortcutId ?? '') === DESKTOP_TRASH_SHORTCUT_ID;
+}
+
+/**
+ * Корзину нельзя убрать в корзину, в папку или «восстановить»: она — приёмник,
+ * а не содержимое. Положить её в саму себя = потерять её.
+ */
+export function desktopCanStoreShortcut(shortcutId: string): boolean {
+  return !isDesktopTrashShortcut(shortcutId);
+}
+
+/** Запомнить место корзины (клетка сетки). */
+export function desktopSetTrashPos(d: UserUiProfileDesktop, pos: DesktopShortcutPos): UserUiProfileDesktop {
+  if (d.trashPos && d.trashPos.col === pos.col && d.trashPos.row === pos.row) return d;
+  return { ...d, trashPos: { col: pos.col, row: pos.row } };
+}
+
+/** Вернуть корзину в поток — она встанет в правый нижний угол полотна. Способ найти её. */
+export function desktopResetTrashPos(d: UserUiProfileDesktop): UserUiProfileDesktop {
+  if (!d.trashPos) return d;
+  const { trashPos: _trashPos, ...rest } = d;
+  return rest;
 }
 export const DESKTOP_MAX_FOLDERS = 40;
 const MAX_LABEL = 160;
@@ -265,6 +332,7 @@ export function sanitizeDesktopSection(raw: unknown): UserUiProfileDesktop | und
   }
   const layoutRaw = (typeof r.layout === 'object' && r.layout != null ? r.layout : {}) as Record<string, unknown>;
   const migratedAt = Number(r.shortcutsMigratedAt ?? 0);
+  const trashPos = sanitizeShortcutPos(r.trashPos);
   return {
     shortcuts,
     folders,
@@ -274,6 +342,7 @@ export function sanitizeDesktopSection(raw: unknown): UserUiProfileDesktop | und
     },
     ...(Number.isFinite(migratedAt) && migratedAt > 0 ? { shortcutsMigratedAt: migratedAt } : {}),
     ...(inboxHandledIds.length > 0 ? { inboxHandledIds } : {}),
+    ...(trashPos ? { trashPos } : {}),
   };
 }
 
@@ -293,8 +362,9 @@ export function desktopTrashShortcuts(d: UserUiProfileDesktop): DesktopShortcut[
   return d.shortcuts.filter((s) => s.deletedAt != null);
 }
 
-/** Ярлык — в корзину (из Верстака или папки). */
+/** Ярлык — в корзину (из Верстака или папки). Корзину — нельзя: см. `desktopCanStoreShortcut`. */
 export function desktopMoveToTrash(d: UserUiProfileDesktop, shortcutId: string, now: number): UserUiProfileDesktop {
+  if (!desktopCanStoreShortcut(shortcutId)) return d;
   return {
     ...d,
     shortcuts: d.shortcuts.map((s) => (s.id === shortcutId ? { ...s, deletedAt: now, folderId: null } : s)),
@@ -303,6 +373,7 @@ export function desktopMoveToTrash(d: UserUiProfileDesktop, shortcutId: string, 
 
 /** Вернуть ярлык из корзины на Верстак. */
 export function desktopRestoreFromTrash(d: UserUiProfileDesktop, shortcutId: string): UserUiProfileDesktop {
+  if (!desktopCanStoreShortcut(shortcutId)) return d;
   return {
     ...d,
     shortcuts: d.shortcuts.map((s) => (s.id === shortcutId ? { ...s, deletedAt: null, folderId: null } : s)),
@@ -316,6 +387,7 @@ export function desktopEmptyTrash(d: UserUiProfileDesktop): UserUiProfileDesktop
 
 /** Переложить ярлык в папку (folderId=null — на Верстак). */
 export function desktopMoveToFolder(d: UserUiProfileDesktop, shortcutId: string, folderId: string | null): UserUiProfileDesktop {
+  if (!desktopCanStoreShortcut(shortcutId)) return d;
   return {
     ...d,
     shortcuts: d.shortcuts.map((s) => (s.id === shortcutId ? { ...s, folderId, deletedAt: null } : s)),
@@ -735,11 +807,16 @@ export type DesktopGridInput = {
   folderIds: string[];
   shortcuts: Array<{ id: string; pos?: DesktopShortcutPos | undefined; cells: 1 | 2 }>;
   cols: number;
+  /** Корзина — плитка среди ярлыков. Её сохранённое место уважается, пока клетка
+   *  свободна; нет места — встаёт в правый нижний угол полотна (как обычная плитка). */
+  trash?: { id: string; pos?: DesktopShortcutPos | undefined; cells: 1 | 2 } | undefined;
 };
 
 export type DesktopGrid = {
   folders: DesktopPlacement[];
   shortcuts: DesktopPlacement[];
+  /** Место корзины; null — корзину на полотне не рисуют. */
+  trash: DesktopPlacement | null;
   /** Сколько строк занято — высота полотна. */
   rows: number;
 };
@@ -793,6 +870,16 @@ export function desktopLayoutGrid(input: DesktopGridInput): DesktopGrid {
     placed.set(s.id, { id: s.id, col, row, cells });
   }
 
+  // Корзина с СОХРАНЁННЫМ местом резервирует свою клетку ДО потока. Иначе плитка,
+  // стоявшая на этом месте (её координата снимется, когда на её место встанет корзина),
+  // заняла бы клетку обратно — и корзина не сдвинулась бы, хотя оператор её переставил.
+  let trash: DesktopPlacement | null = null;
+  const trashCells = input.trash ? span(input.trash.cells) : 1;
+  if (input.trash && input.trash.pos && free(input.trash.pos.row, input.trash.pos.col, trashCells)) {
+    occupy(input.trash.pos.row, input.trash.pos.col, trashCells);
+    trash = { id: input.trash.id, col: input.trash.pos.col, row: input.trash.pos.row, cells: trashCells };
+  }
+
   const shortcuts: DesktopPlacement[] = [];
   for (const s of input.shortcuts) {
     const already = placed.get(s.id);
@@ -808,7 +895,27 @@ export function desktopLayoutGrid(input: DesktopGridInput): DesktopGrid {
 
   let rows = 0;
   for (const p of [...folders, ...shortcuts]) rows = Math.max(rows, p.row + 1);
-  return { folders, shortcuts, rows };
+
+  // Корзина без сохранённого места (или место занято) — в правый нижний угол полотна:
+  // последняя строка, справа налево. Забитое полотно не вытесняет корзиной первую
+  // плитку оператора — корзина встаёт в новую строку, вправо.
+  if (input.trash && !trash) {
+    let spot: { row: number; col: number } | null = null;
+    for (let row = Math.max(rows - 1, 0); row >= 0 && !spot; row -= 1) {
+      for (let col = cols - trashCells; col >= 0; col -= 1) {
+        if (free(row, col, trashCells)) {
+          spot = { row, col };
+          break;
+        }
+      }
+    }
+    if (!spot) spot = { row: Math.max(rows, 0), col: Math.max(cols - trashCells, 0) };
+    occupy(spot.row, spot.col, trashCells);
+    trash = { id: input.trash.id, col: spot.col, row: spot.row, cells: trashCells };
+  }
+  if (trash) rows = Math.max(rows, trash.row + 1);
+
+  return { folders, shortcuts, trash, rows };
 }
 
 /**
@@ -820,7 +927,9 @@ export function desktopSetPositions(
   d: UserUiProfileDesktop,
   updates: Array<{ id: string; pos: DesktopShortcutPos }>,
 ): UserUiProfileDesktop {
-  const byId = new Map(updates.map((u) => [u.id, u.pos]));
+  // Корзина — не ярлык: её место живёт отдельным полем (`trashPos`), и запись координат
+  // не должна вообразить ей ярлык в `shortcuts`.
+  const byId = new Map(updates.filter((u) => desktopCanStoreShortcut(u.id)).map((u) => [u.id, u.pos]));
   let changed = false;
   const shortcuts = d.shortcuts.map((s) => {
     const pos = byId.get(s.id);
@@ -838,7 +947,7 @@ export function desktopMoveToTrashMany(
   shortcutIds: string[],
   now: number,
 ): UserUiProfileDesktop {
-  const ids = new Set(shortcutIds);
+  const ids = new Set(shortcutIds.filter((id) => desktopCanStoreShortcut(id)));
   if (ids.size === 0) return d;
   let changed = false;
   const shortcuts = d.shortcuts.map((s) => {
@@ -855,7 +964,7 @@ export function desktopMoveToFolderMany(
   shortcutIds: string[],
   folderId: string | null,
 ): UserUiProfileDesktop {
-  const ids = new Set(shortcutIds);
+  const ids = new Set(shortcutIds.filter((id) => desktopCanStoreShortcut(id)));
   if (ids.size === 0) return d;
   let changed = false;
   const shortcuts = d.shortcuts.map((s) => {
