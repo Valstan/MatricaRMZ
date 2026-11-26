@@ -22,6 +22,7 @@ import {
   evaluateScrapStageGate,
   isEavFlagSet,
   isScrapCriterionEngineUtil,
+  isScrapGateRepairStage,
   inventoryRowPartId,
   isScrapEngine,
   isScrapResolvedFor,
@@ -277,6 +278,11 @@ export async function resolveScrapStageGate(
   stageCode: string,
   stageName: string,
 ): Promise<EngineScrapGateDecision> {
+  // Не ремонтный этап — состояние двигателя НЕ читаем: гейт по нему молчит (то же
+  // решение, что даёт домен), а читать состояние на каждой записи этапа (создание
+  // карточки, приёмка, дефектовка, отгрузка) — это лишние запросы в самом горячем
+  // пути программы. Ремонтный этап — единственный, где состояние нужно.
+  if (!isScrapGateRepairStage(stageCode)) return { blocked: false, hint: null };
   const state = await readEngineScrapGateState(db, engineId, stageRows);
   const currentVisitFrom = currentVisitStartAt(toStageEntries(stageRows));
   return evaluateScrapStageGate({ state, stageCode, stageName, currentVisitFrom });
