@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { productionProgramNumbering } from '@matricarmz/shared';
+import { productionProgramNumbering, productionProgramNumberingPlan } from '@matricarmz/shared';
 
 import {
   buildProductionProgramClipboardText,
@@ -250,5 +250,132 @@ describe('лист, файл и экран считают номер по одн
     expect(printed).toEqual(['1 / 1', '2 / 2', '3 / 1']);
     expect(numbering.get('r2')?.inContract).toBe(1);
     expect(numbering.get('r1')?.inContract).toBe(2);
+  });
+});
+
+/**
+ * Сквозной «№ п/п» на разобранных договорах (промт КАРМАНА #167).
+ *
+ * Жалоба владельца: сквозной номер в производственной программе собирался в
+ * разнобой. Причина: номер считался по позиции строки в ПЛОСКОМ массиве, а
+ * показ идёт по ГРУППАМ (договор → строки). Строки одного договора в плоском
+ * массиве разбросаны — и показ их собирал вместе, а номер оставался привязан к
+ * плоской позиции. На экране выходило 1, 2, 3, 8, 18, 19, 7…
+ *
+ * Скелет ниже — форма боевой программы «Производственная программа (Цех №2)»
+ * (16–30.11.2026): 23 строки, пять договоров, строки договора вернулись после
+ * чужого блока. Данные вымышленные (канон репозитория), форма — боевая.
+ */
+describe('сквозной номер на разобранных договорах', () => {
+  const LABELS: Record<string, string> = {
+    A: 'Заказчик А · 111/2026',
+    B: 'Заказчик Б · 222/2026',
+    C: 'Заказчик В · 333/2026',
+    D: 'Заказчик Г · 444/2026',
+    E: 'Заказчик Д · 555/2026',
+  };
+  const SKELETON = [
+    'A', 'A', 'A', 'A', 'A', 'A',
+    'B',
+    'A',
+    'B',
+    'C', 'C',
+    'D',
+    'C', 'C',
+    'D', 'D', 'D',
+    'A', 'A',
+    'E',
+    'D',
+    'C',
+    'D',
+  ] as const;
+
+  const SCATTERED_ROWS = SKELETON.map((letter, index) => ({
+    id: `r${index + 1}`,
+    contractId: `contract-${letter}`,
+    groupLabel: LABELS[letter] ?? 'Заказчик',
+    engineId: `e${index + 1}`,
+    engineMark: 'Д-245',
+    engineNumber: String(index + 1).padStart(3, '0'),
+    state: 'restoration',
+    note: '',
+    /** Сохранённый номер строки — снимок с сервера, он номерами быть не должен. */
+    orderNo: (index % 4) + 1,
+  }));
+
+  const SCATTERED = {
+    title: 'ПРОИЗВОДСТВЕННАЯ ПРОГРАММА (ЦЕХ № 1)',
+    shop: 'Цех № 1',
+    period: { start: Date.UTC(2026, 10, 1, 12), end: Date.UTC(2026, 10, 15, 12) },
+    rows: SCATTERED_ROWS,
+    engines: SCATTERED_ROWS.map((row) => ({
+      id: row.engineId,
+      engineNumber: row.engineNumber,
+      engineBrand: row.engineMark,
+      statusFlags: {},
+    })) as never[],
+  };
+
+  /** Номера из напечатанного листа: первая ячейка строки — «сквозной / в договоре». */
+  function printedNumbers(html: string): string[] {
+    return [
+      ...html.matchAll(/<td style="border:1px solid #111827;padding:3px 4px;text-align:center[^"]*">([^<]*)<\/td>/g),
+    ].map((m) => (m[1] ?? '').trim());
+  }
+
+  it('экран: сквозной номер идёт подряд по порядку показа', () => {
+    const plan = productionProgramNumberingPlan(SCATTERED_ROWS);
+    const shown = plan.displayOrder.map((index) => plan.global[index] ?? 0);
+    expect(shown).toEqual(SCATTERED_ROWS.map((_, index) => index + 1));
+    expect(new Set(shown).size).toBe(shown.length);
+  });
+
+  it('файл и лист несут то же число, что и экран, — для той же строки', () => {
+    const plan = productionProgramNumberingPlan(SCATTERED_ROWS);
+    const exportRows = buildProductionProgramExportRows(SCATTERED as never);
+    const printed = printedNumbers(productionProgramPrintHtml(SCATTERED as never));
+
+    // Файл и лист идут в порядке показа — так же, как экран.
+    expect(exportRows.map((row) => row.orderNo)).toEqual(
+      plan.displayOrder.map((_, index) => index + 1),
+    );
+    expect(printed.map((cell) => cell.split('/')[0]?.trim())).toEqual(
+      exportRows.map((row) => String(row.orderNo)),
+    );
+    // Номер внутри договора — с единицы в каждом договоре.
+    const inContract = new Map<string, number[]>();
+    for (const index of plan.displayOrder) {
+      const key = String(SCATTERED_ROWS[index]!.contractId);
+      const bucket = inContract.get(key) ?? [];
+      bucket.push(plan.inContract[index] ?? 0);
+      inContract.set(key, bucket);
+    }
+    for (const numbers of inContract.values()) {
+      expect(numbers).toEqual(numbers.map((_, index) => index + 1));
+    }
+  });
+
+  it('колонка «№» в файле выгрузки — тот же сквозной номер', () => {
+    // Общий сборщик ставит «№» по позиции строки в файле; после правки позиция
+    // показа и сквозной номер — одно и то же число.
+    const { spec } = buildProductionProgramExportSpec(SCATTERED as never);
+    expect(spec.columns[0]).toEqual({ label: '№', kind: 'number' });
+    expect(spec.rows.map((row) => row[0])).toEqual(
+      SCATTERED_ROWS.map((_, index) => String(index + 1)),
+    );
+  });
+
+  it('сохранённый номер строки не вылезает ни на лист, ни в файл', () => {
+    // В `SCATTERED_ROWS` сохранённые номера намеренно сбиты (1, 2, 3, 4, 1, …).
+    const withOtherSaved = {
+      ...SCATTERED,
+      rows: SCATTERED_ROWS.map((row, index) => ({ ...row, orderNo: 99 - index })),
+    } as never;
+    expect(buildProductionProgramExportRows(withOtherSaved).map((row) => row.orderNo)).toEqual(
+      buildProductionProgramExportRows(SCATTERED as never).map((row) => row.orderNo),
+    );
+    expect(printedNumbers(productionProgramPrintHtml(withOtherSaved))).toEqual(
+      printedNumbers(productionProgramPrintHtml(SCATTERED as never)),
+    );
   });
 });

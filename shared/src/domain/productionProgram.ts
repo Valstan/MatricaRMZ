@@ -543,19 +543,97 @@ export function productionProgramGroupKey(row: {
 }
 
 /**
+ * Порядок показа строк плана: группы (договор + подпись) в порядке первого
+ * появления, строки внутри группы — как в исходном массиве.
+ *
+ * Экран, печатный лист и файл выгрузки показывают строки ИМЕННО в этом
+ * порядке, поэтому сквозной номер надо считать по нему, а не по позиции в
+ * плоском массиве. Плоский массив строк программы договорами не собран: после
+ * автосохранения (чужие строки дописываются в конец) и добавления движков
+ * строки одного договора оказываются разбросаны. Номер, посчитанный по
+ * плоской позиции, на экране прыгал — «№ п/п» шёл 1, 2, 3, 8, 18, 19, 7…
+ *
+ * Возвращает **индексы** строк исходного массива: порядок строк и порядок
+ * групп не меняются — меняется только то, каким номером строка названа.
+ */
+export function productionProgramDisplayOrder<
+  T extends {
+    contractId?: string | null;
+    groupLabel?: string | null;
+  },
+>(rows: readonly T[]): number[] {
+  const groups = new Map<string, number[]>();
+  for (const [index, row] of (rows ?? []).entries()) {
+    const key = productionProgramGroupKey(row);
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(index);
+    else groups.set(key, [index]);
+  }
+  const order: number[] = [];
+  for (const bucket of groups.values()) order.push(...bucket);
+  return order;
+}
+
+/**
+ * План нумерации строк плана: порядок показа и номера по позиции показа.
+ *
+ * `global` — сквозной «№ п/п» (по порядку показа, без пропусков и повторов),
+ * `inContract` — «№ п/п» внутри своего договора (с единицы в каждом
+ * договоре, порядок внутри договора — как был). Оба массива адресованы
+ * **индексом строки исходного массива** — как раньше у счётчиков.
+ */
+export type ProductionProgramNumberingPlan = {
+  /** Порядок показа — индексы строк исходного массива. */
+  displayOrder: number[];
+  /** Сквозной «№ п/п» — по индексу строки исходного массива. */
+  global: number[];
+  /** «№ п/п» внутри договора — по индексу строки исходного массива. */
+  inContract: number[];
+};
+
+/**
+ * План нумерации — **единственный источник** номеров для экрана, печатного
+ * листа и файла выгрузки.
+ *
+ * Номера считаются по позиции показа (`productionProgramDisplayOrder`), а не по
+ * позиции в плоском массиве и не по сохранённому `orderNo`: и то и другое
+ * разъезжалось с тем, что оператор видит на экране.
+ */
+export function productionProgramNumberingPlan<
+  T extends {
+    contractId?: string | null;
+    groupLabel?: string | null;
+  },
+>(rows: readonly T[]): ProductionProgramNumberingPlan {
+  const list = rows ?? [];
+  const displayOrder = productionProgramDisplayOrder(list);
+  const global: number[] = new Array(list.length).fill(0);
+  const inContract: number[] = new Array(list.length).fill(0);
+  const inGroup = new Map<string, number>();
+  displayOrder.forEach((rowIndex, position) => {
+    global[rowIndex] = position + 1;
+    const key = productionProgramGroupKey(list[rowIndex]!);
+    const n = (inGroup.get(key) ?? 0) + 1;
+    inGroup.set(key, n);
+    inContract[rowIndex] = n;
+  });
+  return { displayOrder, global, inContract };
+}
+
+/**
  * Счётчики нумерации строк плана — **одно правило** для трёх мест: экран, файл
  * выгрузки и печатный лист.
  *
- * Оба номера считаются **по позиции** строки, а не по сохранённому числу: после
+ * Оба номера считаются **по позиции**, а не по сохранённому числу: после
  * перетаскивания сохранённые номера разъезжаются, и цифры на экране перестают
  * быть правдой. Ключ группы — общий (`productionProgramGroupKey`), поэтому печать
  * и экран делят строки по договорам одинаково, а «номер внутри договора» на
  * бумаге и в файле считается той же считалкой.
  *
- * `global` — сквозной номер по программе, `inContract` — номер строки **внутри
- * своего договора**, по позиции в массиве строк (индексы совпадают с входным
- * массивом: это позволяет печати и выгрузке считать по позиции, не опираясь на
- * идентификаторы строк).
+ * `global` — сквозной номер по программе (столько строк в плане),
+ * `inContract` — номер строки **внутри своего договора**, по позиции в
+ * массиве строк (индексы совпадают с входным массивом: это позволяет печати и
+ * выгрузке считать по позиции, не опираясь на идентификаторы строк).
  */
 export function productionProgramNumberingCounters(
   rows: readonly {
@@ -563,24 +641,20 @@ export function productionProgramNumberingCounters(
     groupLabel?: string | null;
   }[],
 ): { global: number; inContract: number[] } {
-  const inGroup = new Map<string, number>();
-  const inContract: number[] = [];
-  let global = 0;
-  for (const row of rows ?? []) {
-    global += 1;
-    const key = productionProgramGroupKey(row);
-    const n = (inGroup.get(key) ?? 0) + 1;
-    inGroup.set(key, n);
-    inContract.push(n);
-  }
-  return { global, inContract };
+  const plan = productionProgramNumberingPlan(rows);
+  return { global: plan.displayOrder.length, inContract: plan.inContract };
 }
 
 /**
  * Нумерация строк плана по текущему порядку: общая по программе и своя внутри
- * договора. Считается по позиции строки в плоском массиве — тот же порядок, по
- * которому печать собирает группы (`buildProductionProgramPrintModel`), чтобы
- * на экране и на бумаге цифры совпадали.
+ * договора — **по позиции показа** (`productionProgramNumberingPlan`), того же
+ * порядка, по которому печать собирает группы (`buildProductionProgramPrintModel`),
+ * чтобы на экране и на бумаге цифры совпадали.
+ *
+ * Карта — по идентификатору строки, и это её ограничение: строка без
+ * идентификатора в карту не попадает (номер пустой), а две строки с одинаковым
+ * идентификатором делят один номер. Поэтому экран берёт номер **по позиции**
+ * (`productionProgramNumberingPlan`), а карта остаётся для поиска по id.
  *
  * Считалка — общая с печатью (`productionProgramNumberingCounters`): разные
  * счётчики в проекте разъезжались (на экране было одно, в файле другое).
@@ -593,12 +667,11 @@ export function productionProgramNumbering(
   }[],
 ): Map<string, ProductionProgramNumbering> {
   const result = new Map<string, ProductionProgramNumbering>();
-  const { inContract } = productionProgramNumberingCounters(rows);
-  let global = 0;
-  for (const [index, row] of (rows ?? []).entries()) {
-    global += 1;
-    const id = String(row.id ?? '');
-    if (id) result.set(id, { global, inContract: inContract[index] ?? 0 });
+  const list = rows ?? [];
+  const plan = productionProgramNumberingPlan(list);
+  for (const index of plan.displayOrder) {
+    const id = String(list[index]?.id ?? '');
+    if (id) result.set(id, { global: plan.global[index] ?? 0, inContract: plan.inContract[index] ?? 0 });
   }
   return result;
 }
@@ -1032,7 +1105,14 @@ export function formatProductionProgramPeriod(period: ProductionProgramPeriod): 
 
 export type ProductionProgramPrintRow = {
   id: string;
-  /** Номер «№ п/п» — сквозной по строкам-перевозчикам (шапки групп номера не занимают). */
+  /**
+   * Номер «№ п/п» — сквозной по строкам-перевозчикам (шапки групп номера не занимают).
+   *
+   * Считается **по порядку показа** (`productionProgramNumberingPlan`): идёт
+   * подряд, без пропусков и повторов, и совпадает с цифрой на экране и в файле
+   * выгрузки. Раньше номер считался по позиции строки в плоском массиве, а
+   * показ шёл по группам — из-за этого цифры прыгали.
+   */
   orderNo: number;
   /**
    * Номер строки **внутри своего договора** — как на экране («№ в договоре»).
@@ -1125,12 +1205,15 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
 
   const groups: ProductionProgramPrintGroup[] = [];
   const groupByKey = new Map<string, ProductionProgramPrintGroup>();
-  // Нумерация — **одна считалка** с экраном и файлом выгрузки: сквозной номер и
-  // номер внутри договора считаются по позиции строки (`productionProgramNumberingCounters`).
-  const counters = productionProgramNumberingCounters(input.rows ?? []);
-  let orderNo = 0;
+  // Порядок показа и номера — из доменного плана нумерации: сквозной номер
+  // считается по порядку показа (как на экране), а не по позиции в плоском
+  // массиве строк. Плоский массив договорами не собран, и номер, посчитанный
+  // по нему, на листе прыгал.
+  const rows = input.rows ?? [];
+  const plan = productionProgramNumberingPlan(rows);
 
-  for (const [index, raw] of (input.rows ?? []).entries()) {
+  for (const index of plan.displayOrder) {
+    const raw = rows[index]!;
     const contractId = raw.contractId ? String(raw.contractId) : null;
     // Шапка группы — человеческое наименование договора. Технический идентификатор
     // в печать не идёт (прочерк): форма плана — документ для подписей, а не выгрузка.
@@ -1144,8 +1227,8 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
       groupByKey.set(key, group);
       groups.push(group);
     }
-    orderNo += 1;
-    const inContractNo = counters.inContract[index] ?? 1;
+    const orderNo = plan.global[index] ?? 0;
+    const inContractNo = plan.inContract[index] ?? 1;
     const engineId = raw.engineId ? String(raw.engineId) : null;
     const engine = engineId ? engineById.get(engineId) ?? null : null;
     // Этап — из живой карточки двигателя: на бумаге видно, где он сейчас.
@@ -1191,7 +1274,7 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
     periodLabel: formatProductionProgramPeriod(input.period),
     shop: String(input.shop ?? '').trim(),
     groups,
-    engineCount: orderNo,
+    engineCount: plan.displayOrder.length,
     approver: PRODUCTION_PROGRAM_APPROVER,
     signatures,
   };

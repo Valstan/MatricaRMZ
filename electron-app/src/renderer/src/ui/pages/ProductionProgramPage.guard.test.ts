@@ -248,8 +248,8 @@ describe('производственная программа — подписи
  * Скрепы держат три вещи, которые молча ломаются:
  *  1. порядок групп — по строкам (как в печати), а не по названию договора:
  *     иначе экран и печать показывают разный порядок и перетащить группу некуда;
- *  2. обе нумерации считаются по позиции (домен `productionProgramNumbering`),
- *     а не берутся из сохранённого `orderNo`;
+ *  2. обе нумерации считаются по позиции **показа** (домен
+ *     `productionProgramNumberingPlan`), а не берутся из сохранённого `orderNo`;
  *  3. перетаскивание — только тем же путём записи (`applyRows` → `saveRows`).
  */
 describe('порядок в производственной программе', () => {
@@ -260,12 +260,38 @@ describe('порядок в производственной программе'
     expect(PAGE).toContain('return [...byKey.values()];');
   });
 
-  it('две нумерации — общая и внутри договора, по позиции', () => {
-    expect(PAGE).toContain('productionProgramNumbering(rows)');
+  it('две нумерации — общая и внутри договора, по позиции показа', () => {
+    expect(PAGE).toContain('productionProgramNumberingPlan(rows)');
     expect(PAGE).toContain('<th title="Сквозной номер по программе">№ п/п</th>');
     expect(PAGE).toContain('<th title="Номер двигателя внутри своего договора">№ в договоре</th>');
-    expect(PAGE).toContain('num?.global ??');
-    expect(PAGE).toContain('num?.inContract ??');
+    expect(PAGE).toContain('<td>{item.global}</td>');
+    expect(PAGE).toContain('<td>{item.inContract}</td>');
+  });
+
+  it('номер берётся по позиции показа, а не по карте по идентификатору', () => {
+    // Промт КАРМАНА #167: сквозной «№ п/п» собирался в разнобой. Причина —
+    // нумерация по позиции в плоском массиве строк при показе по группам.
+    // Карта нумерации по идентификатору слепа к строке без идентификатора и к
+    // двум строкам с одинаковым, поэтому номер берётся по позиции показа.
+    expect(PAGE, 'номер должен идти из плана нумерации, а не из карты по id').not.toContain(
+      'productionProgramNumbering(rows)',
+    );
+    expect(PAGE, 'показ идёт в порядке показа из домена').toContain(
+      'for (const index of numberingPlan.displayOrder) {',
+    );
+    expect(PAGE, 'номер строки — по позиции показа').toContain('global: numberingPlan.global[index] ?? 0,');
+    expect(PAGE, 'номер внутри договора — по позиции показа').toContain(
+      'inContract: numberingPlan.inContract[index] ?? 0,',
+    );
+  });
+
+  it('ключ группы на экране — доменный (общий с печатью и выгрузкой)', () => {
+    // Свой ключ на экране (только договор) делил строки по группам иначе, чем
+    // лист: один договор мог на экране быть одной группой, а на бумаге — двумя.
+    expect(PAGE, 'ключ группы экрана — доменный productionProgramGroupKey').toContain(
+      'const key = productionProgramGroupKey(row);',
+    );
+    expect(SHARED_DOMAIN).toContain('export function productionProgramGroupKey');
   });
 
   it('перетаскивание: двигатель — в пределах договора, группа — целиком', () => {
