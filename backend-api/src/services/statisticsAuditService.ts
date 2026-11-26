@@ -609,6 +609,9 @@ export async function listAuditStatistics(args: {
       clientId: statisticsAuditEvents.clientId,
       tableName: statisticsAuditEvents.tableName,
       entityId: auditLog.entityId,
+      // Payload исходной строки: раздел и имя объекта считаются НА ПОКАЗЕ (см. ниже),
+      // а не берутся из материализованной колонки — иначе старое осталось бы «Прочее».
+      payloadJson: auditLog.payloadJson,
       // Удалён ли объект строки: мягкое удаление оставило метку на сущности. Ссылку на
       // удалённый объект рисовать нельзя — в строке это сказано словами (промт #169).
       objectDeletedAt: entities.deletedAt,
@@ -626,20 +629,40 @@ export async function listAuditStatistics(args: {
   const strictDeleted = await resolveDeletedObjectIds(
     rows.map((row) => ({ entityId: row.entityId ?? null, tableName: row.tableName ?? null })),
   );
-  return rows.map((row) => ({
-    id: row.sourceAuditId,
-    createdAt: Number(row.createdAt),
-    actor: row.actor,
-    action: row.action,
-    actionType: row.actionType as ActionType,
-    section: row.section,
-    actionText: row.actionText,
-    documentLabel: row.documentLabel ?? '',
-    clientId: row.clientId ?? null,
-    tableName: row.tableName ?? null,
-    entityId: row.entityId ?? null,
-    objectDeleted: row.objectDeletedAt != null || strictDeleted.has(String(row.entityId ?? '')),
-  }));
+  // Раздел и имя объекта считаются НА ПОКАЗЕ — тем же общим правилом, что и подпись
+  // строки. Материализованная колонка `statistics_audit_events.section` заполняется
+  // один раз при инжесте, поэтому у старых строк в ней навсегда осталось «Прочее»,
+  // а у новых — раздел, посчитанный по правилу на момент инжеста. Показ считает
+  // раздел заново: старые строки получают свой раздел (а не переигрываются — их
+  // текст действия остаётся прежним), и в живом журнале нет «Прочее».
+  const live = await resolveAuditObjectInfo(
+    rows.map((row) => ({
+      id: String(row.sourceAuditId),
+      action: String(row.action ?? ''),
+      entityId: row.entityId == null ? null : String(row.entityId),
+      tableName: row.tableName == null ? null : String(row.tableName),
+      payload: parsePayload(row.payloadJson),
+    })),
+  );
+  return rows.map((row) => {
+    const info = live.get(String(row.sourceAuditId));
+    return {
+      id: row.sourceAuditId,
+      createdAt: Number(row.createdAt),
+      actor: row.actor,
+      action: row.action,
+      actionType: row.actionType as ActionType,
+      // Раздел: посчитанный на показе, а если он не нашёлся — тот, что был записан.
+      section: info?.section || row.section || 'Прочее',
+      actionText: row.actionText,
+      // Имя объекта: то же самое — сначала посчитанное на показе, затем записанное.
+      documentLabel: info?.objectName || row.documentLabel || '',
+      clientId: row.clientId ?? null,
+      tableName: row.tableName ?? null,
+      entityId: row.entityId ?? null,
+      objectDeleted: row.objectDeletedAt != null || strictDeleted.has(String(row.entityId ?? '')),
+    };
+  });
 }
 
 export async function getDailyAuditStatistics(args: { date?: string; cutoffHour?: number }) {
