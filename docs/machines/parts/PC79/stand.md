@@ -133,14 +133,6 @@ corepack pnpm -F @matricarmz/electron-app exec electron-builder install-app-deps
 - Служба `postgresql-x64-17` запускается от `NT AUTHORITY\NetworkService`; ручной `pg_ctl start` работает из-под пользователя, но номинально — служба.
 - Пароль в `.env.dev` — `PGPASSWORD=postgres` (перезаписан `setup-env.ps1`, файлы gitignored).
 
-## Стенд lane2 в worktree `m2`: готовый рецепт (25.11, линия 2)
-
-- **Готовые скрипты лежат ВНЕ git** (`.verifier-electron/` в `.gitignore`): `stand-lane2.ps1` (подъём/гашение), `swap-sqlite-abi.ps1` (ABI better-sqlite3), `grant-prod-edit.sql`. **Переживают только эту машину и эту ветку** — после смены машины/ветки восстанавливать по этому профилю, иначе рецепт теряется вместе с артефактом (так уже случилось с драйвером смоука 25.11).
-- **Порты lane2:** backend **3003**, vite **5175**, CDP **9230** — **не 9224**: 9224 на этой машине держит чужой браузер (профиль Яндекса), и клиент стенда запускается с явным `-CdpPort`, чтобы стенд остался изолированным. БД — `matricarmz_dev_lane2`.
-- **Подъём с нуля:** `corepack pnpm install --ignore-scripts` → сборка `shared` и `ledger` → `setup-env` → `setup-db -Reset` (БД пересоздаётся) → миграции и сид → grant `production_program.edit` пользователю `valstan` → ABI **electron** → backend 3003 (`/health` = 3.145.0) → electron с CDP 9230 и renderer 5175. Обычный `pnpm install` без `--ignore-scripts` на PC79 падает на нативной сборке better-sqlite3 (нет VS Build Tools).
-- **Гейт разрешений хоста:** `cd` + запись в одной команде блокируется ⇒ git-операции через `git -C <worktree> …` **без** `cd`, правки файлов — в основном worktree.
-- **После прогона:** `stand-lane2.ps1 -Down` гасит стенд и возвращает ABI в **node** (юнит-тесты требуют node-ABI, иначе vitest красный на десятках файлов).
-
 ## История подъёмов именованных стендов
 
 Хроника прошлых подъёмов (lane2 в линиях 2 и 4, 23–25.11.2026) вынесена в отдельную часть: [stand-log.md](stand-log.md). Актуальное состояние стенда — выше.
