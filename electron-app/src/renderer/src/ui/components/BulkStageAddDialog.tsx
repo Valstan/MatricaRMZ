@@ -8,6 +8,7 @@ import { Input } from './Input.js';
 import { EngineQrScanButton } from './EngineQrScanButton.js';
 import { SearchSelect } from './SearchSelect.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
+import { handleScrapStageResult } from '../utils/scrapStageGate.js';
 
 type StageTemplate = { code: string; name: string };
 type EngineOption = { id: string; label: string; atPlant: boolean };
@@ -262,22 +263,56 @@ export function BulkStageAddDialog(props: {
     const atMs = fromInputDate(date);
     if (atMs === null) return setStatus('Укажите дату');
 
+    /** Запись этапа одному двигателю — тем же путём, что и у остальных экранов. */
+    const saveOne = async (engineId: string) =>
+      window.matrica.workSheets.stages.save({
+        id: crypto.randomUUID(),
+        engineId,
+        code: stageCode,
+        atMs,
+        ...(workshopId ? { workshopId } : {}),
+        ...(note.trim() ? { note: note.trim() } : {}),
+      });
+
     setBusy(true);
     setStatus('');
     try {
       let ok = 0;
       let fail = 0;
       for (const engineId of selectedEngineIds) {
-        const r = await window.matrica.workSheets.stages.save({
-          id: crypto.randomUUID(),
+        const r = await saveOne(engineId);
+        if (r.ok) {
+          ok++;
+          continue;
+        }
+        fail++;
+        // Гейт утиля (промт КАРМАНА #170): первый утильный двигатель останавливает
+        // массовую запись — окно спрашивает, отремонтирована ли деталь, и после «да»
+        // повторяет запись ЭТОГО двигателя (остальные уже записаны).
+        if (!r.scrapGate) continue;
+        handleScrapStageResult({
+          result: r,
           engineId,
-          code: stageCode,
-          atMs,
-          ...(workshopId ? { workshopId } : {}),
-          ...(note.trim() ? { note: note.trim() } : {}),
+          retry: async (warning) => {
+            setBusy(true);
+            try {
+              const again = await saveOne(engineId);
+              if (again.ok) {
+                ok++;
+                invalidateEngineCatalogCache();
+                await props.onAdded();
+              }
+              setStatus(
+                `Сохранено: ${ok}${fail > 0 ? `, ошибок: ${fail}` : ''}${warning ? `. ${warning}` : ''}`,
+              );
+            } catch (e) {
+              setStatus(`Ошибка: ${String(e)}`);
+            } finally {
+              setBusy(false);
+            }
+          },
         });
-        if (r.ok) ok++;
-        else fail++;
+        return;
       }
       setStatus(`Сохранено: ${ok}${fail > 0 ? `, ошибок: ${fail}` : ''}`);
       // Записанный этап сдвинул метки «последнего этапа» — кэш каталога устарел.

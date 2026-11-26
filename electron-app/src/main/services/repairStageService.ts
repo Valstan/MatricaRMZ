@@ -24,6 +24,7 @@ import {
   type RepairStageTemplate,
   type SaveRepairStageInput,
   type SaveRepairStageResult,
+  type ScrapStageGate,
   type WorkSheetDuplicateRef,
 } from '@matricarmz/shared';
 
@@ -31,6 +32,7 @@ import { attributeDefs, attributeValues, entities, operations } from '../databas
 import { httpAuthed } from './httpClient.js';
 import { getOperation, getEngineActDatesMap, softDeleteOperation, upsertOperation } from './operationService.js';
 import { renumberRepeatPasses } from './repeatPassService.js';
+import { resolveScrapStageGate } from './engineScrapStageGateService.js';
 import { collectChunked } from '../utils/sqlChunks.js';
 
 // Строки единого списка этапов (план unified-repair-stages, шаг 2: хранилище).
@@ -226,6 +228,42 @@ export async function saveRepairStageRow(
   }
 
   const siblings = await listRepairStageRows(db, engineId);
+
+  // ГЕЙТ УТИЛЯ (промт КАРМАНА #170): ремонт утильного двигателя не начинаем.
+  //
+  // Гейт стоит ЗДЕСЬ — в общей воронке записи этапа, а не на экране: карточка,
+  // производственная программа и автоматы мастеров идут через этот же путь, и блокировка
+  // на одном экране обходилась бы другим. Новый этап у утильного двигателя не создаётся,
+  // а окно показывает оператору, какая деталь утильная и что можно сделать.
+  //
+  // Правка уже существующей строки (дата, примечание) гейтом НЕ ловится: этап уже есть,
+  // и запретить его поправить — значит запереть оператора в старом состоянии.
+  let scrapHint: string | null = null;
+  {
+    let gate: Awaited<ReturnType<typeof resolveScrapStageGate>> | null = null;
+    try {
+      gate = await resolveScrapStageGate(db, engineId, siblings, template.code, template.name);
+    } catch {
+      // Непредвиденный сбой чтения состояния — блокировку НЕ включаем: лучше пропустить
+      // этап, чем заморозить завод из-за сбоя чтения. Сбой виден в логе main.
+      console.error('[scrap-gate] не удалось прочитать состояние двигателя', engineId, template.code);
+    }
+    if (gate?.blocked && !existing) {
+      return {
+        ok: false,
+        error: gate.error,
+        scrapGate: {
+          partLabel: gate.partLabel,
+          partId: gate.partId,
+          engineNumber: gate.engineNumber,
+          stageName: gate.stageName,
+          error: gate.error,
+        },
+      };
+    }
+    scrapHint = gate && !gate.blocked ? gate.hint : null;
+  }
+
   const dated = toDated(siblings, id);
 
   // Субординация дат — до любой записи.
@@ -339,7 +377,16 @@ export async function saveRepairStageRow(
   // снятая галочка у ранней записи сдвигает следующие, поставленная — встаёт по дате.
   const assigned = await renumberRepeatPasses(db, { engineId, kind: 'stage', key: template.code });
 
-  return { ok: true, id, created, backward, pass: assigned.get(String(id)) ?? repeat?.pass ?? 1 };
+  return {
+    ok: true,
+    id,
+    created,
+    backward,
+    pass: assigned.get(String(id)) ?? repeat?.pass ?? 1,
+    // Подсказка оператору: в дефектовке есть утильная деталь (сама по себе она этапу не
+    // мешает — неглавные детали ремонту не препятствуют).
+    ...(scrapHint ? { scrapHint } : {}),
+  };
 }
 
 /**
@@ -353,7 +400,7 @@ export async function saveRepairStageRow(
  */
 const SCRAP_FLAG_CODES = ['is_scrap', 'status_rejected', 'status_scrap_confirmed', 'status_rework_sent'] as const;
 
-async function clearEngineScrapFlag(
+export async function clearEngineScrapFlag(
   db: BetterSQLite3Database,
   engineId: string,
 ): Promise<void> {
@@ -438,7 +485,7 @@ export async function ensureRepairStageRow(
   templates: ReadonlyArray<RepairStageTemplate> = DEFAULT_REPAIR_STAGE_TEMPLATES,
 ): Promise<
   | { ok: true; marked: boolean; rowId: string | null; pass: number | null }
-  | { ok: false; error: string }
+  | { ok: false; error: string; scrapGate?: ScrapStageGate }
 > {
   const id = text(engineId);
   const stageCode = text(code).toLowerCase();

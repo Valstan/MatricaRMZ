@@ -21,6 +21,7 @@ import { emojiAttrs } from '../utils/labelEmoji.js';
 import { useConfirmOptional } from './ConfirmContext.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { confirmShipmentWithOpenAssembly } from '../utils/shipmentAssemblyGate.js';
+import { handleScrapStageResult } from '../utils/scrapStageGate.js';
 
 /**
  * Единая лента истории ремонта двигателя (задача владельца 01.10.2026).
@@ -296,6 +297,11 @@ export function EngineHistoryFeedPanel(props: {
     setBusy(true);
     try {
       const r = await window.matrica.workSheets.stages.save({ ...args, engineId: props.engineId });
+      // Гейт утиля (промт КАРМАНА #170): этап у утильного двигателя не заводится — окно
+      // спрашивает, отремонтирована ли деталь, и после «да» повторяет запись.
+      if (handleScrapStageResult({ result: r, engineId: props.engineId, retry: (warning) => void writeStage(args).then(() => { if (warning) setStatus(warning); }) })) {
+        return;
+      }
       if (!r.ok && r.duplicate) {
         setPendingPass({
           pass: r.duplicate.nextPass,
@@ -338,6 +344,8 @@ export function EngineHistoryFeedPanel(props: {
           : { label: `«${templateName(args.code)}»`, kind: 'remove-stage', id: args.id },
       );
       setStatus(r.backward && r.pass >= 2 ? `«${templateName(args.code)}» — возврат назад, записан проход № ${r.pass}.` : '');
+      // Подсказка: в дефектовке есть утильная деталь (сама по себе этапу не мешает).
+      if (r.ok && r.scrapHint) setStatus(r.scrapHint);
       // Направление «этап → акт»: дату дефектовки доносим до листа. Довесок —
       // этап уже записан, его исход не трогаем.
       if (args.code === 'disassembly_defect') {

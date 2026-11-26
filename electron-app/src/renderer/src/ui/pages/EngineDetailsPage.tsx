@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
 import { PermissionCode, canWriteRepairHistory } from '@matricarmz/shared';
-import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, formatEngineRmzNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, REPAIR_HISTORY_OPERATION_TYPE, buildRepairHistoryMeta, CONTRACT_KIND_LABELS, type ArrivalListItem, type ArrivalPlacement, type ContractKind, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, formatEngineRmzNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, REPAIR_HISTORY_OPERATION_TYPE, buildRepairHistoryMeta, SCRAP_RESOLVE_REASONS, CONTRACT_KIND_LABELS, type ArrivalListItem, type ArrivalPlacement, type ContractKind, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -702,6 +702,11 @@ export function EngineDetailsPage(props: {
   const [scrapResolveOutcome, setScrapResolveOutcome] = useState<'repaired' | 'replaced'>('repaired');
   const [scrapResolveDate, setScrapResolveDate] = useState(toInputDate(Date.now()));
   const [scrapResolveNote, setScrapResolveNote] = useState('');
+  /**
+   * Причина снятия утиля (промт КАРМАНА #170, пункт 10): без неё след снятия неполон —
+   * по истории нельзя собрать отчёт «почему двигатель снят с утиля».
+   */
+  const [scrapResolveReason, setScrapResolveReason] = useState('Ремонт');
   // Какая деталь отремонтирована/заменена: с 02.11.2026 утильный признак задаётся
   // меткой на детали, поэтому критерий может быть не только картером («Блок цилиндров»).
   const [scrapResolvePart, setScrapResolvePart] = useState('Картер');
@@ -1300,13 +1305,14 @@ export function EngineDetailsPage(props: {
       return;
     }
     const partLabel = scrapResolvePart.trim() || 'Картер';
+    const reason = scrapResolveReason.trim() || 'Ремонт';
     const action = scrapResolveOutcome === 'replaced' ? `${partLabel} заменён` : `${partLabel} отремонтирован`;
     setScrapResolveBusy(true);
     setScrapResolveStatus('Записываю…');
     try {
       const meta = buildRepairHistoryMeta({
         action,
-        scrapResolved: { outcome: scrapResolveOutcome, partLabel: partLabel, atMs },
+        scrapResolved: { outcome: scrapResolveOutcome, partLabel: partLabel, reason, atMs },
         at: atMs,
         ...(scrapResolveNote.trim() ? { note: scrapResolveNote.trim() } : {}),
       });
@@ -3230,6 +3236,21 @@ export function EngineDetailsPage(props: {
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>Дата</span>
                 <input type="date" value={scrapResolveDate} onChange={(e: any) => setScrapResolveDate(e.target.value)} style={{ padding: 6, borderRadius: 8, border: '1px solid var(--input-border, #ccc)', background: 'var(--input-bg, #fff)' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Причина</span>
+                <select
+                  value={scrapResolveReason}
+                  onChange={(e: any) => setScrapResolveReason(e.target.value)}
+                  data-scrap-resolve-reason
+                  style={{ padding: 6, borderRadius: 8, border: '1px solid var(--input-border, #ccc)', background: 'var(--input-bg, #fff)' }}
+                >
+                  {SCRAP_RESOLVE_REASONS.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <Input value={scrapResolveNote} placeholder="Примечание (необязательно)" onChange={(e: any) => setScrapResolveNote(e.target.value)} style={{ width: '100%' }} />

@@ -1941,6 +1941,40 @@ export type MatricaApi = {
     /** Поставить/снять метку «уводит двигатель в утиль» на детали. */
     set: (args: { partId: string; enabled: boolean }) => Promise<ScrapCriterionImpactResult>;
   };
+  /**
+   * Снятие утиля двигателя (промт КАРМАНА #170): действие «Деталь отремонтирована».
+   */
+  engineScrap: {
+    /** Причины снятия утиля (ремонт / закупка / иное) — их спрашивает программа. */
+    reasons: () => Promise<{ ok: true; reasons: string[] }>;
+    /**
+     * Снять утиль: след в истории ремонта (с причиной и автором) + снятие глобального
+     * статуса + возврат детали в ремонтный фонд.
+     */
+    resolve: (args: {
+      engineId: string;
+      partId?: string | null;
+      partLabel?: string | null;
+      outcome?: 'repaired' | 'replaced';
+      reason: string;
+      atMs?: number | null;
+    }) => Promise<{ ok: boolean; error?: string; warning?: string }>;
+    /**
+     * Проверка согласованности «утиль ↔ этап ремонта»: перечень двигателей, у которых в
+     * текущем заезде есть и этап ремонта, и статус утиль.
+     */
+    consistency: () => Promise<{
+      ok: boolean;
+      error?: string;
+      rows?: Array<{
+        engineId: string;
+        engineNumber: string | null;
+        scrapAt: number | null;
+        stageCode: string;
+        stageAt: number | null;
+      }>;
+    }>;
+  };
   reportsBuilder: {
     preview: (args: ReportBuilderPreviewRequest) => Promise<ReportBuilderPreviewResult>;
     export: (args: ReportBuilderPreviewRequest & { format: 'html' | 'xlsx' }) => Promise<ReportBuilderExportResult>;

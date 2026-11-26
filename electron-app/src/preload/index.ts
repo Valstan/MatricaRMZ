@@ -359,6 +359,24 @@ const matricaApi = {
     /** Поставить/снять метку «уводит двигатель в утиль» на детали. */
     set: async (args: { partId: string; enabled: boolean }) => ipcRenderer.invoke('scrap:criterion:set', args),
   },
+  engineScrap: {
+    /** Причины снятия утиля (закупка / ремонт / иное) — их спрашивает программа. */
+    reasons: async () => ipcRenderer.invoke('engines:scrap:reasons'),
+    /**
+     * «Деталь отремонтирована»: снять утиль двигателя (след в истории ремонта с причиной
+     * и автором + снятие глобального статуса + возврат детали в ремонтный фонд).
+     */
+    resolve: async (args: {
+      engineId: string;
+      partId?: string | null;
+      partLabel?: string | null;
+      outcome?: 'repaired' | 'replaced';
+      reason: string;
+      atMs?: number | null;
+    }) => ipcRenderer.invoke('engines:scrap:resolve', args),
+    /** Проверка согласованности «утиль ↔ этап ремонта»: перечень расхождений. */
+    consistency: async () => ipcRenderer.invoke('engines:scrap:consistency'),
+  },
   reportsBuilder: {
     meta: async () => ipcRenderer.invoke('reportsBuilder:meta'),
     preview: async (args: any) => ipcRenderer.invoke('reportsBuilder:preview', args),

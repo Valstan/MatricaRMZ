@@ -79,6 +79,7 @@ import {
   type ListPrintNumberColumns,
 } from '../utils/listPrintTable.js';
 import { openPrintPreview } from '../utils/printPreview.js';
+import { handleScrapStageResult } from '../utils/scrapStageGate.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useWorkSheetTypeRefs } from '../hooks/useWorkSheetTypeRefs.js';
 import { resolveWorkshopName, useWorkshopNames } from '../hooks/useWorkshopNames.js';
@@ -881,18 +882,24 @@ export function EnginesPage(props: {
     const atMs = parseIsoDateToMs(args.date);
     if (atMs == null) return { ok: false, error: 'Укажите дату, когда этап был завершён' };
     const wsLabel = String(workshopNameById[args.workshopId] ?? '').trim();
+    const saveArgs = {
+      id: crypto.randomUUID(),
+      engineId: dialog.engineId,
+      code: args.code,
+      atMs,
+      ...(args.note.trim() ? { note: args.note.trim() } : {}),
+      ...(args.workshopId ? { workshopId: args.workshopId } : {}),
+      ...(wsLabel ? { workshopName: wsLabel } : {}),
+      ...(args.repeatPass ? { repeatPass: args.repeatPass } : {}),
+      ...(args.confirmDefectDate ? { confirmDefectDate: true } : {}),
+    };
     try {
-      const res = await window.matrica.workSheets.stages.save({
-        id: crypto.randomUUID(),
-        engineId: dialog.engineId,
-        code: args.code,
-        atMs,
-        ...(args.note.trim() ? { note: args.note.trim() } : {}),
-        ...(args.workshopId ? { workshopId: args.workshopId } : {}),
-        ...(wsLabel ? { workshopName: wsLabel } : {}),
-        ...(args.repeatPass ? { repeatPass: args.repeatPass } : {}),
-        ...(args.confirmDefectDate ? { confirmDefectDate: true } : {}),
-      });
+      const res = await window.matrica.workSheets.stages.save(saveArgs);
+      // Гейт утиля (промт КАРМАНА #170): этап у утильного двигателя не заводится — окно
+      // спрашивает, отремонтирована ли деталь, и после «да» повторяет запись.
+      if (handleScrapStageResult({ result: res, engineId: dialog.engineId, retry: (warning) => void submitStage(args).then(() => { if (warning) props.onNotify?.(warning); }) })) {
+        return { ok: false, error: res.ok ? '' : res.error };
+      }
       if (!res.ok) {
         return {
           ok: false,
@@ -907,7 +914,7 @@ export function EnginesPage(props: {
       // состояние до следующего живого обновления.
       await props.onRefresh();
       window.dispatchEvent(new Event('matrica:engines-changed'));
-      props.onNotify?.('Этап записан в историю ремонта двигателя.');
+      props.onNotify?.(res.scrapHint ? `Этап записан. ${res.scrapHint}` : 'Этап записан в историю ремонта двигателя.');
       return { ok: true };
     } catch (e) {
       return { ok: false, error: `Не удалось записать этап: ${String(e instanceof Error ? e.message : e)}` };
