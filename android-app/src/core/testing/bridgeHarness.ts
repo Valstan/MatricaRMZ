@@ -49,6 +49,14 @@ export const PERMS: Record<string, boolean> = {
   'print_forms.view': true,
   'supply_requests.view': true,
   'chat.use': true,
+  // Права на ЗАПИСЬ в этих доменах. Смоук «правка сохраняется» бьёт по записи,
+  // а не по чтению: без права на запись домен отвечает «нет права» — и это
+  // ровно тот симптом, который владелец назвал «недостаточно прав» (промт
+  // КАРМАНА #142). Права те же, что на компьютере: планшет их не расширяет.
+  'print_forms.edit': true,
+  'erp.dictionary.edit': true,
+  'timesheet.create': true,
+  'timesheet.edit': true,
 };
 
 export type BridgeHarness = {
