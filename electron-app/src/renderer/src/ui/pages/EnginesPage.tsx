@@ -23,6 +23,8 @@ import {
   engineInternalNumberSortKey,
   engineRmzNumberSortKey,
   engineListGroupLevels,
+  engineKindRank,
+  engineKindShortLabel,
   formatEngineRmzNumber,
   engineScrapDate,
   engineStatusDate,
@@ -34,12 +36,14 @@ import {
   engineScrapRowBackgroundPrint,
   engineScrapRowStyle,
   searchFieldOptionsForRows,
+  type FacetDescriptor,
   type FacetSelection,
 } from '@matricarmz/shared';
 import type { EngineFacetId, EngineFacetSelection, EngineListItem, EngineListGroupBy } from '@matricarmz/shared';
 
 import { EngineFacetFilter } from '../components/EngineFacetFilter.js';
 import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
+import { KindQuickFilter } from '../components/KindQuickFilter.js';
 import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { SEARCH_MODE_HINT, searchModeEmptyText } from '../components/SearchModeHint.js';
@@ -720,8 +724,9 @@ export function EnginesPage(props: {
         case 'kind': {
           // Порядок вида задан, а не по алфавиту: сперва ГОЗ, потом гражданский, потом
           // двигатели без вида (их в списке видно как «—», и сортировать их надо в конце).
-          const kindRank = (x: EngineListItem) => (x.kind === 'military' ? 0 : x.kind === 'civil' ? 1 : 2);
-          const r = (kindRank(a) - kindRank(b)) * dir;
+          // Правило — одно на всю программу (`engineKindRank`), чтобы порядок вида в разных
+          // списках не разъезжался (промт КАРМАНА #163).
+          const r = (engineKindRank(a.kind) - engineKindRank(b.kind)) * dir;
           return r !== 0 ? r : String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
         }
         case 'engineStage': {
@@ -938,11 +943,13 @@ export function EnginesPage(props: {
         sortable: true,
         sortKey: 'kind',
         kind: 'name',
+        // На экране подпись короткая («Гражд.») — колонка узкая, и длинное «Гражданский»
+        // переносилось бы на вторую строку; в печати и выгрузке — полная (там места хватает).
         printValue: (e) => (e.kind ? CONTRACT_KIND_LABELS[e.kind] : '—'),
         render: (e) =>
           e.kind ? (
             <span title={`Вид двигателя: ${ENGINE_KIND_SOURCE_LABELS[e.kindSource ?? 'none']}`}>
-              {CONTRACT_KIND_LABELS[e.kind]}
+              {engineKindShortLabel(e.kind)}
             </span>
           ) : (
             <span className="ui-muted">—</span>
@@ -1452,6 +1459,17 @@ export function EnginesPage(props: {
             добраться до неё иначе нечем. */}
         <ToolbarPin>
           <FacetPanelToggle usageKey="list:engines" />
+        </ToolbarPin>
+        {/* Быстрый доступ к отбору по виду (промт КАРМАНА #163): панель фильтров свёрнута
+            за кнопку, и до ступени «Вид» в ней ещё надо дотянуться. Кнопка пишет в то же
+            состояние отбора, что и панель ступеней. */}
+        <ToolbarPin>
+          <KindQuickFilter
+            facets={ENGINE_FACETS as readonly FacetDescriptor<EngineListItem>[]}
+            rows={facetRows}
+            selection={facets as FacetSelection}
+            onChangeSelection={(next) => patchState({ facets: stripStageDateWhenWhereNow(next), page: 0 })}
+          />
         </ToolbarPin>
         <ToolbarPin>
           <EngineQrScanButton onEngineNumber={(n) => patchState({ query: n, page: 0 })} />

@@ -1,4 +1,5 @@
-import { CONTRACT_KIND_LABELS, DEFAULT_CONTRACT_KIND, parseContractKind } from './contract.js';
+import { DEFAULT_CONTRACT_KIND, parseContractKind } from './contract.js';
+import { engineKindFacetDescriptor } from './engineKindList.js';
 import {
   activeFacetCount,
   applyFacets,
@@ -86,16 +87,18 @@ function yesNo(on: boolean, yes: string, no: string) {
 
 export const CONTRACT_FACETS: readonly ContractFacetDescriptor[] = [
   {
-    kind: 'values',
-    id: 'kind',
-    label: 'Вид контракта',
-    valueOf: (r) => {
-      // Вид по умолчанию — «ГОЗ»: забытый переключатель не должен оставлять договор
-      // без вида, поэтому в фильтре только два значения — ГОЗ и Гражданский.
-      const value = parseContractKind(r.kind) ?? DEFAULT_CONTRACT_KIND;
-      return { value, label: CONTRACT_KIND_LABELS[value] };
-    },
-  },
+    // Вид договора — ГОЗ или гражданский. Вид по умолчанию — «ГОЗ»: забытый переключатель
+    // не должен оставлять договор без вида, поэтому в ступени только два значения — ГОЗ и
+    // гражданский, и значения «вид не задан» тут не бывает.
+    //
+    // Ступень — из общего конструктора `engineKindFacetDescriptor` (промт КАРМАНА #163):
+    // подпись и порядок значений должны быть одинаковыми во всех списках.
+    ...engineKindFacetDescriptor<ContractFacetRow>({
+      label: 'Вид контракта',
+      kindOf: (r) => parseContractKind(r.kind) ?? DEFAULT_CONTRACT_KIND,
+      includeNone: false,
+    }),
+  } as ContractFacetDescriptor,
   {
     kind: 'values',
     id: 'counterparty',

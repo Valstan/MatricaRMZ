@@ -37,6 +37,9 @@ const ENGINE_PAGE = read('electron-app/src/renderer/src/ui/pages/EngineDetailsPa
 const ENGINES_PAGE = read('electron-app/src/renderer/src/ui/pages/EnginesPage.tsx');
 const REPORT_PAGE = read('electron-app/src/renderer/src/ui/pages/reports/EnginesReportPage.tsx');
 const FACETS = read('shared/src/domain/engineListFacets.ts');
+// Слой вида в списках (промт КАРМАНА #163): ступень «Вид» и её значения живут здесь, а
+// списки берут её общим конструктором — иначе у каждого списка своя ступень со своим рядом.
+const KIND_LIST = read('shared/src/domain/engineKindList.ts');
 
 describe('вид двигателя: обязателен при заведении, переопределяется договором', () => {
   it('правило гейта живёт в домене и спрашивает договор, потом ручное значение', () => {
@@ -99,7 +102,10 @@ describe('вид двигателя: обязателен при заведен�
   });
 
   it('двигатели без вида отбираются отдельным значением, а не молча выпадают', () => {
-    expect(FACETS).toContain('ENGINE_KIND_NONE_VALUE');
-    expect(FACETS).toContain("label: 'Вид не задан'");
+    // Значение «вид не задан» и его подпись живут в общем слое вида в списках (промт
+    // КАРМАНА #163), а ступень списка двигателей берёт их оттуда общим конструктором.
+    expect(KIND_LIST).toContain('ENGINE_KIND_NONE_VALUE');
+    expect(KIND_LIST).toContain("ENGINE_KIND_NONE_LABEL = 'Вид не задан'");
+    expect(FACETS, 'ступень «Вид» построена общим конструктором').toContain('engineKindFacetDescriptor');
   });
 });

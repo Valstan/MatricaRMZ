@@ -12,10 +12,19 @@
  */
 import type { EngineListItem } from '../ipc/types.js';
 import { engineFactoryStage, type EngineFactoryStageTypeRef } from './engineFactoryStage.js';
+import { engineKindGroupKey } from './engineKindList.js';
 import type { GroupLevel } from './listGrouping.js';
 import type { RepairStageTemplate } from './repairStages.js';
 
-export type EngineListGroupBy = 'stage' | 'customer' | 'customer_stage' | 'contract' | 'customer_contract' | 'none';
+export type EngineListGroupBy =
+  | 'stage'
+  | 'customer'
+  | 'customer_stage'
+  | 'contract'
+  | 'customer_contract'
+  | 'kind'
+  | 'customer_kind'
+  | 'none';
 
 export const ENGINE_LIST_GROUP_BY_LABELS: Record<EngineListGroupBy, string> = {
   stage: 'По этапу на заводе',
@@ -23,6 +32,11 @@ export const ENGINE_LIST_GROUP_BY_LABELS: Record<EngineListGroupBy, string> = {
   customer_stage: 'Заказчик → этап',
   contract: 'По договору',
   customer_contract: 'Заказчик → договор',
+  // Вид двигателя (ГОЗ / гражданка) — раздел группировки (промт КАРМАНА #163): владелец
+  // просил «разделение на военные и гражданские». Вид садится НИЖЕ заказчика — заказчика он
+  // не вытесняет.
+  kind: 'По виду',
+  customer_kind: 'Заказчик → вид',
   none: 'Без группировки',
 };
 
@@ -33,6 +47,8 @@ export const ENGINE_LIST_GROUP_BY_CUTS: EngineListGroupBy[] = [
   'customer_stage',
   'contract',
   'customer_contract',
+  'kind',
+  'customer_kind',
 ];
 
 export type EngineListGroupDeps = {
@@ -76,6 +92,9 @@ export function engineListGroupLevels(
       return { key: id || `name:${label.toLowerCase()}`, label: label || 'Без договора' };
     },
   };
+  // Группа «Вид» — тем же ключом, что и сортировка по виду: ГОЗ → гражданский → вид не
+  // задан, и в каждой группе видно число строк (промт КАРМАНА #163).
+  const byKind: GroupLevel<EngineListItem> = { keyOf: (e) => engineKindGroupKey(e.kind) };
   switch (groupBy) {
     case 'stage':
       return [byStage];
@@ -87,6 +106,10 @@ export function engineListGroupLevels(
       return [byContract];
     case 'customer_contract':
       return [byCustomer, byContract];
+    case 'kind':
+      return [byKind];
+    case 'customer_kind':
+      return [byCustomer, byKind];
     default:
       return [];
   }

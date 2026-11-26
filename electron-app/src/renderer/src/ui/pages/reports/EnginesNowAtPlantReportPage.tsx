@@ -2,9 +2,13 @@ import React, { useMemo, useRef, useState } from 'react';
 
 import {
   HUMAN_LABEL_DASH,
+  CONTRACT_KIND_LABELS,
   applyFacets,
   arrivalMonthGroup,
   daysOnSiteGroup,
+  engineKindGroupKey,
+  engineKindRank,
+  engineKindShortLabel,
   engineScrapRowStyle,
   engineScrapRowBackgroundPrint,
   describeFacetSelectionForRows,
@@ -38,6 +42,7 @@ import { ColumnToggleButton } from '../../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../../components/ColumnResizeHandle.js';
 import { FacetFilter } from '../../components/FacetFilter.js';
 import { FacetPanelToggle } from '../../components/FacetPanelToggle.js';
+import { KindQuickFilter } from '../../components/KindQuickFilter.js';
 import { ToolbarSearchField } from '../../components/ToolbarSearchField.js';
 import { ListCount } from '../../components/ListCount.js';
 import { ListExportButtons } from '../../components/ListExportButtons.js';
@@ -92,12 +97,16 @@ type Column = ColumnDescriptor & {
 
 type Row = EngineListItem & { stage: ReturnType<typeof engineFactoryStage>; state: string; daysOnSite: number | null };
 
-type GroupBy = 'stage' | 'customer' | 'customer_stage' | 'arrival' | 'days' | 'scrap' | 'none';
+type GroupBy = 'stage' | 'customer' | 'customer_stage' | 'customer_kind' | 'kind' | 'arrival' | 'days' | 'scrap' | 'none';
 
 const GROUP_BY_LABELS: Record<GroupBy, string> = {
   stage: 'По этапу',
   customer: 'По заказчику',
   customer_stage: 'Заказчик → этап',
+  // Вид двигателя (ГОЗ / гражданка) — раздел группировки (промт КАРМАНА #163):
+  // вид садится НИЖЕ заказчика, заказчика он не вытесняет.
+  customer_kind: 'Заказчик → вид',
+  kind: 'По виду',
   arrival: 'По дате прихода',
   days: 'По дням на заводе',
   scrap: 'По утилю',
@@ -290,6 +299,17 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
           ),
         sortValue: (e) => (e.isReclamation ? 1 : 0),
       },
+      // Вид двигателя (ГОЗ / гражданка) — полноценный признак и в этом отчёте: он идёт
+      // из строки двигателя тем же общим правилом (resolveEngineKind), второй источник
+      // не заводим. Сортировка — по заданному порядку вида (промт КАРМАНА #163).
+      {
+        id: 'kind',
+        label: 'Вид',
+        kind: 'name',
+        render: (e) => (e.kind ? <span title={CONTRACT_KIND_LABELS[e.kind]}>{engineKindShortLabel(e.kind)}</span> : HUMAN_LABEL_DASH),
+        sortValue: (e) => engineKindRank(e.kind),
+        printValue: (e) => (e.kind ? CONTRACT_KIND_LABELS[e.kind] : HUMAN_LABEL_DASH),
+      },
       { id: 'customer', label: 'Заказчик', kind: 'name', render: (e) => text(e.customerName), sortValue: (e) => text(e.customerName) },
       { id: 'contract', label: 'Договор', kind: 'name', render: (e) => text(e.contractName), sortValue: (e) => text(e.contractName) },
       { id: 'workshop', label: 'Цех', kind: 'name', render: (e) => text(e.workshopName) || HUMAN_LABEL_DASH, sortValue: (e) => text(e.workshopName) },
@@ -368,6 +388,9 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
     const byArrival: GroupLevel<Row> = { keyOf: (r) => arrivalMonthGroup(r.arrivalDate) };
     const byDays: GroupLevel<Row> = { keyOf: (r) => daysOnSiteGroup(r.daysOnSite) };
     const byScrap: GroupLevel<Row> = { keyOf: (r) => plantScrapGroup(r.isScrap === true) };
+    // Группа «Вид» — тем же ключом, что и сортировка по виду: ГОЗ → гражданский → вид не
+    // задан, и в каждой группе видно число строк (промт КАРМАНА #163).
+    const byKind: GroupLevel<Row> = { keyOf: (r) => engineKindGroupKey(r.kind) };
     switch (ui.groupBy) {
       case 'stage':
         return [byStage];
@@ -375,6 +398,10 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
         return [byCustomer];
       case 'customer_stage':
         return [byCustomer, byStage];
+      case 'customer_kind':
+        return [byCustomer, byKind];
+      case 'kind':
+        return [byKind];
       case 'arrival':
         return [byArrival];
       case 'days':
@@ -500,6 +527,16 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
             промт КАРМАНА #151). */}
         <ToolbarPin>
           <FacetPanelToggle usageKey="report:enginesNowAtPlant:ui" />
+        </ToolbarPin>
+        {/* Быстрый доступ к отбору по виду (промт КАРМАНА #163): панель фильтров свёрнута
+            за кнопку, и до ступени «Вид» в ней ещё надо дотянуться. */}
+        <ToolbarPin>
+          <KindQuickFilter
+            facets={facets}
+            rows={deep.filtered}
+            selection={activeFacets}
+            onChangeSelection={onChangeFacets}
+          />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />

@@ -359,6 +359,14 @@ Updates status: `curl -fsSk https://127.0.0.1/updates/status`
 - BOM ↔ engine brands: M:N junction table `bom_engine_brands`
 - **Client display rule:** wherever a program client/installation is shown (UI, diagnostics, audit, critical events, ops/SQL reports), show the **login + ФИО** of the user, not just the machine name (machine names mean nothing to the owner; he knows people by login/surname). Login lives in `client_settings.lastUsername` (app login, captured on heartbeat); ФИО is resolved on read via `resolveLoginsToFullNames` (employee `login` → `full_name`, EAV — no schema change). Format via `shared/src/domain/clientLabel.ts` (`formatClientLabel`/`formatClientShort`) — use it everywhere so the rule holds technically.
 
+## Списки, фильтры и признаки
+- **Вид («ГОЗ / гражданка») — полноценный признак, а не украшение.** Где вид выводим, он должен быть **и фильтром, и сортировкой, и разрезом группировки**: ступень «Вид» в панели фильтров, ключ сортировки у колонки «Вид», раздел «Вид» в выборе группировки. Новый список программы, где вид применим, попадает под это правило сразу — перечень списков и их состояния: [`docs/ENGINE_KIND_INVENTORY.md`](docs/ENGINE_KIND_INVENTORY.md).
+- **Подписи вида: в тесных местах — коротко.** В кнопках, ступенях фильтра, группах и ячейках списка — «ГОЗ» / «Гражд.»; в карточках и печатных формах — полностью («ГОЗ» / «Гражданский»). Короткая подпись — одна на всю программу (`CONTRACT_KIND_SHORT_LABELS`), а не по одному на экран.
+- **Вид считается по одному правилу — `resolveEngineKind`** (договор → карточка двигателя → карточка заказчика; у заказчика — `parseCounterpartyKind` из строгой таблицы `erp_counterparties.engine_kind`). Второй источник правды вида в проекте не заводим: список, где вид не несёт в строке, берёт готовое значение из каталога двигателей, а не считает заново. В базе новых полей вида нет — вид **вычисляется** (`shared/src/domain/engineKind.ts`).
+- **Вид в списках — слой над правилом, а не копия правила:** короткая подпись, порядок (ГОЗ → гражданский → вид не задан), ступень фильтра и ключ группы живут в одном месте (`shared/src/domain/engineKindList.ts`). Порядок вида задан, а не по алфавиту: «вид не задан» иначе встал бы в начало, и отбор «ГОЗ» выглядел бы пустым.
+- **«Вид не задан» — отдельное значение ступени**, а не молчаливое выпадение из отбора. У договора вида не бывает (умолчание «ГОЗ»), поэтому там значение «Вид не задан» в ступени не нужно.
+- Отбор заказчиков по виду договора в подсказках поля «Контрагент» (`filterCounterpartiesByContractKind`) и гейт заведения двигателя (`engineKindRequirement`) — **другие правила**: первый фильтрует подсказки поля, второй требует вид при заведении. Ступень списка их не заменяет и не смешивается с ними.
+
 ## Code style
 - No comments unless the WHY is non-obvious
 - No error handling for impossible cases
