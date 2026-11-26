@@ -387,7 +387,7 @@ describe('payload наряда', () => {
     expect(normalized.route).toEqual(source);
   });
 
-  it('версия payload поднята до 5', () => {
-    expect(WORK_ORDER_PAYLOAD_VERSION).toBe(5);
+  it('версия payload поднята до 6 (v6 — даты выполнения работ)', () => {
+    expect(WORK_ORDER_PAYLOAD_VERSION).toBe(6);
   });
 });

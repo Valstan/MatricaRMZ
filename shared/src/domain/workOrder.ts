@@ -50,6 +50,18 @@ export type WorkOrderWorkLine = {
   // либо workshop_<code>. Если не задан — backend подставит склад цеха по умолчанию.
   sourceWarehouseId?: string | null;
   defectOrigin?: import('./supplyRequest.js').DefectOrigin;
+  /**
+   * Дата выполнения работы (ms, локальная полночь из date-input) — режим «ежедневно»
+   * наряда (промт КАРМАНА #165). Не путать с `completedDate` наряда: это дата
+   * выполнения ВСЕГО наряда, а здесь — факт по конкретной работе. Хранится рядом
+   * с исполнителем, чтобы даты разных сотрудников бригады не смешивались.
+   */
+  workDate?: number;
+  /**
+   * Исполнитель работы: id сотрудника бригады, которому принадлежит `workDate`.
+   * Пусто — дата есть, а исполнитель не указан (бригада из одного человека).
+   */
+  workAssigneeId?: string;
 };
 
 export type WorkOrderAuditTrailItem = {
@@ -112,6 +124,13 @@ export function normalizeWorkOrderLine(line: unknown, lineNo: number): WorkOrder
 
   const sourceWarehouseId = raw.sourceWarehouseId ? String(raw.sourceWarehouseId).trim() : '';
   if (sourceWarehouseId) result.sourceWarehouseId = sourceWarehouseId;
+
+  // Дата выполнения работы и её исполнитель (режим «ежедневно»). Старые наряды без
+  // этих полей читаются как раньше — поля просто не появляются.
+  const workDate = Number(raw.workDate);
+  if (Number.isFinite(workDate) && workDate > 0) result.workDate = workDate;
+  const workAssigneeId = String(raw.workAssigneeId ?? '').trim();
+  if (workAssigneeId) result.workAssigneeId = workAssigneeId;
 
   if (raw.defectOrigin && typeof raw.defectOrigin === 'object' && !Array.isArray(raw.defectOrigin)) {
     const origin = raw.defectOrigin as Record<string, unknown>;
@@ -256,6 +275,132 @@ export type WorkOrderSignatureBlockSelection = {
  * - `font*` — размер шрифта отдельного блока печати в px. Каждый блок шапки регулируется
  *   независимо (гриф директора / заголовок / строка реквизитов) — единого масштаба шапки нет.
  */
+/**
+ * Режим дат выполнения работ в наряде (промт КАРМАНА #165).
+ * - `period` — общий период работ («с 13 мая по 2 июня»), у отдельных работ дат нет;
+ * - `daily`  — у каждой работы своя дата («13-го — пять головок, 14-го — семь»).
+ *
+ * Отсутствие поля = старый наряд, дат выполнения работ в нём нет: он читается и
+ * печатается как раньше.
+ */
+export type WorkOrderDateMode = 'period' | 'daily';
+
+export const WORK_ORDER_DATE_MODE_LABELS: Record<WorkOrderDateMode, string> = {
+  period: 'Период',
+  daily: 'Ежедневно',
+};
+
+/**
+ * Период выполнения работ. `employeeId` пуст — период всего наряда; задан —
+ * период конкретного сотрудника бригады (в бригаде один может работать по дням,
+ * а другой закрывать наряд за период).
+ */
+export type WorkOrderPeriod = {
+  employeeId: string;
+  /** Начало периода (ms, локальная полночь из date-input). */
+  from: number;
+  /** Конец периода (ms). Равен `from`, если период однодневный. */
+  to: number;
+};
+
+/** Нормализует список периодов: мусор отбрасывается, порядок — по началу периода. */
+export function normalizeWorkOrderPeriods(raw: unknown): WorkOrderPeriod[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const periods: WorkOrderPeriod[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as Record<string, unknown>;
+    const from = Number(rec.from);
+    const to = Number(rec.to);
+    if (!Number.isFinite(from) || from <= 0) continue;
+    const employeeId = String(rec.employeeId ?? '').trim();
+    const toMs = Number.isFinite(to) && to > 0 ? to : from;
+    periods.push({ employeeId, from, to: toMs });
+  }
+  if (periods.length === 0) return undefined;
+  periods.sort((a, b) => a.from - b.from || a.employeeId.localeCompare(b.employeeId));
+  return periods;
+}
+
+/**
+ * Период всего наряда (общий) с заменой. `from` пуст — период убирается, остальные
+ * (по сотрудникам) сохраняются. Чистая функция: список не мутируется.
+ */
+export function withWorkOrderCommonPeriod(
+  periods: readonly WorkOrderPeriod[],
+  from: number | null,
+  to?: number | null,
+): WorkOrderPeriod[] {
+  const rest = periods.filter((p) => p.employeeId);
+  if (!from) return rest.map((p) => ({ ...p }));
+  const fromMs = Number(from);
+  if (!Number.isFinite(fromMs) || fromMs <= 0) return rest.map((p) => ({ ...p }));
+  const toMs = Number(to) > 0 ? Number(to) : fromMs;
+  return [{ employeeId: '', from: fromMs, to: toMs }, ...rest.map((p) => ({ ...p }))];
+}
+
+/**
+ * Период конкретного сотрудника бригады с заменой. Период всего наряда и периоды
+ * других сотрудников сохраняются — в бригаде один может работать по дням, а другой
+ * закрывать наряд за период.
+ */
+export function withWorkOrderEmployeePeriod(
+  periods: readonly WorkOrderPeriod[],
+  employeeId: string,
+  from: number | null,
+  to?: number | null,
+): WorkOrderPeriod[] {
+  const id = String(employeeId ?? '').trim();
+  const rest = periods.filter((p) => p.employeeId !== id);
+  const common = periods.find((p) => !p.employeeId);
+  const next = common ? [common, ...rest] : [...rest];
+  const fromMs = Number(from);
+  if (!id || !Number.isFinite(fromMs) || fromMs <= 0) return next.map((p) => ({ ...p }));
+  const toMs = Number(to) > 0 ? Number(to) : fromMs;
+  next.push({ employeeId: id, from: fromMs, to: toMs });
+  return next;
+}
+
+/**
+ * Режим дат наряда. `null` — у наряда дат выполнения работ нет (старый наряд или
+ * оператор ещё не выбрал режим) ⇒ печатать даты нечего.
+ */export function workOrderDateMode(payload: Pick<WorkOrderPayload, 'workDateMode'> | null | undefined): WorkOrderDateMode | null {
+  const mode = payload?.workDateMode;
+  return mode === 'period' || mode === 'daily' ? mode : null;
+}
+
+/** Периоды наряда (пустой список — периодов нет). */
+export function workOrderPeriods(payload: Pick<WorkOrderPayload, 'workPeriods'> | null | undefined): WorkOrderPeriod[] {
+  return Array.isArray(payload?.workPeriods) ? payload.workPeriods : [];
+}
+
+/** Период всего наряда (общий) — тот, у которого исполнитель не указан. */
+export function workOrderCommonPeriod(payload: Pick<WorkOrderPayload, 'workPeriods'> | null | undefined): WorkOrderPeriod | null {
+  return workOrderPeriods(payload).find((p) => !p.employeeId) ?? null;
+}
+
+/** Период конкретного сотрудника бригады. */
+export function workOrderPeriodOfEmployee(
+  payload: Pick<WorkOrderPayload, 'workPeriods'> | null | undefined,
+  employeeId: string,
+): WorkOrderPeriod | null {
+  const id = String(employeeId ?? '').trim();
+  if (!id) return null;
+  return workOrderPeriods(payload).find((p) => p.employeeId === id) ?? null;
+}
+
+/** Дата выполнения работы строки (ms) или null. */
+export function workOrderLineDate(line: WorkOrderWorkLine | null | undefined): number | null {
+  const ms = Number(line?.workDate);
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
+/** Исполнитель работы (id сотрудника бригады) или null. */
+export function workOrderLineAssigneeId(line: WorkOrderWorkLine | null | undefined): string | null {
+  const id = String(line?.workAssigneeId ?? '').trim();
+  return id ? id : null;
+}
+
 export type WorkOrderPrintSettings = {
   titleOverride?: string;
   orderDateOverride?: number;
@@ -337,7 +482,7 @@ export const WORK_ORDER_PRINT_FONT_RANGES = {
   signatures: { min: 9, max: 20 },
 } as const;
 
-export const WORK_ORDER_PAYLOAD_VERSION = 5 as const;
+export const WORK_ORDER_PAYLOAD_VERSION = 6 as const;
 
 export type AssemblyShortageItem = {
   nomenclatureId: string;
@@ -363,7 +508,7 @@ export type AssemblyShortageApproval = {
 
 export type WorkOrderPayload = {
   kind: 'work_order';
-  version: 2 | 3 | 4 | 5;
+  version: 2 | 3 | 4 | 5 | 6;
 
   operationId: string;
   workOrderNumber: number;
@@ -474,6 +619,15 @@ export type WorkOrderPayload = {
    * (`workOrderRouteCurrentStep`), чтобы копия не расходилась с маршрутом.
    */
   route?: WorkOrderRoute;
+  /**
+   * v6: режим дат выполнения работ (промт КАРМАНА #165). `period` — общий период
+   * («с 13 мая по 2 июня»), `daily` — своя дата у каждой работы (`workDate` в строке).
+   * Поле отсутствует у нарядов, где даты не заводились: они читаются и печатаются
+   * как раньше. НЕ путать с `completedDate` — это дата выполнения наряда целиком.
+   */
+  workDateMode?: WorkOrderDateMode;
+  /** v6: периоды выполнения работ (общий и/или по сотрудникам бригады). */
+  workPeriods?: WorkOrderPeriod[];
 };
 
 function normalizeConsumedLine(raw: unknown, lineNo: number): WorkOrderConsumedLine | null {
@@ -547,11 +701,11 @@ function isWorkOrderKind(value: unknown): value is WorkOrderKind {
  * Принимает payload любой версии (v1/v2/v3) и возвращает нормализованные v3-поля.
  * Не модифицирует исходный объект; ничего не теряет — старые поля сохраняются.
  */
-export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'assemblyBomSnapshot' | 'assemblyMaterialHash' | 'assemblyPayloadRevision' | 'assemblyManualDeviation' | 'assemblyIssueState' | 'assemblyShortageApproval' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate' | 'route'> {
+export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'assemblyBomSnapshot' | 'assemblyMaterialHash' | 'assemblyPayloadRevision' | 'assemblyManualDeviation' | 'assemblyIssueState' | 'assemblyShortageApproval' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate' | 'route' | 'workDateMode' | 'workPeriods'> {
   if (!raw || typeof raw !== 'object') return {};
   const rec = raw as Record<string, unknown>;
 
-  const result: Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'assemblyBomSnapshot' | 'assemblyMaterialHash' | 'assemblyPayloadRevision' | 'assemblyManualDeviation' | 'assemblyIssueState' | 'assemblyShortageApproval' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate' | 'route'> = {};
+  const result: Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'assemblyBomSnapshot' | 'assemblyMaterialHash' | 'assemblyPayloadRevision' | 'assemblyManualDeviation' | 'assemblyIssueState' | 'assemblyShortageApproval' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate' | 'route' | 'workDateMode' | 'workPeriods'> = {};
 
   const workshopId = typeof rec.workshopId === 'string' ? rec.workshopId.trim() : '';
   if (workshopId) result.workshopId = workshopId;
@@ -633,6 +787,12 @@ export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderP
 
   const route = normalizeWorkOrderRoute(rec.route);
   if (route) result.route = route;
+
+  // Режим дат и периоды выполнения работ (v6). Наряды без этих полей (старые) читаются
+  // как раньше: поля просто не появляются, печать дат не показывает.
+  if (rec.workDateMode === 'period' || rec.workDateMode === 'daily') result.workDateMode = rec.workDateMode;
+  const workPeriods = normalizeWorkOrderPeriods(rec.workPeriods);
+  if (workPeriods) result.workPeriods = workPeriods;
 
   return result;
 }

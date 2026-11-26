@@ -240,3 +240,195 @@ describe('woPrintModel — простая форма (обычный / ремо�
     expect(model.extraCss).toContain('td.wo-sign-cell');
   });
 });
+
+/* -------------------------------------------------------------------------- *
+ * Печать на один лист A4 (промт КАРМАНА #165, шаги 2–3).
+ * -------------------------------------------------------------------------- */
+
+describe('woPrintModel — лист A4', () => {
+  const model = buildWorkOrderPrintModel(payload({ workOrderKind: WorkOrderKind.Repair }), {}, DEPS);
+
+  it('поля печати задаёт @page (12мм), а не обнулённые поля страницы', () => {
+    // Поля @page обнулённые = содержимое упирается в край бумаги, принтер срезает края.
+    expect(model.extraCss).toContain('@page { size: A4; margin: 12mm; }');
+    expect(model.extraCss).not.toContain('@page { size: A4; margin: 0; }');
+  });
+
+  it('таблицы работ и бригады — фиксированной ширины: колонки не уезжают за край', () => {
+    expect(model.extraCss).toContain('table-layout: fixed');
+    expect(html(model, 'works')).toContain('<colgroup>');
+    expect(html(model, 'crew')).toContain('<colgroup>');
+  });
+
+  it('длинные значения переносятся, а не вылезают в соседнюю колонку', () => {
+    expect(model.extraCss).toContain('overflow-wrap: anywhere');
+  });
+
+  it('у таблиц реквизитов ряды выровнены по общему числу колонок', () => {
+    const meta = html(model, 'meta');
+    const headCells = (meta.match(/<th>/g) ?? []).length;
+    const bodyCells = (meta.match(/<td>/g) ?? []).length;
+    expect(headCells).toBe(bodyCells);
+  });
+});
+
+/* -------------------------------------------------------------------------- *
+ * Даты выполнения работ (промт КАРМАНА #165, шаги 4–7).
+ * -------------------------------------------------------------------------- */
+
+describe('woPrintModel — даты выполнения работ', () => {
+  const day = (m: number, d: number) => new Date(2026, m - 1, d, 12, 0, 0, 0).getTime();
+
+  it('старый наряд без дат печатается как раньше: ни периода, ни колонок дат', () => {
+    const model = buildWorkOrderPrintModel(payload({ workOrderKind: WorkOrderKind.Repair }), {}, DEPS);
+    expect(html(model, 'meta')).not.toContain('Период');
+    expect(html(model, 'works')).not.toContain('<th>Дата</th>');
+    expect(html(model, 'works')).not.toContain('<th>Исполнитель</th>');
+  });
+
+  it('режим «период»: печатается «с 13 мая по 2 июня», у отдельных работ дат нет', () => {
+    const model = buildWorkOrderPrintModel(
+      payload({
+        workOrderKind: WorkOrderKind.Repair,
+        workDateMode: 'period',
+        workPeriods: [{ employeeId: '', from: day(5, 13), to: day(6, 2) }],
+        freeWorks: [line({ workDate: day(5, 13), workAssigneeId: 'e-1' })],
+      }),
+      {},
+      DEPS,
+    );
+    expect(html(model, 'meta')).toContain('Период');
+    expect(html(model, 'meta')).toContain('с 13 мая по 2 июня');
+    // Дата у работы в режиме «период» на лист не попадает.
+    expect(html(model, 'works')).not.toContain('<th>Дата</th>');
+  });
+
+  it('режим «ежедневно»: у каждой работы своя дата, рядом видно исполнителя', () => {
+    const model = buildWorkOrderPrintModel(
+      payload({
+        workOrderKind: WorkOrderKind.Repair,
+        workDateMode: 'daily',
+        crew: [
+          { employeeId: 'e-1', employeeName: 'Иванов И.И.', ktu: 1.2, payoutRub: 500 },
+          { employeeId: 'e-2', employeeName: 'Петров П.П.', ktu: 1, payoutRub: 400 },
+        ],
+        freeWorks: [
+          line({ workDate: day(5, 13), workAssigneeId: 'e-1' }),
+          line({ lineNo: 2, workDate: day(5, 14), workAssigneeId: 'e-2' }),
+        ],
+      }),
+      {},
+      DEPS,
+    );
+    const works = html(model, 'works');
+    expect(works).toContain('<th>Дата</th>');
+    expect(works).toContain('<th>Исполнитель</th>');
+    expect(works).toContain('13 мая');
+    expect(works).toContain('14 мая');
+    expect(works).toContain('Иванов И.И.');
+    expect(works).toContain('Петров П.П.');
+  });
+
+  it('смешанный случай: один сотрудник по дням, другой за период — даты не смешиваются', () => {
+    const model = buildWorkOrderPrintModel(
+      payload({
+        workOrderKind: WorkOrderKind.Repair,
+        workDateMode: 'daily',
+        workPeriods: [{ employeeId: 'e-2', from: day(5, 20), to: day(6, 2) }],
+        crew: [
+          { employeeId: 'e-1', employeeName: 'Иванов И.И.', ktu: 1.2, payoutRub: 500 },
+          { employeeId: 'e-2', employeeName: 'Петров П.П.', ktu: 1, payoutRub: 400 },
+        ],
+        freeWorks: [
+          line({ workDate: day(5, 13), workAssigneeId: 'e-1' }),
+          line({ lineNo: 2, workAssigneeId: 'e-2' }),
+        ],
+      }),
+      {},
+      DEPS,
+    );
+    // Период сотрудника — отдельной строкой реквизитов, с именем.
+    expect(html(model, 'meta')).toContain('Период · Петров П.П.');
+    expect(html(model, 'meta')).toContain('с 20 мая по 2 июня');
+    // Дата по дням — только у своего исполнителя.
+    const works = html(model, 'works');
+    expect(works).toContain('13 мая');
+    expect(works).not.toContain('20 мая');
+  });
+
+  it('обе формы печатают даты одинаково', () => {
+    const shared = {
+      workDateMode: 'daily' as const,
+      freeWorks: [line({ workDate: day(5, 13), workAssigneeId: 'e-1' })],
+    };
+    const simple = buildWorkOrderPrintModel(payload({ workOrderKind: WorkOrderKind.Repair, ...shared }), {}, DEPS);
+    const assembly = buildWorkOrderPrintModel(payload({ workOrderKind: WorkOrderKind.Assembly, ...shared }), {}, DEPS);
+    expect(html(simple, 'works')).toContain('<th>Дата</th>');
+    expect(html(assembly, 'works')).toContain('<th>Дата</th>');
+    expect(html(simple, 'works')).toContain('13 мая');
+    expect(html(assembly, 'works')).toContain('13 мая');
+  });
+
+  it('даты работ не трогают дату выполнения наряда', () => {
+    // Дата выполнения наряда — в грифе директора (сборочная форма) печатается дата
+    // НАРЯДА; дата работы живёт в своей колонке и в гриф не подменяется.
+    const assembly = buildWorkOrderPrintModel(
+      payload({
+        workOrderKind: WorkOrderKind.Assembly,
+        completedDate: day(6, 2),
+        workDateMode: 'daily',
+        freeWorks: [line({ workDate: day(5, 13), workAssigneeId: 'e-1' })],
+      }),
+      {},
+      DEPS,
+    );
+    expect(html(assembly, 'director')).toContain('14.07.2026');
+    expect(html(assembly, 'director')).not.toContain('02.06.2026');
+    expect(html(assembly, 'works')).toContain('13 мая');
+    // Дата выполнения наряда в таблицу работ не попадает.
+    expect(html(assembly, 'works')).not.toContain('02.06.2026');
+  });
+
+  it('в режиме «ежедневно» колонка «Дата» есть даже без внесённых дат', () => {
+    // Иначе оператор увидит в карточке поле «Дата», а на наряде — нет, и решит,
+    // что даты не печатаются вовсе.
+    const model = buildWorkOrderPrintModel(
+      payload({ workOrderKind: WorkOrderKind.Repair, workDateMode: 'daily', freeWorks: [line()] }),
+      {},
+      DEPS,
+    );
+    expect(html(model, 'works')).toContain('<th>Дата</th>');
+  });
+
+  it('общий период в режиме «ежедневно» не печатается — у каждой работы своя дата', () => {
+    const model = buildWorkOrderPrintModel(
+      payload({
+        workOrderKind: WorkOrderKind.Repair,
+        workDateMode: 'daily',
+        workPeriods: [{ employeeId: '', from: day(5, 13), to: day(6, 2) }],
+        freeWorks: [line({ workDate: day(5, 13), workAssigneeId: 'e-1' })],
+      }),
+      {},
+      DEPS,
+    );
+    expect(html(model, 'meta')).not.toContain('Период');
+    expect(html(model, 'works')).toContain('13 мая');
+  });
+
+  it('выгружаемый файл несёт ту же дату, что и печать: секции одни и те же', () => {
+    // Выгрузка в Word собирается из тех же секций модели, что и печать, — расхождение
+    // даты в файле и на листе невозможно по построению.
+    const model = buildWorkOrderPrintModel(
+      payload({
+        workOrderKind: WorkOrderKind.Repair,
+        workDateMode: 'daily',
+        freeWorks: [line({ workDate: day(5, 13), workAssigneeId: 'e-1' })],
+      }),
+      {},
+      DEPS,
+    );
+    const worksSection = model.sections.find((s) => s.id === 'works');
+    expect(worksSection?.html).toContain('13 мая');
+    expect(worksSection?.html).toContain('<th>Дата</th>');
+  });
+});

@@ -35,3 +35,28 @@ describe('наряд бережёт введённое', () => {
     expect(fn).toContain('await clearDraft();');
   });
 });
+
+/**
+ * Даты выполнения работ (промт КАРМАНА #165): переключатель режимов и колонки
+ * даты/исполнителя в таблице видов работ. Сторож читает исходник карточки —
+ * он ловит «переключатель отрисовали, а дату в строку не положили».
+ */
+describe('наряд: даты выполнения работ', () => {
+  it('карточка показывает редактор дат с режимом из наряда', () => {
+    expect(PAGE).toContain('<WorkOrderDatesEditor');
+    expect(PAGE).toContain('mode={payload.workDateMode ?? null}');
+    expect(PAGE).toContain('periods={Array.isArray(payload.workPeriods) ? payload.workPeriods : []}');
+  });
+
+  it('колонки даты и исполнителя появляются только в режиме «ежедневно»', () => {
+    expect(PAGE).toContain("const showWorkDates = payload?.workDateMode === 'daily';");
+    expect(PAGE).toContain("const showWorkAssignee = payload?.workDateMode === 'daily' && (payload?.crew.length ?? 0) > 1;");
+  });
+
+  it('дата работы кладётся в строку работы, а не в шапку наряда', () => {
+    expect(PAGE).toContain('next.workDate = ms;');
+    expect(PAGE).toContain('updated.workAssigneeId = next;');
+    // Дата выполнения НАРЯДА остаётся отдельной величиной и не перетирается.
+    expect(PAGE).toContain('next.completedDate = ms;');
+  });
+});

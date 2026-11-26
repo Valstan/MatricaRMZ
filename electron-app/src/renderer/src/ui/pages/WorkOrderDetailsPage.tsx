@@ -54,6 +54,7 @@ import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
 import { WorkOrderRoutePanel } from '../components/WorkOrderRoutePanel.js';
 import { WorkOrderPrintDialog } from '../components/WorkOrderPrintDialog.js';
+import { WorkOrderDatesEditor } from '../components/WorkOrderDatesEditor.js';
 import { MailComposeDialog } from '../components/MailComposeDialog.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -838,7 +839,18 @@ export function WorkOrderDetailsPage(props: {
       }),
     [employees],
   );
-  // Кандидаты в утверждающие грифа: сотрудник → готовое ФИО «И.О. Фамилия» (как в пресетах грифа).
+  /**
+   * Исполнитель работы — только из бригады наряда. Дата работы хранится вместе
+   * с исполнителем (чтобы даты сотрудников не смешивались), поэтому и выбирать
+   * можно только того, кто реально в бригаде.
+   */
+  const crewAssigneeOptions: LinkOpt[] = useMemo(() => {
+    const ids = new Set(
+      (payload?.crew ?? []).map((member) => String(member.employeeId ?? '').trim()).filter(Boolean),
+    );
+    if (!ids.size) return [];
+    return employeeOptions.filter((opt) => ids.has(String(opt.id)));
+  }, [employeeOptions, payload?.crew]);
   const approverEmployees = useMemo(
     () =>
       employees
@@ -1706,6 +1718,13 @@ export function WorkOrderDetailsPage(props: {
       });
     },
   });
+
+  /**
+   * Колонки дат в таблице «Виды работ» — только в режиме «ежедневно». В режиме
+   * «период» дат у отдельных работ нет, и колонки были бы пустыми шумом.
+   */
+  const showWorkDates = payload?.workDateMode === 'daily';
+  const showWorkAssignee = payload?.workDateMode === 'daily' && (payload?.crew.length ?? 0) > 1;
 
   function addFreeWorkLine() {
     if (!payload) return;
@@ -3288,6 +3307,23 @@ export function WorkOrderDetailsPage(props: {
       <div style={{ maxWidth: '100%', marginInline: 'auto', width: '100%' }}>
         <SectionCard className="entity-card-span-full work-order-works-panel">
         <ListCount total={payload.freeWorks.length} shown={payload.freeWorks.length} />
+        {/* Режим дат выполнения работ: «период» или «ежедневно» (промт КАРМАНА #165). */}
+        <div style={{ marginBottom: 10 }}>
+          <WorkOrderDatesEditor
+            mode={payload.workDateMode ?? null}
+            periods={Array.isArray(payload.workPeriods) ? payload.workPeriods : []}
+            crew={payload.crew}
+            canEdit={canEditNow}
+            onChange={(datesPatch) => {
+              const next: WorkOrderPayload = { ...payload };
+              if (datesPatch.workDateMode) next.workDateMode = datesPatch.workDateMode;
+              else delete next.workDateMode;
+              if (datesPatch.workPeriods && datesPatch.workPeriods.length) next.workPeriods = datesPatch.workPeriods;
+              else delete next.workPeriods;
+              patch(next);
+            }}
+          />
+        </div>
         {/* Граница списка: перетаскивание считает строки ТОЛЬКО видов работ. */}
         <div className="list-table-wrap list-table-wrap--single" ref={freeWorksReorder.scopeRef}>
           <table className="list-table list-table--single-mode work-order-table">
@@ -3303,6 +3339,8 @@ export function WorkOrderDetailsPage(props: {
               {payload.workOrderKind !== WorkOrderKind.Assembly ? <col style={{ width: '110px' }} /> : null}
               {payload.workOrderKind === WorkOrderKind.Assembly ? <col style={{ width: '160px' }} /> : null}
               {!appliedHiddenFields.has('productNumber') ? <col style={{ width: '100px' }} /> : null}
+              {showWorkDates ? <col style={{ width: '150px' }} /> : null}
+              {showWorkAssignee ? <col style={{ width: '190px' }} /> : null}
               <col style={{ width: '92px' }} />
               <col style={{ width: '58px' }} />
               {!appliedHiddenFields.has('priceRub') ? <col style={{ width: '112px' }} /> : null}
@@ -3326,6 +3364,8 @@ export function WorkOrderDetailsPage(props: {
                 ) : null}
                 {payload.workOrderKind === WorkOrderKind.Assembly ? <th style={{ textAlign: 'left' }} data-col-kind="name">Склад</th> : null}
                 {!appliedHiddenFields.has('productNumber') ? <th style={{ textAlign: 'left' }} data-col-kind="name">№ изделия</th> : null}
+                {showWorkDates ? <th style={{ textAlign: 'left' }} data-col-kind="name" title="Дата выполнения работы">Дата</th> : null}
+                {showWorkAssignee ? <th style={{ textAlign: 'left' }} data-col-kind="name" title="Сотрудник бригады, которому принадлежит дата">Исполнитель</th> : null}
                 <th style={{ textAlign: 'right' }} data-col-kind="num" title="Кол-во">Кол-во</th>
                 <th style={{ textAlign: 'right' }}>Ед.</th>
                 {!appliedHiddenFields.has('priceRub') ? <th style={{ textAlign: 'right' }} data-col-kind="num" title="Цена">Цена</th> : null}
@@ -3586,6 +3626,52 @@ export function WorkOrderDetailsPage(props: {
                         placeholder="№ изделия"
                         onChange={(e) => {
                           const freeWorks = payload.freeWorks.map((item, rowIdx) => (rowIdx === idx ? { ...item, productNumber: e.target.value } : item));
+                          patch({ ...payload, freeWorks });
+                        }}
+                      />
+                    </td>
+                  ) : null}
+                  {showWorkDates ? (
+                    <td data-col-kind="name">
+                      <Input
+                        type="date"
+                        value={toInputDate(line.workDate)}
+                        disabled={!canEditNow}
+                        title="Дата выполнения этой работы"
+                        onChange={(e) => {
+                          const ms = fromInputDate(e.target.value);
+                          const freeWorks = payload.freeWorks.map((item, rowIdx) => {
+                            if (rowIdx !== idx) return item;
+                            const next = { ...item };
+                            if (ms) next.workDate = ms;
+                            else delete next.workDate;
+                            return next;
+                          });
+                          patch({ ...payload, freeWorks });
+                        }}
+                      />
+                    </td>
+                  ) : null}
+                  {showWorkAssignee ? (
+                    <td data-col-kind="name">
+                      <EntityReferenceField
+                        target="employee"
+                        targetLabel="Исполнитель"
+                        value={line.workAssigneeId || null}
+                        options={crewAssigneeOptions}
+                        disabled={!canEditNow}
+                        optionsReady={!loading}
+                        rankKey="employee:work-order-work-assignee"
+                        {...(props.onOpenEmployee ? { onOpen: props.onOpenEmployee } : {})}
+                        placeholder="Исполнитель работы"
+                        onChange={(next) => {
+                          const freeWorks = payload.freeWorks.map((item, rowIdx) => {
+                            if (rowIdx !== idx) return item;
+                            const updated = { ...item };
+                            if (next) updated.workAssigneeId = next;
+                            else delete updated.workAssigneeId;
+                            return updated;
+                          });
                           patch({ ...payload, freeWorks });
                         }}
                       />

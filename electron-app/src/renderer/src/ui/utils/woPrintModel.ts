@@ -24,6 +24,11 @@ import {
   resolveAssemblyEngineId,
   resolveWorkOrderApprover,
   resolveWorkOrderSignatureSlots,
+  workOrderDateMode,
+  workOrderLineAssigneeId,
+  workOrderLineDate,
+  workOrderPeriods,
+  type WorkOrderDateMode,
   type WorkOrderPayload,
   type WorkOrderPrintSettings,
   type WorkOrderSignatureSlot,
@@ -75,6 +80,159 @@ export type WoPrintModel = {
 };
 
 type MetaCol = { label: string; value: string };
+
+/**
+ * Колонка печатной таблицы наряда.
+ *
+ * `weight` — доля ширины таблицы (пропорция, не процент): колонки делят лист по этим
+ * весам, поэтому ни одна колонка не может вылезти за край. Раньше ширины задавал
+ * браузер сам, и длинное наименование изделия выдавливало «Цену» и «Сумму» за лист.
+ */
+type WoColumn = {
+  label: string;
+  weight: number;
+  value: (line: WorkOrderWorkLine) => string;
+};
+
+/** `<colgroup>` с шириной колонок в процентах (сумма — ровно 100). */
+function colgroupHtml(columns: WoColumn[]): string {
+  const total = columns.reduce((acc, c) => acc + Math.max(0, c.weight), 0);
+  if (total <= 0) return '';
+  return `<colgroup>${columns
+    .map((c) => `<col style="width:${((Math.max(0, c.weight) / total) * 100).toFixed(3)}%">`)
+    .join('')}</colgroup>`;
+}
+
+/**
+ * Ширина колонок таблицы бригады. Колонка «Подпись» — самая широкая: под роспись
+ * должно хватать места (минимум 34 мм, см. `td.wo-sign-cell` в `baseExtraCss`).
+ */
+function crewColgroup(showCrewSign: boolean, withFreeze: boolean): string {
+  const weights = showCrewSign
+    ? withFreeze
+      ? [26, 10, 7, 17, 12, 28]
+      : [28, 10, 8, 18, 36]
+    : withFreeze
+      ? [40, 18, 14, 28]
+      : [46, 20, 16, 30];
+  const total = weights.reduce((acc, w) => acc + w, 0);
+  return `<colgroup>${weights.map((w) => `<col style="width:${((w / total) * 100).toFixed(3)}%">`).join('')}</colgroup>`;
+}
+
+/** Таблица видов работ: фиксированная ширина колонок + перенос длинных значений. */
+function worksTableHtml(columns: WoColumn[], lines: WorkOrderWorkLine[]): string {
+  if (!lines.length) return `<div class="muted">Нет данных</div>`;
+  const head = columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('');
+  const body = lines
+    .map((line) => {
+      const cells = columns
+        .map((c) => {
+          const raw = c.value(line);
+          const text = raw === '' ? '—' : raw;
+          return `<td>${escapeHtml(text)}</td>`;
+        })
+        .join('');
+      return `<tr>${cells}</tr>`;
+    })
+    .join('');
+  return `<table>${colgroupHtml(columns)}<thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+/* -------------------------------------------------------------------------- *
+ * Даты выполнения работ (промт КАРМАНА #165).
+ *
+ * Два режима наряда:
+ *  - «период»   — общий период («с 13 мая по 2 июня»), у отдельных работ дат нет;
+ *  - «ежедневно» — своя дата у каждой работы, рядом видно, кому она принадлежит.
+ *
+ * Дата выполнения НАРЯДА (`completedDate`) — другая величина, она тут не участвует:
+ * наряд по-прежнему закрывается и считается как раньше.
+ * -------------------------------------------------------------------------- */
+
+/** Период одной строки реквизитов: «с 13 мая по 2 июня». */
+function periodLabel(from: number, to: number): string {
+  const fromText = formatMoscowDayMonthName(from);
+  if (!Number.isFinite(to) || to <= 0 || to === from) return `с ${fromText}`;
+  return `с ${fromText} по ${formatMoscowDayMonthName(to)}`;
+}
+
+type WoDateContext = {
+  /** Режим дат наряда; null — дат нет (старый наряд) ⇒ печатать нечего. */
+  mode: WorkOrderDateMode | null;
+  /** Общий период наряда — печатается в реквизитах шапки. */
+  commonPeriod: { from: number; to: number } | null;
+  /** Периоды по сотрудникам бригады — печатаются отдельной строкой реквизитов. */
+  employeePeriods: Array<{ employeeId: string; label: string; text: string }>;
+  /** Печатать в таблице работ колонку «Дата» (режим «ежедневно»). */
+  showLineDate: boolean;
+  /** Печатать в таблице работ колонку «Исполнитель». */
+  showLineAssignee: boolean;
+  /** Подпись исполнителя работы по id сотрудника бригады. */
+  assigneeLabel: (employeeId: string) => string;
+  /** Дата работы строкой для печати («13 мая»). */
+  lineDateText: (line: WorkOrderWorkLine) => string;
+  /** Исполнитель работы строкой для печати. */
+  lineAssigneeText: (line: WorkOrderWorkLine) => string;
+};
+
+function buildDateContext(current: WorkOrderPayload, deps: WoPrintDeps): WoDateContext {
+  const mode = workOrderDateMode(current);
+  const periods = workOrderPeriods(current);
+  const assigneeLabel = (employeeId: string): string => {
+    const member = current.crew.find((m) => String(m.employeeId ?? '').trim() === String(employeeId ?? '').trim());
+    if (member) return crewMemberLabel(member, deps);
+    const employee = deps.employees.find((e) => e.id === String(employeeId ?? '').trim());
+    return employee ? formatEmployeeInitialsSurname(employee) : '';
+  };
+  // Общий период наряда печатается только в режиме «период»: в режиме «ежедневно»
+  // у каждой работы своя дата, и общий период сбивал бы с толку.
+  const common = mode === 'period' ? periods.find((p) => !p.employeeId) ?? null : null;
+  // Период по сотруднику печатается в обоих режимах: в бригаде один может работать
+  // по дням, а другой — закрывать наряд за период.
+  const employeePeriods = periods
+    .filter((p) => p.employeeId)
+    .map((p) => ({
+      employeeId: p.employeeId,
+      label: assigneeLabel(p.employeeId) || p.employeeId,
+      text: periodLabel(p.from, p.to),
+    }));
+  const lines = current.freeWorks;
+  const hasAssignees = lines.some((line) => workOrderLineAssigneeId(line) !== null);
+  return {
+    mode,
+    commonPeriod: common ? { from: common.from, to: common.to } : null,
+    employeePeriods,
+    // Колонка «Дата» — только в режиме «ежедневно»: в режиме «период» у отдельных
+    // работ дат нет, и лишняя колонка с прочерками только шумит на листе.
+    // В режиме «ежедневно» колонка есть всегда — иначе оператор увидит в карточке
+    // поле «Дата», а на наряде — нет, и решит, что даты не печатаются.
+    showLineDate: mode === 'daily',
+    // «Исполнитель» — когда в бригаде больше одного человека: тогда видно, чья
+    // это дата, и даты сотрудников не смешиваются.
+    showLineAssignee: mode === 'daily' && (hasAssignees || current.crew.length > 1),
+    assigneeLabel,
+    lineDateText: (line) => {
+      const ms = workOrderLineDate(line);
+      return ms ? formatMoscowDayMonthName(ms) : '';
+    },
+    lineAssigneeText: (line) => {
+      const id = workOrderLineAssigneeId(line);
+      return id ? assigneeLabel(id) : '';
+    },
+  };
+}
+
+/** Строка реквизитов «Период» (+ периоды по сотрудникам), если они заданы. */
+function periodMetaRows(dates: WoDateContext): MetaCol[] {
+  const rows: MetaCol[] = [];
+  if (dates.commonPeriod) {
+    rows.push({ label: 'Период', value: periodLabel(dates.commonPeriod.from, dates.commonPeriod.to) });
+  }
+  for (const period of dates.employeePeriods) {
+    rows.push({ label: `Период · ${period.label}`, value: period.text });
+  }
+  return rows;
+}
 
 function money(v: number) {
   return `${Math.round((Number(v) || 0) * 100) / 100} ₽`;
@@ -170,9 +328,9 @@ function signCell(slot: WorkOrderSignatureSlot, deps: WoPrintDeps, fs: Fonts): s
   const nameCell = name
     ? `<span style="font-size:${sigName}px;white-space:nowrap;">${escapeHtml(name)}</span>`
     : `<span style="display:inline-block;width:120px;border-bottom:1px solid #94a3b8;"></span>`;
-  return `<div style="width:100%;margin:5px 0 0;">${
+  return `<div style="width:100%;margin:2px 0 0;">${
     caption ? `<div style="font-size:${sigCap}px;color:#334155;margin-bottom:1px;">${escapeHtml(caption)}</div>` : ''
-  }<div style="display:flex;align-items:flex-end;gap:8px;"><span style="flex:1;border-bottom:1px solid #0f172a;height:14px;"></span>${nameCell}</div><div style="text-align:center;font-size:${sigPos}px;color:#64748b;margin-top:1px;min-height:11px;">${escapeHtml(
+  }<div style="display:flex;align-items:flex-end;gap:8px;"><span style="flex:1;border-bottom:1px solid #0f172a;height:12px;"></span>${nameCell}</div><div style="text-align:center;font-size:${sigPos}px;color:#64748b;margin-top:1px;min-height:10px;">${escapeHtml(
     positionLine,
   )}</div></div>`;
 }
@@ -181,6 +339,9 @@ function signCell(slot: WorkOrderSignatureSlot, deps: WoPrintDeps, fs: Fonts): s
  * Блоки подписей. Блок без слотов не печатается; если не печатается ни один — секция
  * подписей не создаётся вовсе (раньше внешний flex-контейнер строился безусловно, и
  * пустая секция всё равно попадала в отпечаток вопреки комментарию в коде).
+ *
+ * Слоты одного блока, если блок на листе один, идут в две колонки: четыре слота
+ * «Согласовано» в столбик съедали 61 мм высоты — треть печатной области листа.
  */
 function buildSignaturesHtml(
   payload: WorkOrderPayload,
@@ -194,53 +355,90 @@ function buildSignaturesHtml(
   const sigName = fs.signatures;
   const blocks = getWorkOrderSignatureBlocks(payload.workOrderKind)
     .map((def) => {
-      if (hidden.has(def.id)) return '';
+      if (hidden.has(def.id)) return null;
       const slots = resolveWorkOrderSignatureSlots(def, payload.signatureBlocks);
-      if (!slots.length) return '';
+      if (!slots.length) return null;
       const dateLine = def.dateLineLabel
         ? `<div style="font-size:${sigName}px;margin:1px 0 2px;">${escapeHtml(
             def.dateLineLabel,
           )}: <span style="display:inline-block;min-width:110px;border-bottom:1px solid #0f172a;"></span></div>`
         : '';
-      return `<div style="flex:1;min-width:0;break-inside:avoid-page;page-break-inside:avoid;"><div style="font-weight:700;font-size:${sigTitle}px;margin-bottom:1px;">${escapeHtml(
-        def.title,
-      )}</div>${dateLine}${slots.map((slot) => signCell(slot, deps, fs)).join('')}</div>`;
+      return {
+        title: `<div style="font-weight:700;font-size:${sigTitle}px;margin-bottom:1px;">${escapeHtml(def.title)}</div>`,
+        dateLine,
+        slots: slots.map((slot) => signCell(slot, deps, fs)).join(''),
+      };
     })
-    .filter(Boolean);
+    .filter((b): b is { title: string; dateLine: string; slots: string } => b !== null);
   if (!blocks.length) return '';
-  return `<div style="display:flex;gap:4%;align-items:flex-start;">${blocks.join('')}</div>`;
+  // Один блок на всю ширину листа — слоты в две колонки: четыре слота «Согласовано»
+  // в столбик съедали 61 мм высоты (треть печатной области листа). Несколько блоков
+  // в ряд — каждый узкий, там слоты остаются в столбик.
+  if (blocks.length === 1) {
+    const only = blocks[0]!;
+    return `<div style="break-inside:avoid-page;page-break-inside:avoid;">${only.title}${only.dateLine}<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px;">${only.slots}</div></div>`;
+  }
+  return `<div style="display:flex;gap:4%;align-items:flex-start;">${blocks
+    .map(
+      (b) =>
+        `<div style="flex:1;min-width:0;break-inside:avoid-page;page-break-inside:avoid;">${b.title}${b.dateLine}${b.slots}</div>`,
+    )
+    .join('')}</div>`;
 }
 
-function metaTier(cols: MetaCol[]): string {
-  return cols.length
-    ? `<thead><tr>${cols.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('')}</tr></thead><tbody><tr>${cols
-        .map((c) => `<td>${escapeHtml(c.value)}</td>`)
-        .join('')}</tr></tbody>`
-    : '';
+/**
+ * Реквизиты шапки: «этажи» по два ряда (подпись — значение). Таблица фиксированной
+ * ширины, поэтому в коротком этаже недостающие ячейки добиваются пустыми (иначе
+ * колонки разъедутся). Порядок рядов — как был: подпись этажа, затем его значения.
+ */
+function metaTableHtml(tiers: MetaCol[][]): string {
+  const rows = tiers.filter((tier) => tier.length > 0);
+  if (rows.length === 0) return '';
+  const cols = Math.max(...rows.map((tier) => tier.length));
+  const body = rows
+    .map((tier) => {
+      const heads = tier.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('') + '<th></th>'.repeat(cols - tier.length);
+      const values = tier.map((c) => `<td>${escapeHtml(c.value)}</td>`).join('') + '<td></td>'.repeat(cols - tier.length);
+      return `<tr>${heads}</tr><tr>${values}</tr>`;
+    })
+    .join('');
+  return `<table class="wo-meta"><tbody>${body}</tbody></table>`;
 }
 
 function baseExtraCss(fs: Fonts): string[] {
   return [
-    `.section { margin-bottom: 14px; }`,
-    `th, td { padding: 2px 7px; }`,
-    `[data-print-section="meta"] table.wo-meta { width: 100%; border-collapse: collapse; }`,
-    `[data-print-section="meta"] table.wo-meta th, [data-print-section="meta"] table.wo-meta td { border: 1px solid #0f172a; text-align: center; font-size: ${fs.meta}px; padding: 3px 8px; word-break: break-word; }`,
-    `[data-print-section="meta"] table.wo-meta th { background: #f3f4f6; font-weight: 600; }`,
+    `.section { margin-bottom: 6px; }`,
+    `th, td { padding: 1px 4px; }`,
+    `[data-print-section="meta"] table.wo-meta { width: 100%; border-collapse: collapse; table-layout: fixed; }`,
+    `[data-print-section="meta"] table.wo-meta th, [data-print-section="meta"] table.wo-meta td { border: 1px solid #0f172a; text-align: center; font-size: ${fs.meta}px; padding: 1px 4px; word-break: break-word; overflow-wrap: anywhere; line-height: 1.15; }`,
+    `[data-print-section="meta"] table.wo-meta th { background: #f3f4f6; font-weight: 600; font-size: ${Math.max(10, fs.meta - 1)}px; }`,
     `[data-print-section="crew"] td, [data-print-section="crew"] th { font-size: ${fs.crew}px; }`,
     `[data-print-section="works"] td, [data-print-section="works"] th { font-size: ${fs.works}px; }`,
-    `[data-print-section="crew"] table, [data-print-section="works"] table { border-collapse: collapse; }`,
+    `[data-print-section="crew"] table, [data-print-section="works"] table { border-collapse: collapse; table-layout: fixed; }`,
     `[data-print-section="crew"] th, [data-print-section="crew"] td, [data-print-section="works"] th, [data-print-section="works"] td { border: 1px solid #0f172a; }`,
     `[data-print-section="crew"] th, [data-print-section="works"] th { background: #f3f4f6; }`,
+    // Ширина колонок — долями от ширины листа (colgroup), а не «как получится».
+    // Без этого длинное наименование изделия распирает таблицу, колонки «Цена»/«Сумма»
+    // уходят за край листа и на принтере режутся.
+    `[data-print-section="crew"] td, [data-print-section="crew"] th, [data-print-section="works"] td, [data-print-section="works"] th { overflow-wrap: anywhere; word-break: break-word; }`,
+    // Плотный межстрочный интервал в таблицах работ: строки работы — их на наряде
+    // десятки, и каждый лишний миллиметр высоты уводит лист на вторую страницу.
+    `[data-print-section="works"] td, [data-print-section="works"] th { line-height: 1.18; }`,
+    // Шапка таблицы повторяется на каждом листе: если наряд всё же не влез в один лист
+    // (12+ длинных строк), второй лист читается — продолжать видно, что за строка.
+    `[data-print-section="works"] thead, [data-print-section="crew"] thead { display: table-header-group; }`,
     // Подписи идут сразу за телом наряда (тянутся кверху), с заметным отступом от
     // последнего блока — но НЕ прижимаются к низу листа: прежний bottom-pin выталкивал
     // блок подписей на 2-ю страницу.
-    `[data-print-section="signatures"] { margin-top: 24px; }`,
+    `[data-print-section="signatures"] { margin-top: 10px; }`,
     // Ячейка под роспись бригады — пустая, но с гарантированной шириной и высотой:
     // иначе браузер схлопывает её в нитку и расписаться негде.
     `[data-print-section="crew"] table.wo-crew td.wo-sign-cell { min-width: 34mm; height: 9mm; }`,
-    // Поля печати задаёт body (12мм, PRINT_BASE_CSS) — поля @page обнуляем, иначе браузер
-    // добавит свои сверху и вытолкнет контент на 2-й лист.
-    `@page { size: A4; margin: 0; }`,
+    // Поля печати задаёт @page (12мм) — те же, что у предпросмотра A4, поэтому
+    // лист на печати и лист в окне печати совпадают. Поля @page обнулять нельзя:
+    // без них содержимое упирается в край бумаги и принтер срезает края.
+    `@page { size: A4; margin: 12mm; }`,
+    `@media print { body { margin: 0; } }`,
   ];
 }
 
@@ -264,6 +462,8 @@ function buildAssemblyModel(
   // Дата печати всегда = дата наряда: сохранённые orderDateOverride (в т.ч. залипшие
   // от старых клиентов/умолчаний) игнорируются — «застрявшая» дата и была этой граблей.
   const printDate = current.orderDate;
+  // Даты выполнения работ (режим «период» / «ежедневно»).
+  const dates = buildDateContext(current, deps);
 
   // Марка/№ двигателя и вид работ одинаковы во всех строках — выносим их в шапку и
   // убираем повторяющиеся колонки из таблицы работ. Фоллбек на двигатель шапки
@@ -307,26 +507,29 @@ function buildAssemblyModel(
       lines.some((l) => String(get(l) ?? '').trim());
     const articleCol = hasAny((l) => resolvePartArticle(l, deps));
     const productNumberCol = hasAny((l) => l.productNumber);
-    return `<table><thead><tr><th>Наименование изделия</th>${articleCol ? '<th>Артикул</th>' : ''}${
-      productNumberCol ? '<th>№ изделия</th>' : ''
-    }<th>Кол-во</th><th>Ед.</th><th>Склад</th></tr></thead><tbody>${lines
-      .map(
-        (line) =>
-          `<tr><td>${escapeHtml(resolvePartName(line, deps) || '—')}</td>${
-            articleCol ? `<td>${escapeHtml(resolvePartArticle(line, deps) || '—')}</td>` : ''
-          }${productNumberCol ? `<td>${escapeHtml(line.productNumber || '—')}</td>` : ''}<td>${escapeHtml(
-            String(line.qty ?? 0),
-          )}</td><td>${escapeHtml(line.unit || '—')}</td><td>${escapeHtml(
-            resolveSourceWarehouseName(line.sourceWarehouseId),
-          )}</td></tr>`,
-      )
-      .join('')}</tbody></table>`;
+    const columns: WoColumn[] = [
+      { label: 'Наименование изделия', weight: 31, value: (line) => resolvePartName(line, deps) },
+      ...(articleCol ? [{ label: 'Артикул', weight: 11, value: (line: WorkOrderWorkLine) => resolvePartArticle(line, deps) }] : []),
+      ...(productNumberCol ? [{ label: '№ изделия', weight: 9, value: (line: WorkOrderWorkLine) => String(line.productNumber ?? '') }] : []),
+      ...(dates.showLineDate
+        ? [{ label: 'Дата', weight: 13, value: (line: WorkOrderWorkLine) => dates.lineDateText(line) }]
+        : []),
+      ...(dates.showLineAssignee
+        ? [{ label: 'Исполнитель', weight: 16, value: (line: WorkOrderWorkLine) => dates.lineAssigneeText(line) }]
+        : []),
+      { label: 'Кол-во', weight: 6, value: (line) => String(line.qty ?? 0) },
+      // Единице измерения ширины надо ровно на перенос: в узкой колонке «нормо-час»
+      // ложился на пять строк и каждая строка наряда вырастала вдвое.
+      { label: 'Ед.', weight: 12, value: (line) => String(line.unit ?? '') },
+      { label: 'Склад', weight: 18, value: (line) => resolveSourceWarehouseName(line.sourceWarehouseId) },
+    ];
+    return worksTableHtml(columns, lines);
   };
 
   // Бригада сборочного наряда расписывается там же, где ремонтного, — последней колонкой.
   const showCrewSign = !settings.hideCrewSignatures;
   const crewHtml = current.crew.length
-    ? `<table class="wo-crew"><thead><tr><th>Сотрудник</th><th>Таб. №</th><th>КТУ</th><th>Начислено</th><th>Заморозка</th>${
+    ? `<table class="wo-crew">${crewColgroup(showCrewSign, true)}<thead><tr><th>Сотрудник</th><th>Таб. №</th><th>КТУ</th><th>Начислено</th><th>Заморозка</th>${
         showCrewSign ? '<th>Подпись</th>' : ''
       }</tr></thead><tbody>${current.crew
         .map(
@@ -382,7 +585,9 @@ function buildAssemblyModel(
     ...(contractInfo?.contractSuffix ? [{ label: '№ контр.', value: contractInfo.contractSuffix }] : []),
     ...(contractInfo?.counterparty ? [{ label: 'Заказчик', value: contractInfo.counterparty }] : []),
   ];
-  const metaHtml = `<table class="wo-meta">${metaTier(tier1)}${metaTier(tier2)}</table>`;
+  // Период выполнения работ (режим «период») и периоды по сотрудникам — в реквизиты.
+  const periodRows = periodMetaRows(dates);
+  const metaHtml = metaTableHtml(periodRows.length ? [tier1, tier2, periodRows] : [tier1, tier2]);
 
   return {
     title: headerTitle,
@@ -412,6 +617,8 @@ function buildSimpleModel(
   const showService = !deps.hiddenFields.has('serviceName');
   const showPrice = !deps.hiddenFields.has('priceRub');
   const showAmount = !deps.hiddenFields.has('amountRub');
+  // Даты выполнения работ (режим «период» / «ежедневно»).
+  const dates = buildDateContext(current, deps);
 
   // Двигатель один на весь наряд — выносим его в шапку и убираем повторяющиеся колонки
   // из строк (раньше номер и марка дублировались в каждой строке ремонтного наряда).
@@ -431,45 +638,39 @@ function buildSimpleModel(
     const stampedCol = hasAny((l) => resolveStampedNumbers(l));
     const articleCol = hasAny((l) => resolvePartArticle(l, deps));
     const productNumberCol = hasAny((l) => l.productNumber);
-    const head = [
-      ...(engineCols ? ['№ двигателя'] : []),
-      ...(engineInternalCol ? ['Внутр. №'] : []),
-      ...(engineCols ? ['Марка'] : []),
-      ...(serviceCol ? ['Вид работ'] : []),
-      'Наименование изделия',
-      ...(stampedCol ? ['№ детали'] : []),
-      ...(articleCol ? ['Артикул'] : []),
-      ...(productNumberCol ? ['№ изделия'] : []),
-      'Кол-во',
-      'Ед.',
-      ...(showPrice ? ['Цена'] : []),
-      ...(showAmount ? ['Сумма'] : []),
+    // Колонки заданы весами: ширину делит таблица сама, поэтому ни одна колонка
+    // не выходит за край листа (раньше ширины задавал браузер, и «Цена»/«Сумма»
+    // уезжали за лист на длинных наименованиях).
+    //
+    // Вес колонки «Ед.» — 12: в узкой колонке «нормо-час» ложился на пять строк, и
+    // каждая строка наряда от этого вырастала вдвое (измерили: 22,5 мм текста в
+    // ячейке шириной 7,9 мм). Единице измерения ширины надо ровно на перенос.
+    const columns: WoColumn[] = [
+      ...(engineCols ? [{ label: '№ двигателя', weight: 9, value: (line: WorkOrderWorkLine) => String(line.engineNumber ?? '') }] : []),
+      ...(engineInternalCol ? [{ label: 'Внутр. №', weight: 7, value: (line: WorkOrderWorkLine) => String(line.engineInternalNumber ?? '') }] : []),
+      ...(engineCols ? [{ label: 'Марка', weight: 8, value: (line: WorkOrderWorkLine) => String(line.engineBrandName ?? '') }] : []),
+      ...(serviceCol ? [{ label: 'Вид работ', weight: 18, value: (line: WorkOrderWorkLine) => String(line.serviceName ?? '') }] : []),
+      { label: 'Наименование изделия', weight: 35, value: (line) => resolvePartName(line, deps) },
+      ...(stampedCol ? [{ label: '№ детали', weight: 9, value: (line: WorkOrderWorkLine) => resolveStampedNumbers(line) }] : []),
+      ...(articleCol ? [{ label: 'Артикул', weight: 9, value: (line: WorkOrderWorkLine) => resolvePartArticle(line, deps) }] : []),
+      ...(productNumberCol ? [{ label: '№ изделия', weight: 7, value: (line: WorkOrderWorkLine) => String(line.productNumber ?? '') }] : []),
+      ...(dates.showLineDate
+        ? [{ label: 'Дата', weight: 12, value: (line: WorkOrderWorkLine) => dates.lineDateText(line) }]
+        : []),
+      ...(dates.showLineAssignee
+        ? [{ label: 'Исполнитель', weight: 15, value: (line: WorkOrderWorkLine) => dates.lineAssigneeText(line) }]
+        : []),
+      { label: 'Кол-во', weight: 6, value: (line) => String(line.qty ?? 0) },
+      { label: 'Ед.', weight: 12, value: (line) => String(line.unit ?? '') },
+      ...(showPrice ? [{ label: 'Цена', weight: 8, value: (line: WorkOrderWorkLine) => money(line.priceRub ?? 0) }] : []),
+      ...(showAmount ? [{ label: 'Сумма', weight: 9, value: (line: WorkOrderWorkLine) => money(line.amountRub ?? 0) }] : []),
     ];
-    const body = lines
-      .map((line) => {
-        const cells = [
-          ...(engineCols ? [line.engineNumber || '—'] : []),
-          ...(engineInternalCol ? [line.engineInternalNumber || '—'] : []),
-          ...(engineCols ? [line.engineBrandName || '—'] : []),
-          ...(serviceCol ? [line.serviceName || '—'] : []),
-          resolvePartName(line, deps) || '—',
-          ...(stampedCol ? [resolveStampedNumbers(line) || '—'] : []),
-          ...(articleCol ? [resolvePartArticle(line, deps) || '—'] : []),
-          ...(productNumberCol ? [line.productNumber || '—'] : []),
-          String(line.qty ?? 0),
-          line.unit || '—',
-          ...(showPrice ? [money(line.priceRub ?? 0)] : []),
-          ...(showAmount ? [money(line.amountRub ?? 0)] : []),
-        ];
-        return `<tr>${cells.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`;
-      })
-      .join('');
-    return `<table><thead><tr>${head.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`;
+    return worksTableHtml(columns, lines);
   };
 
   const worksHtml = `${linesTable(current.freeWorks)}${
     showAmount
-      ? `<div class="wo-print-works-footer" style="margin-top:10px;padding-top:8px;border-top:1px solid #e5e7eb;font-size:13px;"><strong>Итог:</strong> ${escapeHtml(
+      ? `<div class="wo-print-works-footer" style="margin-top:5px;padding-top:4px;border-top:1px solid #e5e7eb;font-size:12px;"><strong>Итог:</strong> ${escapeHtml(
           money(current.totalAmountRub || 0),
         )}</div>`
       : ''
@@ -480,7 +681,7 @@ function buildSimpleModel(
   // колонка растёт вместе с составом сама.
   const showCrewSign = !settings.hideCrewSignatures;
   const crewHtml = current.crew.length
-    ? `<table class="wo-crew"><thead><tr><th>Сотрудник</th><th>Таб. №</th><th>КТУ</th>${
+    ? `<table class="wo-crew">${crewColgroup(showCrewSign, false)}<thead><tr><th>Сотрудник</th><th>Таб. №</th><th>КТУ</th>${
         showAmount ? '<th>Начислено</th>' : ''
       }${showCrewSign ? '<th>Подпись</th>' : ''}</tr></thead><tbody>${current.crew
         .map(
@@ -525,7 +726,7 @@ function buildSimpleModel(
     ...(contractInfo?.contractSuffix ? [{ label: '№ контр.', value: contractInfo.contractSuffix }] : []),
     ...(contractInfo?.counterparty ? [{ label: 'Заказчик', value: contractInfo.counterparty }] : []),
   ];
-  const metaHtml = `<table class="wo-meta">${metaTier(tier1)}${metaTier(tier2)}</table>`;
+  const metaHtml = metaTableHtml(periodMetaRows(dates).length ? [tier1, tier2, periodMetaRows(dates)] : [tier1, tier2]);
 
   return {
     title: headerTitle,
