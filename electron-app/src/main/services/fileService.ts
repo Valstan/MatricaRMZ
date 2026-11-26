@@ -955,6 +955,43 @@ function stageForShare(
 }
 
 /**
+ * Собрать серверные файлы в папку с ЧЕЛОВЕЧЕСКИМИ именами и выдать пути к копиям.
+ *
+ * Зачем отдельная дверь, если есть `files:revealForShare` (то же самое, но папка
+ * открывается в Проводнике и пути наружу не отдаются): почте, чату и ИИванычу нужен
+ * ПУТЬ к файлу, а не папка на экране. Путь к копии — это «выданный» путь: главный
+ * процесс его выдал, поэтому renderer не может подсунуть произвольный путь и увести
+ * программу читать чужой файл с диска (`pathOriginRegistry`).
+ *
+ * Имена копий — настоящие имена файлов (не sha-префикс кеша): оператор видит их
+ * в письме, в чате и в вопросе ИИванычу.
+ */
+export async function filesStageForShare(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { fileIds: string[]; downloadDir: string; label: string },
+): Promise<
+  { ok: true; folder: string; files: { id: string; name: string; path: string }[] } | { ok: false; error: string }
+> {
+  const dl = await downloadOriginals(db, apiBaseUrl, args.fileIds, args.downloadDir);
+  if (!dl.ok) return dl;
+  const folder = join(tmpdir(), 'matrica-share', safeFilename(args.label || 'Файлы'));
+  try {
+    await fsp.rm(folder, { recursive: true, force: true });
+    mkdirSync(folder, { recursive: true });
+    const files: { id: string; name: string; path: string }[] = [];
+    for (const f of dl.files) {
+      const target = uniqueTargetPath(folder, safeFilename(f.name));
+      await fsp.copyFile(f.localPath, target);
+      files.push({ id: f.id, name: f.name, path: target });
+    }
+    return { ok: true, folder, files };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
  * Имя папки объекта на диске.
  *
  * Отдельная функция, а не `safeFilename`: тот обрезает имя по слешу («Двигатель

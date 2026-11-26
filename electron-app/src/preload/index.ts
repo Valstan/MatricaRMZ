@@ -1344,6 +1344,9 @@ const matricaApi = {
     copyToFolder: async (args: { fileIds: string[]; transferId?: string }) => ipcRenderer.invoke('files:copyToFolder', args),
     revealForShare: async (args: { fileIds: string[]; label?: string; mailto?: boolean }) =>
       ipcRenderer.invoke('files:revealForShare', args),
+    /** Собрать файлы в папку с человеческими именами и выдать пути к копиям (почта, чат, ИИ). */
+    stageForShare: async (args: { fileIds: string[]; label?: string }) =>
+      ipcRenderer.invoke('files:stageForShare', args),
     assemblePdf: async (args: { fileIds: string[]; defaultName?: string }) => ipcRenderer.invoke('files:assemblePdf', args),
     print: async (args: { fileIds: string[]; listHtml?: string }) => ipcRenderer.invoke('files:print', args),
     openObjectDir: async (args: { fileIds: string[]; label?: string }) => ipcRenderer.invoke('files:openObjectDir', args),

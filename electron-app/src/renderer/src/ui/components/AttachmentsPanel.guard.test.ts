@@ -211,3 +211,89 @@ describe('сканирование документа в объект (пром�
     expect(PANEL).toContain('window.matrica.scan.discard');
   });
 });
+
+describe('действия над отмеченными файлами (промт КАРМАНА #160)', () => {
+  const MENU = src('./FileActionsMenu.tsx');
+  const IPC_FILES = src('../../../../main/ipc/register/files.ts');
+
+  it('меню одно на все точки включения — второго не заводим', () => {
+    // Набор действий — продуктовое решение: две копии разъезжаются (в одной
+    // появится «отправить», в другой забудут). Панель вложений берёт тот же
+    // компонент, что и выдача «Поиска по файлам».
+    expect(PANEL).toContain("from './FileActionsMenu.js'");
+    expect(PANEL).toContain('<FileActionsMenu');
+    expect(MENU).toContain('export const FILE_ACTIONS');
+  });
+
+  it('меню открывается и правой кнопкой по строке, и кнопкой над отметками', () => {
+    expect(PANEL).toContain('onContextMenu={(e) => onRowContextMenu(f, e)}');
+    expect(PANEL).toContain('Действия…');
+    expect(PANEL).toContain('openFileMenuFromButton');
+  });
+
+  it('правой кнопкой по неотмеченному файлу отметка ДОБАВЛЯЕТСЯ, а не теряется', () => {
+    // Оператор отметил пять файлов и ткнул правой кнопкой в шестой — он хочет
+    // шесть. Сбрасывать отметки здесь означало бы «потерять работу».
+    expect(PANEL).toContain('setSelected((prev) => new Set(prev).add(file.id))');
+  });
+
+  it('печать — та же дверь, что у кнопки «Печать…», а не второй механизм', () => {
+    expect(PANEL).toContain("if (id === 'print')");
+    expect(PANEL).toContain('setPrintDialogOpen(true)');
+  });
+
+  it('почта готовит файлы и открывает клиент — и говорит, что вложений не будет', () => {
+    expect(PANEL).toContain('mail.prepareLocalAttachment');
+    expect(PANEL).toContain('draft.note');
+    expect(PANEL).toContain('Письмо открыто без вложений');
+  });
+
+  it('ИИваныч получает файл по «выданному» пути, а вопрос спрашивает у оператора', () => {
+    // ИИваныч берёт файл по пути, который выдал главный процесс: иначе вопрос
+    // уехал бы без файла («путь не из диалога выбора файлов»).
+    expect(PANEL).toContain('files.stageForShare');
+    expect(PANEL).toContain('aiChat');
+    expect(PANEL).toContain('create({ questionText: question, filePath: path })');
+    expect(PANEL).toContain('Вопрос ИИванычу по файлу');
+  });
+
+  it('отправка коллеге доступна из карточки — раньше только с Верстака', () => {
+    expect(PANEL).toContain('desktopTransfer');
+    expect(PANEL).toContain('sendToColleague');
+    expect(PANEL).toContain('SendFileToColleagueDialog');
+  });
+
+  it('личные сообщения чата — тоже файлом', () => {
+    expect(PANEL).toContain('chat.sendFile');
+  });
+
+  it('файл можно положить на верстак прямо из вложений', () => {
+    expect(PANEL).toContain('requestDesktopPutFiles');
+  });
+
+  it('каждое действие доводит файл до конца и говорит результат', () => {
+    // Молчать нельзя: оператор не отличит «ушло» от «зависло».
+    expect(PANEL).toContain('Отправлено коллеге файлов:');
+    expect(PANEL).toContain('Отправлено в личные сообщения:');
+    expect(PANEL).toContain('Вопрос отправлен ИИванычу');
+    expect(PANEL).toContain('На Верстак отправлено файлов:');
+  });
+
+  it('на планшете недоступность названа, а не спрятана', () => {
+    expect(PANEL).toContain('На планшете доступны только отправка коллеге');
+    expect(PANEL).toContain("return id === 'colleague' || id === 'desktop'");
+  });
+
+  it('новый файловый слой живёт в main и проходит через preload', () => {
+    // Копии для почты/чата/ИИ собирает главный процесс: renderer не ходит на диск.
+    expect(IPC_FILES).toContain("ipcMain.handle('files:stageForShare'");
+    expect(IPC_FILES).toContain("requirePermOrResult(ctx, 'files.view')");
+    expect(PRELOAD).toContain("ipcRenderer.invoke('files:stageForShare'");
+    expect(PANEL).toContain('files.stageForShare');
+  });
+
+  it('меню рисуется порталом — правило проекта', () => {
+    // Гейт `popupLayer.guard.test.ts` требует портал у самого компонента меню.
+    expect(MENU).toContain('PopupLayer');
+  });
+});

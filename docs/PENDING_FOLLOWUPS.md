@@ -55,7 +55,7 @@
 ## 🟡 Техдолг и отложенное
 
 - [🟡 Сканер документов: решения владельца (промт #148) 🗓 since:2026-11-26](pending/skaner-otkrytye-resheniya.md)
-- [🟡 Контекстное меню над файлами в карточке: общий компонент готов 🗓 since:2026-11-26](pending/kontekstnoe-menu-nad-fajlami-obshchiy-komponent.md)
+- [🟡 «В МАКС на телефон» из вложений: канал не подключён 🗓 since:2026-11-26](pending/vygruzka-v-maks-na-telefon.md)
 - [🟡 Управляющие кнопки вправо: остаток обхода — подвалы модалок (промт #141) 🗓 since:2026-11-25](pending/knopki-vpravo-obhod-renderer.md)
 - [🟡 Совет специалистов: три решения владельца (состав, обязательность, место протоколов) 🗓 since:2026-11-25](pending/sovet-specialistov-tri-resheniya-vladeltsa.md)
 - [🟢 Кнопка «где искать»: остальные списки 🗓 since:2026-11-26](pending/gde-iskat-spiski.md)
