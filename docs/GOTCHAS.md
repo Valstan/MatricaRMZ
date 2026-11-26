@@ -249,4 +249,5 @@
 | [M234](gotchas/M234.md) | Нет проверок в конфликте PR: «no checks reported» ≠ зелёные |
 | [M235](gotchas/M235.md) | Печать картинок: «Invalid printer settings» (не offscreen), «Value does not fall within the expected range» (мастер), мёртвое окно мастера |
 | [M236](gotchas/M236.md) | Тест под Windows краснеет на CI (Linux): `basename` из `node:path` зависит от ОС, мастер печати — только Windows |
+| [M237](gotchas/M237.md) | `gh pr merge --delete-branch` сносит рабочий worktree: `.git`-файл удалён, индекс пуст, `git` видит главный клон |
 
