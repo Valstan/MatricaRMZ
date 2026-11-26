@@ -348,7 +348,7 @@ export function registerSettingsIpc(ctx: IpcContext) {
         };
       }
 
-      const logo = readReleaseWelcomeLogo();
+      const logo = await readReleaseWelcomeLogo();
 
       return {
         ok: true as const,

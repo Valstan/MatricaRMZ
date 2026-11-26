@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, promises as fsp } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 
 /**
@@ -8,6 +8,10 @@ import { basename, extname, join } from 'node:path';
  * Файла от владельца пока нет — окно рисует заглушку и не падает. Когда файл появится,
  * его достаточно положить рядом с программой: `welcome-logo.png` (или `.svg`) в папке
  * пользователя или в ресурсах сборки — код анимации не меняется.
+ *
+ * Файл читается через `promises` из `node:fs`: планшетный порт тянет этот модуль в
+ * свой бандл (он регистрирует настоящий `ipc/register/settings`), а шим планшета
+ * отдаёт только асинхронную поверхность `node:fs` — синхронной там нет.
  */
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
@@ -26,21 +30,32 @@ function candidateFiles(): string[] {
     files.push(join(app.getPath('userData'), 'welcome-logo.png'));
     files.push(join(app.getPath('userData'), 'welcome-logo.svg'));
   } catch {
-    // Пути пользователя недоступны — ищем дальше.
+    // Папка пользователя недоступна — ищем дальше.
   }
-  if (process.resourcesPath) files.push(join(process.resourcesPath, 'welcome-logo.png'));
-  files.push(join(app.getAppPath(), 'resources', 'welcome-logo.png'));
+  try {
+    if (process.resourcesPath) files.push(join(process.resourcesPath, 'welcome-logo.png'));
+  } catch {
+    // Ресурсов сборки нет (планшетный порт).
+  }
+  try {
+    files.push(join(app.getAppPath(), 'resources', 'welcome-logo.png'));
+  } catch {
+    // Путь приложения недоступен (планшетный порт).
+  }
   return files;
 }
 
-export function readReleaseWelcomeLogo(): { dataUrl: string; fileName: string } | null {
+export async function readReleaseWelcomeLogo(): Promise<{ dataUrl: string; fileName: string } | null> {
   for (const file of candidateFiles()) {
     try {
       if (!existsSync(file)) continue;
-      if (statSync(file).size > MAX_LOGO_BYTES) continue;
+      const data = await fsp.readFile(file);
+      if (data.length > MAX_LOGO_BYTES) continue;
       const mime = MIME_BY_EXT[extname(file).toLowerCase()] ?? 'image/png';
-      const data = readFileSync(file).toString('base64');
-      return { dataUrl: `data:${mime};base64,${data}`, fileName: basename(file) };
+      return {
+        dataUrl: `data:${mime};base64,${Buffer.from(data).toString('base64')}`,
+        fileName: basename(file),
+      };
     } catch {
       continue;
     }

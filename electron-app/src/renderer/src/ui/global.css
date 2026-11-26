@@ -2006,6 +2006,9 @@ table.list-table.list-table--catalog {
 .release-welcome-vine {
   position: absolute;
   bottom: 0;
+  /* Высота побега = 4 × ширины (пропорция viewBox 60×240): от неё считаются
+     проценты листочков и детали на кончике. */
+  aspect-ratio: 60 / 240;
   color: #2f9e44;
   transform: translateX(-50%);
   animation: releaseWelcomeVineSway 7s ease-in-out infinite alternate;
@@ -2013,11 +2016,9 @@ table.list-table.list-table--catalog {
 
 .release-welcome-vine-stem {
   position: absolute;
-  left: 50%;
-  bottom: 0;
+  inset: 0;
   width: 100%;
-  height: auto;
-  transform: translateX(-50%);
+  height: 100%;
   overflow: visible;
 }
 
@@ -2041,13 +2042,13 @@ table.list-table.list-table--catalog {
 }
 
 .release-welcome-vine-leaf--one {
-  left: 52%;
+  left: 44%;
   bottom: 34%;
   --leaf-rotate: -24deg;
 }
 
 .release-welcome-vine-leaf--two {
-  left: 22%;
+  left: 58%;
   bottom: 58%;
   --leaf-rotate: 28deg;
 }
@@ -2055,7 +2056,7 @@ table.list-table.list-table--catalog {
 .release-welcome-vine-tip {
   position: absolute;
   left: 50%;
-  bottom: 95%;
+  bottom: 96%;
   width: 46px;
   height: 46px;
   color: #e03131;
