@@ -75,7 +75,7 @@
 - [🟡 Контракты: догоняем модуль до остальной программы 🗓 since:2026-11-13](pending/kontrakty-dogonyaem-module-do-ostalnoy-programmy.md)
 
 - [🟡 Подписать заглушку-обновлятель: osslsigncode или windows-джоб 🗓 since:2026-11-05](pending/podpisat-zaglushku-obnovlyatel.md)
-- [🟡 Журнал синхронизации раздувался EAV-значениями: раздувание остановлено (PR #1561), все дубли вычищены 🗓 since:2026-11-03](pending/journal-rozet-iz-za-eav-attribute-values.md)
+- [🟡 Журнал синхронизации раздувался EAV-значениями: остановлено (PR #1561) 🗓 since:2026-11-03](pending/journal-rozet-iz-za-eav-attribute-values.md)
 - [🟡 Размерный ряд СИЗ для РМЗ: базовый может не подойти 🗓 since:2026-11-03](pending/razmernyy-ryad-siz-dlya-rmz-utochnit.md)
 - [🟡 Утиль по детали: выключить страховку по подстроке «картер» 🗓 since:2026-11-02](pending/util-po-detali-strakhovka-po-podstroke-karter.md)
 - [🟡 Массовое изменение в приёме: произвольные свойства карточки 🗓 since:2026-11-02](pending/massovoe-izmenenie-proizvolnye-svojstva-kartochki.md)
