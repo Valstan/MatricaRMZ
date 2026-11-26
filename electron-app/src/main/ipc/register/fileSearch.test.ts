@@ -9,12 +9,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const handlers = new Map<string, (...args: any[]) => unknown>();
 let pickedPaths: string[] = [];
+/** Что ушло в буфер обмена (проверяем «скопировать путь»). */
+const writtenText: string[] = [];
 
 vi.mock('electron', () => ({
   ipcMain: { handle: (ch: string, fn: (...args: any[]) => unknown) => void handlers.set(ch, fn) },
-  BrowserWindow: { getFocusedWindow: () => null },
+  BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [] },
+  app: { getPath: (name: string) => join(dir, name) },
+  shell: { openPath: async () => '' },
+  clipboard: { writeText: (text: string) => writtenText.push(text) },
   dialog: {
     showOpenDialog: async () => ({ canceled: pickedPaths.length === 0, filePaths: pickedPaths }),
+    showSaveDialog: async () => ({ canceled: true, filePath: '' }),
   },
 }));
 
@@ -74,6 +80,7 @@ afterEach(() => {
   sqlite.close();
   handlers.clear();
   pickedPaths = [];
+  writtenText.length = 0;
 });
 
 function makeCtx(actor: string) {
@@ -266,5 +273,44 @@ describe('режим «Фото двигателя» и подсказки по 
     const suggest = handlers.get('fileSearch:engineNumberSuggestions')!;
     const res = (await suggest({}, { q: 'акт' })) as { ok: boolean; suggestions: unknown[] };
     expect(res.suggestions).toEqual([]);
+  });
+});
+
+describe('действия над отмеченными файлами (промт КАРМАНА #158)', () => {
+  it('чужие id не проходят ни в одну дверь действий', async () => {
+    const doors = [
+      'fileSearch:assemblePdf',
+      'fileSearch:printWizard',
+      'fileSearch:revealFolder',
+      'fileSearch:stageForShare',
+      'fileSearch:copyPaths',
+    ];
+    for (const channel of doors) {
+      const handler = handlers.get(channel);
+      expect(handler, `нет двери ${channel}`).toBeTruthy();
+      const r = (await handler!({}, { ids: ['fsimg_чужой'] })) as { ok: boolean; error?: string };
+      expect(r.ok, `${channel} принял чужой id`).toBe(false);
+      expect(r.error).toContain('Не выбрано');
+    }
+  });
+
+  it('копии во временную папку не берут файлы, которых main не выдавал', async () => {
+    const stage = handlers.get('fileSearch:stageForShare')!;
+    const r = (await stage({}, { ids: ['fsimg_чужой'] })) as { ok: boolean; error?: string };
+    expect(r.ok).toBe(false);
+  });
+
+  it('убрать можно только свою временную папку', async () => {
+    const cleanup = handlers.get('fileSearch:cleanupTempFolder')!;
+    const outside = (await cleanup({}, { folder: join(dir, 'чужая-папка') })) as { ok: boolean; removed: boolean };
+    expect(outside.ok).toBe(true);
+    // Папка вне нашего корня — не трогаем (иначе вызов снёс бы оператору что-то не то).
+    expect(outside.removed).toBe(false);
+  });
+
+  it('PDF из чужих id не собирается', async () => {
+    const pdf = handlers.get('fileSearch:assemblePdf')!;
+    const r = (await pdf({}, { ids: ['fsimg_чужой'] })) as { ok: boolean; error?: string };
+    expect(r.ok).toBe(false);
   });
 });

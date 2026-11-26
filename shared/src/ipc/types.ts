@@ -1660,6 +1660,36 @@ export type MatricaApi = {
     printCapabilities: () => Promise<
       { ok: true; osPrintWizard: boolean } | { ok: false; error: string }
     >;
+    /**
+     * Действия над отмеченными ЛОКАЛЬНЫМИ файлами (промт КАРМАНА #158).
+     *
+     * Файлы из выдачи лежат на диске оператора, поэтому у них нет серверного id:
+     * главный процесс узнаёт их по выданным id и сам решает, что с ними делать.
+     */
+    /** PDF одним файлом из отмеченных снимков: диалог сохранения → сборка → открыть. */
+    assemblePdf: (args: { ids: string[]; defaultName?: string }) => Promise<
+      { ok: true; savePath: string } | { ok: false; error: string }
+    >;
+    /** Мастер печати фотографий на ВСЕ отмеченные снимки сразу (одно системное окно). */
+    printWizard: (args: { ids: string[] }) => Promise<
+      { ok: true; folder: string; mode: 'wizard' | 'explorer' } | { ok: false; error: string; folder?: string }
+    >;
+    /** Открыть папку, где лежат отмеченные файлы (на диске оператора). */
+    revealFolder: (args: { ids: string[] }) => Promise<
+      { ok: true; folder: string } | { ok: false; error: string }
+    >;
+    /** Копии отмеченных файлов во временную папку (для почты и отправки). */
+    stageForShare: (args: { ids: string[]; label?: string }) => Promise<
+      { ok: true; folder: string; paths: string[]; names: string[] } | { ok: false; error: string }
+    >;
+    /** Убрать временные копии снимков. */
+    cleanupTempFolder: (args: { folder: string }) => Promise<
+      { ok: true; removed: boolean } | { ok: false; error: string }
+    >;
+    /** Скопировать пути отмеченных файлов в буфер обмена. */
+    copyPaths: (args: { ids: string[] }) => Promise<
+      { ok: true; count: number } | { ok: false; error: string }
+    >;
     folders: {
       get: () => Promise<
         { ok: true; userId: string; folders: FileSearchFolderSource[] } | { ok: false; error: string }
@@ -4251,6 +4281,16 @@ export type MatricaApi = {
     ) => Promise<{ ok: true; path: string; name: string } | { ok: false; error: string }>;
     revealAttachment: (args: { path: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     openDraft: (args: { to?: string; cc?: string; subject: string; body: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    /**
+     * «Отправить на почту» для файлов с диска оператора (промт КАРМАНА #158).
+     *
+     * Пути принимаются только выданные главным процессом: renderer не может
+     * подсунуть произвольный путь. Программа открывает папку с файлами и почтовый
+     * клиент — прикрепляет файлы оператор руками (своего сервера нет).
+     */
+    prepareLocalAttachment: (args: { paths: string[]; label?: string; subject?: string; body?: string }) => Promise<
+      { ok: true; folder: string } | { ok: false; error: string }
+    >;
   };
   exports: {
     // Список в файл Word/Excel. Файл собирает main-процесс (там живут сборщики), папку

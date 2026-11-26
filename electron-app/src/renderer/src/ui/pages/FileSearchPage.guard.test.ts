@@ -171,4 +171,26 @@ describe('модуль «Поиск по файлам»: сторож формы
     // А сброс отметок живёт только в самом поиске (старые id не печатаются).
     expect(PAGE).toContain('setPicked(new Set())');
   });
+
+  // Промт КАРМАНА #158: над отмеченными картинками — одно меню действий, и оно
+  // ОБЩЕЕ с панелью вложений карточки (набор в `components/FileActionsMenu.tsx`).
+  // Три правила:
+  // 1. меню открывается и правой кнопкой по картинке, и отдельной кнопкой;
+  // 2. меню — из общего компонента, а не нарисованное здесь же (иначе две
+  //    реализации разъедутся);
+  // 3. пункт «удалить файл» в наборе невозможен — программа не удаляет файлы
+  //    оператора (сторож самого набора — `FileActionsMenu.test.ts`).
+  it('меню действий одно и общее — открывается и по правой кнопке, и кнопкой', () => {
+    expect(PAGE).toContain('FileActionsMenu');
+    expect(PAGE).toContain('onContextMenu');
+    expect(PAGE).toContain('Действия…');
+  });
+
+  it('действия доводят файл до конца и говорят результат', () => {
+    expect(PAGE).toContain('runFileAction');
+    expect(PAGE).toContain('fileSearch.printWizard');
+    expect(PAGE).toContain('fileSearch.assemblePdf');
+    expect(PAGE).toContain('fileSearch.stageForShare');
+    expect(PAGE).toContain('fileSearch.copyPaths');
+  });
 });

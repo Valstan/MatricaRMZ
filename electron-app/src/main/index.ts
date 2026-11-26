@@ -472,6 +472,12 @@ app.whenReady().then(() => {
   // (миграции, ANALYZE, первый pull) не попадут в гистограмму.
   void import('./services/eventLoopLag.js').then((m) => m.startEventLoopLagMonitor());
 
+  // Временные копии снимков (промт КАРМАНА #158): папки прошлой смены убираем на
+  // старте — копиться не должны. Оригиналы остаются у оператора в своих папках.
+  void import('./services/localFileStaging.js')
+    .then((m) => m.cleanupStaleStagingFolders())
+    .catch(() => undefined);
+
   // Network bootstrap: proxy/PAC + ipv4first + online monitor.
   const apiBaseUrl = process.env.MATRICA_API_URL ?? 'https://a6fd55b8e0ae.vps.myjino.ru';
   void initNetworkService({ probeUrl: `${apiBaseUrl.replace(/\/+$/, '')}/health` });

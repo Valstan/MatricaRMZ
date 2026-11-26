@@ -22,6 +22,7 @@ import {
   desktopLayoutGrid,
   desktopLiveFileShortcuts,
   desktopLiveShortcutCount,
+  desktopPutFiles,
   desktopMigrateQuickStart,
   desktopMoveToFolder,
   desktopMoveToFolderMany,
@@ -899,5 +900,36 @@ describe('шаг размера по рейтингу', () => {
 
   it('пустой Верстак — пустая карта шагов', () => {
     expect(desktopUsageSteps(createEmptyDesktopUsage(), [], NOW)).toEqual({});
+  });
+});
+
+describe('положить несколько файлов на Верстак (промт КАРМАНА #158)', () => {
+  it('каждый файл ложится своим ярлыком, повтор — не плодит', () => {
+    let d = desktopPutFiles(
+      createEmptyDesktop(),
+      [
+        { id: 'file-a', name: 'Акт.pdf' },
+        { id: 'file-b', name: 'Ведомость.xlsx' },
+      ],
+      NOW,
+    );
+    expect(d.added).toBe(2);
+    expect(d.exists).toBe(0);
+    expect(d.limit).toBe(false);
+    expect(desktopLiveFileShortcuts(d.desktop).map((f) => f.fileId)).toEqual(['file-a', 'file-b']);
+
+    // Тот же файл второй раз — не второй ярлык.
+    d = desktopPutFiles(d.desktop, [{ id: 'file-a', name: 'Акт.pdf' }], NOW);
+    expect(d.added).toBe(0);
+    expect(d.exists).toBe(1);
+    expect(desktopLiveFileShortcuts(d.desktop)).toHaveLength(2);
+  });
+
+  it('ярлык файла ссылается на серверный файл — как у файлов, принятых с телефона', () => {
+    const d = desktopPutFiles(createEmptyDesktop(), [{ id: 'file-x', name: 'Фото.jpg', mime: 'image/jpeg' }], NOW);
+    const [file] = desktopLiveFileShortcuts(d.desktop);
+    expect(file?.fileId).toBe('file-x');
+    expect(file?.name).toBe('Фото.jpg');
+    expect(file?.mime).toBe('image/jpeg');
   });
 });

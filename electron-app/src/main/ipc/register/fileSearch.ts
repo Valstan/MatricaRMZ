@@ -1,4 +1,5 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron';
+import { dirname, join } from 'node:path';
 
 import {
   FILE_SEARCH_DIALOG_FILTERS,
@@ -31,7 +32,9 @@ import {
 } from '../../services/fileSearchFolderService.js';
 import { readLocalImagePreview } from '../../services/localImagePreview.js';
 import { osPrintWizardAvailable, printImagesViaOsWizard } from '../../services/localImagePrint.js';
-import { photosPrintLocalPaths } from '../../services/fileService.js';
+import { photosAssemblePdfLocalPaths, photosPrintLocalPaths } from '../../services/fileService.js';
+import { openPhotoPrintWizard } from '../../services/photoPrintWizard.js';
+import { removeStagedFolder, stageLocalFiles } from '../../services/localFileStaging.js';
 import { resolveReferenceLabels } from '../../services/fileSearchReferenceService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
 
@@ -467,4 +470,174 @@ export function registerFileSearchIpc(ctx: IpcContext) {
       return { ok: false as const, error: String(e) };
     }
   });
+
+  // ── Действия над отмеченными файлами (промт КАРМАНА #158) ─────────────────
+  //
+  // Файлы из выдачи — ЛОКАЛЬНЫЕ: они лежат в папках оператора, главный процесс
+  // выдаёт renderer'у только id. Все двери ниже решают одну задачу: превратить
+  // отмеченные id в действия на настоящих файлах, не выпуская путь на диск.
+
+  /** Пути отмеченных файлов — только по id, которые main сам выдал. */
+  function localPathsOf(ids: unknown): string[] {
+    const list = Array.isArray(ids) ? ids.slice(0, MAX_FOLDER_MATCHES) : [];
+    const out: string[] = [];
+    for (const id of list) {
+      const resolved = resolveImagePath(String(id ?? ''));
+      if (resolved) out.push(resolved.path);
+    }
+    return out;
+  }
+
+  /**
+   * PDF одним файлом из отмеченных ЛОКАЛЬНЫХ картинок.
+   *
+   * Дверь `files:assemblePdf` работает по `fileIds` серверных вложений — файлов из
+   * выдачи поиска на сервере нет, поэтому для них своя дверь: то же скрытое окно
+   * печати → `printToPDF` → диалог сохранения с именем по умолчанию «Фото двигателя».
+   */
+  ipcMain.handle(
+    'fileSearch:assemblePdf',
+    async (_e, args: { ids?: string[]; defaultName?: string }): Promise<
+      { ok: true; savePath: string } | { ok: false; error: string }
+    > => {
+      try {
+        const paths = localPathsOf(args?.ids);
+        if (paths.length === 0) return { ok: false, error: 'Не выбрано ни одной картинки' };
+        const parent = BrowserWindow.getFocusedWindow();
+        const baseName = String(args?.defaultName || 'Фото двигателя').replaceAll(/[\\/:*?"<>|]+/g, '_');
+        const opts = {
+          title: 'Сохранить PDF с фотографиями',
+          defaultPath: join(app.getPath('desktop'), `${baseName}.pdf`),
+          filters: [{ name: 'PDF', extensions: ['pdf'] }],
+        };
+        const r = parent ? await dialog.showSaveDialog(parent, opts) : await dialog.showSaveDialog(opts);
+        const savePath = r.canceled || !r.filePath ? '' : String(r.filePath);
+        if (!savePath) return { ok: false, error: 'cancelled' };
+        const res = await photosAssemblePdfLocalPaths(paths, savePath);
+        if (!res.ok) return { ok: false, error: res.error };
+        // Открыть сразу: оператор ждёт результата, а не ищет файл сам.
+        await shell.openPath(savePath).catch(() => undefined);
+        return { ok: true, savePath };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+  );
+
+  /**
+   * Мастер печати фотографий на ВСЕ отмеченные снимки сразу.
+   *
+   * Окно одно: системный мастер умеет печатать набор, если вызвать глагол «Печать»
+   * у множественного выделения (как делает Проводник по Ctrl+P). Поэтому снимки
+   * копируются во временную папку оператора, и мастер открывается на ней.
+   *
+   * Дверь ЖДЁТ, пока оператор закроет мастер: возврат — это сигнал «окно закрылось»,
+   * по которому программа возвращает фокус и предлагает убрать копии.
+   */
+  ipcMain.handle(
+    'fileSearch:printWizard',
+    async (_e, args: { ids?: string[] }): Promise<
+      { ok: true; folder: string; mode: 'wizard' | 'explorer' } | { ok: false; error: string; folder?: string }
+    > => {
+      try {
+        const paths = localPathsOf(args?.ids);
+        if (paths.length === 0) return { ok: false, error: 'Не выбрано ни одной картинки' };
+        const staged = await stageLocalFiles(paths, 'Фото для печати');
+        if (!staged.ok) return { ok: false, error: staged.error };
+        const copies = staged.files.map((f) => f.path);
+        const wizard = await openPhotoPrintWizard(copies, { workDir: staged.folder });
+        // Фокус в окно программы: мастер закрыт — оператор вернулся к нам.
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win && !win.isDestroyed()) {
+          if (win.isMinimized()) win.restore();
+          win.focus();
+        }
+        if (!wizard.ok) {
+          // Мастер не открылся — показываем папку с копиями, оператор вызовет мастер сам.
+          await shell.openPath(staged.folder).catch(() => undefined);
+          return {
+            ok: false,
+            error: `${wizard.error}. Открыта папка с копиями снимков — вызовите мастер печати вручную (Ctrl+P).`,
+            folder: staged.folder,
+          };
+        }
+        return { ok: true, folder: staged.folder, mode: 'wizard' };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+  );
+
+  /** Открыть папку, где лежат отмеченные файлы (на диске оператора, не на сервере). */
+  ipcMain.handle(
+    'fileSearch:revealFolder',
+    async (_e, args: { ids?: string[] }): Promise<{ ok: true; folder: string } | { ok: false; error: string }> => {
+      try {
+        const paths = localPathsOf(args?.ids);
+        if (paths.length === 0) return { ok: false, error: 'Не выбрано ни одной картинки' };
+        const folder = dirname(paths[0] ?? '');
+        if (!folder) return { ok: false, error: 'Не удалось определить папку файла' };
+        await shell.openPath(folder).catch(() => undefined);
+        return { ok: true, folder };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+  );
+
+  /**
+   * Копии отмеченных файлов во временную папку оператора — для почты и отправки.
+   *
+   * Пути копий «выданы» главным процессом: renderer сможет отдать их обратно
+   * (загрузка на сервер, отправка в чат), но не сможет подсунуть произвольный путь.
+   */
+  ipcMain.handle(
+    'fileSearch:stageForShare',
+    async (_e, args: { ids?: string[]; label?: string }): Promise<
+      { ok: true; folder: string; paths: string[]; names: string[] } | { ok: false; error: string }
+    > => {
+      try {
+        const paths = localPathsOf(args?.ids);
+        if (paths.length === 0) return { ok: false, error: 'Не выбрано ни одной картинки' };
+        const staged = await stageLocalFiles(paths, String(args?.label || 'Файлы для отправки'));
+        if (!staged.ok) return { ok: false, error: staged.error };
+        return {
+          ok: true,
+          folder: staged.folder,
+          paths: staged.files.map((f) => f.path),
+          names: staged.files.map((f) => f.name),
+        };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+  );
+
+  /** Убрать временные копии (после печати/отправки или по просьбе оператора). */
+  ipcMain.handle(
+    'fileSearch:cleanupTempFolder',
+    async (_e, args: { folder?: string }): Promise<{ ok: true; removed: boolean } | { ok: false; error: string }> => {
+      try {
+        const removed = await removeStagedFolder(String(args?.folder ?? ''));
+        return { ok: true, removed };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+  );
+
+  /** Скопировать пути отмеченных файлов в буфер обмена. */
+  ipcMain.handle(
+    'fileSearch:copyPaths',
+    async (_e, args: { ids?: string[] }): Promise<{ ok: true; count: number } | { ok: false; error: string }> => {
+      try {
+        const paths = localPathsOf(args?.ids);
+        if (paths.length === 0) return { ok: false, error: 'Не выбрано ни одной картинки' };
+        clipboard.writeText(paths.join('\r\n'));
+        return { ok: true, count: paths.length };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+  );
 }

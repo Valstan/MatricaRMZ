@@ -1,5 +1,7 @@
-import { ipcMain } from 'electron';
+import { ipcMain, shell } from 'electron';
+import { dirname } from 'node:path';
 
+import { consumeIssuedPath } from '../pathOriginRegistry.js';
 import { openMailDraft, prepareMailAttachment, revealMailAttachment, type MailAttachmentSpec } from '../../services/mailService.js';
 import type { IpcContext } from '../ipcContext.js';
 
@@ -51,5 +53,49 @@ export function registerMailIpc(_ctx: IpcContext) {
 
   ipcMain.handle('mail:openDraft', async (_e, args: { to?: string; cc?: string; subject: string; body: string }) =>
     openMailDraft(args ?? { subject: '', body: '' }),
+  );
+
+  /**
+   * «Отправить на почту» для файлов, которые лежат на диске оператора
+   * (промт КАРМАНА #158 — выдача «Поиска по файлам»).
+   *
+   * Своего почтового сервера у завода нет, а `mailto:` вложений не умеет, поэтому
+   * программа делает ровно то, что уже умеет (см. договорённость выше): открывает
+   * папку с файлами и почтовый клиент, а оператор прикрепляет файлы руками. Слова
+   * об этом он должен услышать — иначе будет ждать отправки, которой нет.
+   *
+   * Пути принимаются только те, что выдал главный процесс (`consumeIssuedPath`):
+   * renderer не может подсунуть произвольный путь и увести программу читать чужой
+   * файл с диска.
+   */
+  ipcMain.handle(
+    'mail:prepareLocalAttachment',
+    async (
+      _e,
+      args: { paths?: string[]; label?: string; subject?: string; body?: string },
+    ): Promise<{ ok: true; folder: string } | { ok: false; error: string }> => {
+      const list = (Array.isArray(args?.paths) ? args.paths : [])
+        .map((p) => String(p ?? '').trim())
+        .filter(Boolean)
+        .slice(0, 200);
+      if (list.length === 0) return { ok: false, error: 'Нет файлов для письма' };
+      for (const p of list) {
+        if (!consumeIssuedPath(p)) {
+          return { ok: false, error: 'Файл не выдан программой — выберите файлы заново' };
+        }
+      }
+      const folder = dirname(list[0] ?? '');
+      if (!folder) return { ok: false, error: 'Не удалось определить папку с файлами' };
+      const label = String(args?.label || 'Фото двигателя');
+      await shell.openPath(folder).catch(() => undefined);
+      const draft = await openMailDraft({
+        subject: String(args?.subject || label),
+        body:
+          String(args?.body || '') +
+          `\n\nФайлы лежат в открытой папке:\n${folder}\n\n${MAIL_ATTACHMENT_LIMITATION}`,
+      });
+      if (!draft.ok) return { ok: false, error: draft.error };
+      return { ok: true, folder };
+    },
   );
 }
