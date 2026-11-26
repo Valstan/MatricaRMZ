@@ -57,6 +57,9 @@ export const TABLET_DOMAIN_EXCEPTIONS: readonly TabletDomainException[] = [
       'files:pick',
       'files:pickText',
       'files:print',
+      // Системный мастер печати фотографий для вложений (промт КАРМАНА #159 + #160):
+      // мастер — это окно Windows, у планшета его нет.
+      'files:printWizard',
       'files:progress:list',
       'files:registerDropped',
       'files:revealForShare',

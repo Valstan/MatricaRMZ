@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { ipcMain, dialog, app, BrowserWindow } from 'electron';
+import { ipcMain, dialog, app, BrowserWindow, shell } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
@@ -31,6 +31,7 @@ import {
   photosPrint,
 } from '../../services/fileService.js';
 import { listFileTransfers } from '../../services/fileTransferProgress.js';
+import { printPhotos } from '../../services/photoPrint.js';
 
 export function registerFilesIpc(ctx: IpcContext) {
   ipcMain.handle('files:upload', async (_e, args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string }; transferId?: string }) => {
@@ -292,6 +293,60 @@ export function registerFilesIpc(ctx: IpcContext) {
       downloadDir: dir.path,
       ...(typeof args.listHtml === 'string' && args.listHtml ? { listHtml: args.listHtml } : {}),
     });
+  });
+
+  /**
+   * Мастер печати фотографий для ВЛОЖЕНИЙ карточки (промт КАРМАНА #159 + #160).
+   *
+   * Вложение карточки лежит на СЕРВЕРЕ, а мастеру печати нужен файл на диске
+   * оператора. Поэтому шаг тот же, что у «Поиска по файлам»: серверные файлы
+   * скачиваются и копируются во временную папку с ЧЕЛОВЕЧЕСКИМИ именами, и уже
+   * копии уходят в мастер — тем же общим шагом печати (`photoPrint.ts`).
+   *
+   * Дверь ЖДЁТ, пока оператор закроет мастер: возврат — сигнал «окно закрылось»,
+   * по которому программа возвращает фокус и предлагает убрать копии.
+   */
+  ipcMain.handle('files:printWizard', async (_e, args: { fileIds: string[]; label?: string }) => {
+    try {
+      const gate = await requirePermOrResult(ctx, 'files.view');
+      if (!gate.ok) return gate;
+      const fileIds = (Array.isArray(args?.fileIds) ? args.fileIds : []).map((id) => String(id ?? '')).filter(Boolean);
+      if (fileIds.length === 0) return { ok: false as const, error: 'Не выбрано ни одной фотографии' };
+      const dir = await filesDownloadDirGet(ctx.sysDb, { defaultDir: app.getPath('downloads') });
+      if (!dir.ok) return dir;
+      const staged = await filesStageForShare(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+        fileIds,
+        downloadDir: dir.path,
+        label: String(args?.label || 'Фото для печати'),
+      });
+      if (!staged.ok) return { ok: false as const, error: staged.error };
+      // Копии объявлены «выданными»: renderer сможет отдать их почте/чату/ИИ,
+      // но не сможет подсунуть свой путь (allowlist путей, `pathOriginRegistry`).
+      for (const f of staged.files) rememberIssuedPath(f.path);
+      const copies = staged.files.map((f) => f.path);
+      // Тот же общий шаг печати, что у кнопок над отмеченными картинками.
+      const res = await printPhotos(copies, { mode: 'os' });
+      // Фокус в окно программы: мастер закрыт — оператор вернулся к нам.
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+      }
+      if (!res.ok) {
+        // Принтера нет — папку с копиями открывать незачем: печатать всё равно нечем.
+        if (res.reason === 'no-printers') return { ok: false as const, error: res.error };
+        // Мастер не открылся — показываем папку с копиями, оператор вызовет мастер сам.
+        await shell.openPath(staged.folder).catch(() => undefined);
+        return {
+          ok: false as const,
+          error: `${res.error}. Открыта папка с копиями фотографий — вызовите мастер печати вручную (Ctrl+P).`,
+          folder: staged.folder,
+        };
+      }
+      return { ok: true as const, folder: staged.folder };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
   });
 }
 

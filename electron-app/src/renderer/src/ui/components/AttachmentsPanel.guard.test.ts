@@ -297,3 +297,49 @@ describe('действия над отмеченными файлами (про�
     expect(MENU).toContain('PopupLayer');
   });
 });
+
+describe('мастер печати фотографий для вложений карточки (промт КАРМАНА #159 + #160)', () => {
+  const IPC_FILES = src('../../../../main/ipc/register/files.ts');
+  const PHOTO_PRINT = src('../../../../main/services/photoPrint.ts');
+
+  it('пункт открыт — печать фото работает и из карточки', () => {
+    // Раньше пункт был скрыт: вложение лежит на СЕРВЕРЕ, а мастеру нужен файл на
+    // диске. Теперь копии собирает главный процесс — значит пункт доступен.
+    expect(PANEL).toContain("if (id === 'printWizard') return osPrintWizard;");
+  });
+
+  it('способность спрашивается у main, а не угадывается в renderer', () => {
+    // Renderer про ОС ничего не знает: на машине без мастера пункт обязан
+    // спрятаться сам (правило промта #158), а не предлагать заведомо
+    // неработающее действие.
+    expect(PANEL).toContain('window.matrica.fileSearch.printCapabilities()');
+    expect(PANEL).toContain('setOsPrintWizard(c.osPrintWizard)');
+  });
+
+  it('дверь печати мастером живёт в main и проходит через preload', () => {
+    // Мост держится строкой канала: забыть регистрацию в main — получить
+    // рантайм-ошибку, которую typecheck не поймает.
+    expect(IPC_FILES).toContain("ipcMain.handle('files:printWizard'");
+    expect(IPC_FILES).toContain("requirePermOrResult(ctx, 'files.view')");
+    expect(PRELOAD).toContain("ipcRenderer.invoke('files:printWizard'");
+    expect(PANEL).toContain('files.printWizard');
+  });
+
+  it('вложения копируются на диск оператора — мастеру нужен файл, а не id', () => {
+    // Без копии мастер нечего открывать: он работает с путями на диске.
+    expect(IPC_FILES).toContain('filesStageForShare');
+    expect(IPC_FILES).toContain('printPhotos(copies, { mode: \'os\' })');
+  });
+
+  it('печать идёт тем же общим шагом, что и в выдаче «Поиска по файлам»', () => {
+    // Второй механизм печати не заводим: общий шаг `printPhotos` — один на всю
+    // программу (реестр глобальных модулей, `docs/GLOBAL_MODULES.md`).
+    expect(PHOTO_PRINT).toContain('export async function printPhotos');
+    expect(IPC_FILES).toContain("from '../../services/photoPrint.js'");
+  });
+
+  it('неудача мастера называется словами, а не молчит', () => {
+    // Оператор должен отличить «не открылось» от «ушло на печать».
+    expect(PANEL).toContain('Мастер печати не открылся:');
+  });
+});

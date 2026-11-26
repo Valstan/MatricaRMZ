@@ -1349,6 +1349,8 @@ const matricaApi = {
       ipcRenderer.invoke('files:stageForShare', args),
     assemblePdf: async (args: { fileIds: string[]; defaultName?: string }) => ipcRenderer.invoke('files:assemblePdf', args),
     print: async (args: { fileIds: string[]; listHtml?: string }) => ipcRenderer.invoke('files:print', args),
+    // Системный мастер печати фотографий для вложений карточки (промт КАРМАНА #159 + #160).
+    printWizard: async (args: { fileIds: string[]; label?: string }) => ipcRenderer.invoke('files:printWizard', args),
     openObjectDir: async (args: { fileIds: string[]; label?: string }) => ipcRenderer.invoke('files:openObjectDir', args),
     downloadDirGet: async () => ipcRenderer.invoke('files:downloadDir:get'),
     downloadDirPick: async () => ipcRenderer.invoke('files:downloadDir:pick'),
