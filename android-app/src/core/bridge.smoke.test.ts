@@ -149,6 +149,7 @@ describe('домены, подключённые по промту #142, отв�
       ['ИИ-агент', () => h.matrica().aiAgent.logEvent({ context: { tab: 'engines' }, event: { type: 'open', ts: Date.now(), tab: 'engines' } })],
       ['экраны UI', () => h.matrica().uiScreens.list()],
       ['критерии утиля', () => h.matrica().scrapCriterion.list()],
+      ['снятие утиля двигателя', () => h.matrica().engineScrap.reasons()],
       ['дети', () => h.matrica().children.list()],
       ['организация', () => h.matrica().organization.list()],
       ['обслуживание', () => h.matrica().maintenance.emptyCardsAnalyze()],

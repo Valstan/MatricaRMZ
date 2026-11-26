@@ -49,6 +49,7 @@ import { registerPrintFormsIpc } from '../../../electron-app/src/main/ipc/regist
 import { registerProductionProgramIpc } from '../../../electron-app/src/main/ipc/register/productionProgram.js';
 import { registerReportsIpc } from '../../../electron-app/src/main/ipc/register/reports.js';
 import { registerScrapCriterionIpc } from '../../../electron-app/src/main/ipc/register/scrapCriterion.js';
+import { registerEngineScrapIpc } from '../../../electron-app/src/main/ipc/register/engineScrap.js';
 import { registerSectionFavoritesIpc } from '../../../electron-app/src/main/ipc/register/sectionFavorites.js';
 import { registerServicePricingIpc } from '../../../electron-app/src/main/ipc/register/servicePricing.js';
 import { registerSettingsIpc } from '../../../electron-app/src/main/ipc/register/settings.js';
@@ -208,6 +209,12 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
   registerAiChatIpc(ctx);
   registerUiScreensIpc(ctx);
   registerScrapCriterionIpc(ctx);
+  // Снятие утиля двигателя (промт КАРМАНА #170): гейт «утильный двигатель не начинает
+  // ремонт» живёт в общей воронке записи этапа, а окно с двумя действиями зовёт этот домен.
+  // Без него на планшете шим ответил бы «недоступно на планшете: engines:scrap:resolve» —
+  // и оператор не смог бы снять утиль, чтобы завести этап. Возврат детали в ремонтный
+  // фонд ходит по HTTP (как на десктопе): без сети снятие утиля всё равно пишет след.
+  registerEngineScrapIpc(ctx);
   registerChildrenIpc(ctx);
   registerOrganizationIpc(ctx);
   registerMaintenanceIpc(ctx);
