@@ -1053,6 +1053,13 @@ export function App() {
       notifyOperator(`Не удалось сообщить администратору: ${text}`, 'error');
     } finally {
       setStuckReportBusy(false);
+      // Статус — сразу: кнопка могла обнаружить, что очередь уже уехала (проба в
+      // момент нажатия), и баннер обязан погаснуть, а не жить по старому снимку.
+      try {
+        setSyncStatus(await window.matrica.sync.status());
+      } catch {
+        // ignore
+      }
     }
   }
 

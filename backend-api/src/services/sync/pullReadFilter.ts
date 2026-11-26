@@ -20,9 +20,13 @@
  *    operator EmployeesPage «Доступ» column read "запрещено" for colleagues; needs
  *    a coordinated renderer fix. delete_requested_* — handle with the same step.
  *
- * Table-level: audit_log is admin-only on pull (no live operator page reads the
- * synced audit_log — see docs/plans/_archive/h1-table-read-authz-2026-06.md §12). Use
- * isPullTableAllowedForRole at the surface level to skip fetching it entirely.
+ * Table-level: журнал действий (`audit_log`) оператору виден СВОИМИ строками
+ * (по `actor` = свой логин) — решение владельца 26.11.2026. Раньше он был «только
+ * для админов» целиком (см. docs/plans/_archive/h1-table-read-authz-2026-06.md §12),
+ * и потому операторский клиент никогда не получал свои журнальные строки обратно:
+ * потерянный ответ push'а оставлял строку в очереди навсегда (инцидент 26.11.2026).
+ * Построчное правило живёт в `syncPrivacy.ts` (`PRIVACY_TABLES`), админский обзор
+ * журнала не изменился.
  *
  * Детский модуль: карточки детей — персональные данные, и видеть их должен узкий
  * круг (владелец 21.11.2026): суперадмин и хозяин модуля. Права `children.view` ни одна
@@ -42,7 +46,7 @@ import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import { attributeDefs, entityTypes } from '../../database/schema.js';
 import { isHiddenAttributeName } from '../ai/sensitiveFilter.js';
 
-type Actor = { id: string; role?: string | null | undefined };
+type Actor = { id: string; role?: string | null | undefined; username?: string | null | undefined };
 
 // Employee EAV attribute codes that are a credential — no client needs them.
 const CREDENTIAL_CODES = new Set<string>(['password_hash']);
@@ -51,9 +55,6 @@ const CREDENTIAL_CODES = new Set<string>(['password_hash']);
 // NOT here on purpose: termination_date / employment_status (roster authority),
 // login (ФИО resolution), system_role / access_enabled (deferred — «Доступ» column).
 const HR_SENSITIVE_CODES = new Set<string>(['birth_date', 'hire_date']);
-
-// Sync tables an operator never needs and that carry admin-only data.
-const ADMIN_ONLY_PULL_TABLES = new Set<string>([SyncTableName.AuditLog]);
 
 const CACHE_TTL_MS = 60_000;
 type DefSets = { credential: Set<string>; restricted: Set<string>; at: number };
@@ -95,9 +96,15 @@ function isAdminRole(role: string | null | undefined): boolean {
   return r === 'admin' || r === 'superadmin';
 }
 
-/** False if `role` must not receive `table` at all on pull (skip the fetch). */
-export function isPullTableAllowedForRole(table: string, role: string | null | undefined): boolean {
-  if (ADMIN_ONLY_PULL_TABLES.has(table) && !isAdminRole(role)) return false;
+/**
+ * False if `role` must not receive `table` at all on pull (skip the fetch).
+ *
+ * Таблиц «целиком только админу» сейчас нет: журнал действий оператору виден своими
+ * строками (решение владельца 26.11.2026), остальное — по правилам приватности
+ * построчно (`syncPrivacy.ts`). Функция остаётся: её зовут все pull-поверхности, и
+ * место для будущих админских таблиц должно быть одно.
+ */
+export function isPullTableAllowedForRole(_table: string, _role: string | null | undefined): boolean {
   return true;
 }
 
@@ -118,7 +125,14 @@ export async function makePullReadFilter(
   const effective = await getEffectivePermissionsForUser(String(actor.id ?? ''));
   const canSeeChildren = effective?.['children.view'] === true;
   return (table, row) => {
-    if (!isAdmin && ADMIN_ONLY_PULL_TABLES.has(table)) return false;
+    // Журнал действий: оператор видит свои строки (по логину автора), админ — все.
+    // Правило повторено и в syncPrivacy.ts (там оно ещё и в SQL) — здесь оно закрывает
+    // поверхности, где приватность живёт построчно (/row-history в том числе).
+    if (table === SyncTableName.AuditLog && !isAdmin) {
+      const username = String(actor.username ?? '').trim();
+      if (!username) return false;
+      return String(row['actor'] ?? '') === username;
+    }
     if (table === SyncTableName.ErpEmployeeChildren && !canSeeChildren) return false;
     if (table !== SyncTableName.AttributeValues) return true;
     const defId = String(row['attribute_def_id'] ?? '');

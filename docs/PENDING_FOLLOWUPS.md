@@ -55,7 +55,8 @@
 ## 🟡 Техдолг и отложенное
 - [🟡 Печать картинок: проверить диалог печати Chromium на живой машине парка 🗓 since:2026-11-26](pending/pechat-kartinok-dialog-pechati-na-parke.md)
 
-- [🟡 Тревога «очередь застряла» может быть ложной: отчёт собирается по устаревшей пробе 🗓 since:2026-11-26](pending/trevoga-ochered-zastryla-otchet-po-ustarevshey-probe.md)
+- [🟡 Класс «застрявшая очередь»: правки готовы, ждём выката и полевой приёмки 🗓 since:2026-11-26](pending/trevoga-ochered-zastryla-otchet-po-ustarevshey-probe.md)
+- [🟡 Шум журнала: телеметрия интерфейса и повторные пуши — решения владельца 🗓 since:2026-11-26](pending/shum-zhurnala-telemetriya-i-povtory.md)
 - [🟡 Сканер документов: решения владельца (промт #148) 🗓 since:2026-11-26](pending/skaner-otkrytye-resheniya.md)
 - [🟡 «В МАКС на телефон» из вложений: канал не подключён 🗓 since:2026-11-26](pending/vygruzka-v-maks-na-telefon.md)
 - [🟡 Управляющие кнопки вправо: остаток обхода — подвалы модалок (промт #141) 🗓 since:2026-11-25](pending/knopki-vpravo-obhod-renderer.md)

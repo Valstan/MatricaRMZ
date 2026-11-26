@@ -83,19 +83,25 @@ describe('makePullReadFilter — operator', () => {
       expect(f(ATTRS, { attribute_def_id: def, entity_id: 'other' }), def).toBe(true);
     }
 
-    // audit_log -> hidden for operators; other tables untouched
-    expect(f(AUDIT, { id: 'a1' })).toBe(false);
+    // audit_log: оператор видит СВОИ журнальные строки (решение владельца 26.11.2026),
+    // чужие — нет. Правило повторено в syncPrivacy.ts (там оно ещё и в SQL).
+    const fAudit = await makePullReadFilter({ id: 'self', role: 'engineer', username: 'me-login' });
+    expect(fAudit(AUDIT, { id: 'a1', actor: 'me-login' })).toBe(true);
+    expect(fAudit(AUDIT, { id: 'a2', actor: 'other-login' })).toBe(false);
     expect(f(ENTITIES, { id: 'x' })).toBe(true);
   });
 });
 
 describe('makePullReadFilter — legacy `user` (non-operator, full PII as before)', () => {
-  it('keeps others’ PII/HR (no operator clamp) but still drops credentials + audit_log', async () => {
+  it('keeps others’ PII/HR (no operator clamp) but still drops credentials', async () => {
     const f = await makePullReadFilter({ id: 'u', role: 'user' });
     expect(f(ATTRS, { attribute_def_id: 'd-salary', entity_id: 'other' })).toBe(true);
     expect(f(ATTRS, { attribute_def_id: 'd-birth', entity_id: 'other' })).toBe(true);
     expect(f(ATTRS, { attribute_def_id: 'd-pwd', entity_id: 'other' })).toBe(false); // credential
-    expect(f(AUDIT, { id: 'a1' })).toBe(false); // not admin
+    // Журнал — по логину автора: свои строки видны, чужие нет.
+    const fAudit = await makePullReadFilter({ id: 'u', role: 'user', username: 'u-login' });
+    expect(fAudit(AUDIT, { id: 'a1', actor: 'u-login' })).toBe(true);
+    expect(fAudit(AUDIT, { id: 'a2', actor: 'other-login' })).toBe(false);
   });
 });
 
@@ -126,14 +132,14 @@ describe('makePullReadFilter — карточки детей (владелец 2
 });
 
 describe('isPullTableAllowedForRole', () => {
-  it('audit_log admin-only; other tables open to all', () => {
-    for (const role of ['engineer', 'user', 'pending', 'employee']) {
-      expect(isPullTableAllowedForRole(AUDIT, role), role).toBe(false);
+  it('таблиц «целиком только админу» больше нет: журнал оператору виден своими строками', () => {
+    // Правило журнала — в syncPrivacy.ts (PRIVACY_TABLES), а не в пропуске таблицы:
+    // иначе операторский клиент никогда не получал бы свои строки обратно
+    // (инцидент 26.11.2026).
+    for (const role of ['engineer', 'user', 'pending', 'employee', 'admin', 'superadmin']) {
+      expect(isPullTableAllowedForRole(AUDIT, role), role).toBe(true);
       expect(isPullTableAllowedForRole(ATTRS, role), role).toBe(true);
       expect(isPullTableAllowedForRole(ENTITIES, role), role).toBe(true);
-    }
-    for (const role of ['admin', 'superadmin']) {
-      expect(isPullTableAllowedForRole(AUDIT, role), role).toBe(true);
     }
   });
 });

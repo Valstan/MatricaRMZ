@@ -68,6 +68,34 @@ describe('makePrivacyRowFilter — operator (non-admin)', () => {
   });
 });
 
+describe('журнал действий: оператор видит СВОИ строки (решение владельца 26.11.2026)', () => {
+  const ctx = { sharedNoteIds: new Set<string>(), ownedNoteIds: new Set<string>(), visibleRoomIds: new Set<string>() };
+  const withLogin = (username: string | null) =>
+    makePrivacyRowFilter({ id: ME, isAdmin: false, isPending: false, username }, ctx);
+
+  it('таблица помечена приватной — её нельзя раздавать целиком', () => {
+    expect(isPrivacyTable(SyncTableName.AuditLog)).toBe(true);
+  });
+
+  it('свои строки видны, чужие — нет', () => {
+    const f = withLogin('me-login');
+    expect(f(SyncTableName.AuditLog, { id: 'a1', actor: 'me-login' })).toBe(true);
+    expect(f(SyncTableName.AuditLog, { id: 'a2', actor: 'other-login' })).toBe(false);
+  });
+
+  it('без логина не видно ничего (лучше пусто, чем чужие строки)', () => {
+    const f = withLogin(null);
+    expect(f(SyncTableName.AuditLog, { id: 'a1', actor: 'me-login' })).toBe(false);
+  });
+
+  it('админ видит журнал целиком, pending — ничего', () => {
+    const admin = makePrivacyRowFilter({ id: ME, isAdmin: true, isPending: false, username: 'me-login' }, ctx);
+    const pending = makePrivacyRowFilter({ id: ME, isAdmin: false, isPending: true, username: 'me-login' }, ctx);
+    expect(admin(SyncTableName.AuditLog, { id: 'a2', actor: 'other-login' })).toBe(true);
+    expect(pending(SyncTableName.AuditLog, { id: 'a1', actor: 'me-login' })).toBe(false);
+  });
+});
+
 describe('makePrivacyRowFilter — admin sees all, pending sees none', () => {
   const admin = makePrivacyRowFilter(
     { id: ME, isAdmin: true, isPending: false },

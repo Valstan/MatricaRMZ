@@ -28,7 +28,11 @@ vi.mock('./syncService.js', () => ({
 }));
 
 vi.mock('./engineReservationClient.js', () => ({ flushPendingEngineReservationReleases: vi.fn(async () => 0) }));
-vi.mock('./settingsStore.js', () => ({ SettingsKey: { ApiBaseUrl: 'api' }, settingsGetString: vi.fn(async () => '') }));
+vi.mock('./settingsStore.js', () => ({
+  SettingsKey: { ApiBaseUrl: 'api', LastSuccessfulSyncAt: 'sync.lastSuccessfulSyncAt' },
+  settingsGetString: vi.fn(async () => ''),
+  settingsSetNumber: vi.fn(async () => {}),
+}));
 vi.mock('./logService.js', () => ({ logPerfWarn: vi.fn() }));
 
 const { SyncManager } = await import('./syncManager.js');

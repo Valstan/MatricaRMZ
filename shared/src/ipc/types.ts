@@ -571,6 +571,15 @@ export type SyncStatus = {
   state: 'idle' | 'syncing' | 'error';
   lastSyncAt: number | null;
   lastError: string | null;
+  /**
+   * Причина последнего неуспешного прогона — даже если она офлайн-класса.
+   *
+   * Зачем отдельно от `lastError`: офлайн-ошибку `lastError` обнуляет (машина не в
+   * сети — это не поломка), и в отчёте администратору строка «Ошибка синка» не
+   * печаталась вовсе ⇒ администратор получал тревогу без причины (инцидент
+   * 26.11.2026, PC20). Здесь причина остаётся всегда.
+   */
+  lastFailureReason?: string | null;
   lastResult: SyncRunResult | null;
   nextAutoSyncInMs: number | null;
   /**

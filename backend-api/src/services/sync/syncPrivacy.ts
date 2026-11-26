@@ -27,6 +27,12 @@ export const PRIVACY_TABLES = new Set<string>([
   SyncTableName.NoteShares,
   SyncTableName.CardDrafts,
   SyncTableName.AiChatRequests,
+  // Журнал действий. Раньше он был «только для админов» целиком (см.
+  // pullReadFilter.ts), из-за чего операторский клиент никогда не получал свои
+  // журнальные строки обратно: потерянный ответ push'а оставлял строку в очереди
+  // навсегда. Решение владельца 26.11.2026: оператор видит СВОИ строки (по
+  // `actor` = свой логин), админ — по-прежнему все.
+  SyncTableName.AuditLog,
 ]);
 
 export function isPrivacyTable(table: string): boolean {
@@ -39,6 +45,7 @@ export function privacyFilterForTable(
   pgTable: any,
   actorId: string,
   actorIsPending: boolean,
+  actorUsername?: string | null,
 ): any | undefined {
   switch (tableName) {
     case SyncTableName.ChatMessages: {
@@ -76,6 +83,14 @@ export function privacyFilterForTable(
       return eq(pgTable.ownerUserId, actorId);
     case SyncTableName.AiChatRequests:
       return eq(pgTable.userId, actorId);
+    case SyncTableName.AuditLog: {
+      // Журнал принадлежит автору по логину (`actor`), а не по id сотрудника.
+      // Логина нет — строк не видно (пустой результат, а не «все»).
+      if (actorIsPending) return sql`false`;
+      const username = String(actorUsername ?? '').trim();
+      if (!username) return sql`false`;
+      return eq(pgTable.actor, username);
+    }
     default:
       return undefined;
   }
@@ -144,7 +159,7 @@ export async function getOwnedNoteIds(actorId: string): Promise<Set<string>> {
   return new Set(rows.map((r) => String(r.id)));
 }
 
-type PrivacyActor = { id: string; isAdmin: boolean; isPending: boolean; isSuperadmin?: boolean };
+type PrivacyActor = { id: string; isAdmin: boolean; isPending: boolean; isSuperadmin?: boolean; username?: string | null };
 type PrivacyCtx = { sharedNoteIds: Set<string>; ownedNoteIds: Set<string>; visibleRoomIds: Set<string> };
 
 /**
@@ -193,6 +208,12 @@ export function makePrivacyRowFilter(
         return String(row['owner_user_id'] ?? '') === actor.id;
       case SyncTableName.AiChatRequests:
         return String(row['user_id'] ?? '') === actor.id;
+      case SyncTableName.AuditLog: {
+        // Журнал — по логину автора (см. решение владельца 26.11.2026).
+        const username = String(actor.username ?? '').trim();
+        if (!username) return false;
+        return String(row['actor'] ?? '') === username;
+      }
       default:
         return true;
     }

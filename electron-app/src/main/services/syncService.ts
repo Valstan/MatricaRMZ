@@ -22,7 +22,7 @@ import {
   type SyncPullResponse,
   type SyncPushRequest,
 } from '@matricarmz/shared';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, like, notLike, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -125,7 +125,7 @@ import {
 } from './sync/errorRecovery.js';
 import { sendDiagnosticsSnapshot as sendDiagnosticsSnapshotImpl } from './sync/diagnosticsReporter.js';
 import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
-import { countPendingLocalRows, countPendingLocalRowsByTable, countStuckPendingLocalRows } from './sync/localPending.js';
+import { DEFERRED_AUDIT_ACTION_PREFIX, countPendingLocalRows, countPendingLocalRowsByTable, countStuckPendingLocalRows } from './sync/localPending.js';
 import { PENDING_EXPORT_PREFIX, PENDING_EXPORT_SUFFIX, markExportFileKept, readKeptExportFiles, unmarkExportFileKept } from './sync/pendingExportState.js';
 import type { StuckPendingProbe } from './sync/localPending.js';
 import { nowMs, yieldToEventLoop } from './sync/progressEmitter.js';
@@ -1338,6 +1338,23 @@ async function collectPending(db: BetterSQLite3Database) {
   };
 
   /**
+   * Лимит строк таблицы — С ИМЕНЕМ отсечения.
+   *
+   * Зачем: бюджет push'а общий, и таблица, до которой не дошла, получает ноль строк.
+   * Раньше это молчало: в лог попадало только отсечение пяти таблиц, берущих строки
+   * через `takePending`, а остальные брали строки сырым `.limit(limitFor(…))` — и при
+   * съеденном бюджете уезжали ни с чем. Строка висела `pending` вечно, и никто не
+   * знал почему (инцидент 26.11.2026 — очередь в `audit_log` на PC20).
+   */
+  const limitForLoud = (table: SyncTableName) => {
+    const limit = limitFor(table);
+    if (limit <= 0) {
+      logSync(`push budget cut table=${table} budget=0 (остаток в pending уедет следующим push)`);
+    }
+    return limit;
+  };
+
+  /**
    * Забирает pending-строки таблицы с запасом на одну строку: так видно, что
    * таблица отсечена лимитом, и это можно НАЗВАТЬ в логе. Раньше отсечение было
    * молчанием (план #114, шаг 27): строка висела `pending`, и никто не знал почему.
@@ -1492,11 +1509,29 @@ async function collectPending(db: BetterSQLite3Database) {
     await add(SyncTableName.Operations, valid);
   }
   {
-    const pendingAudit = await db
-      .select()
-      .from(auditLog)
-      .where(eq(auditLog.syncStatus, pending))
-      .limit(limitFor(SyncTableName.AuditLog));
+    // Журнал действий: БИЗНЕС-строки идут первыми, телеметрия (`ui.*`) — на остаток
+    // лимита. Иначе тысячи телеметрических строк вытесняют из бюджета `app.session.*`
+    // и другие бизнес-строки — и те висят `pending` (инцидент 26.11.2026: три строки
+    // журнала на PC20 пролежали двое суток, пока телеметрия занимала очередь).
+    const auditLimit = limitForLoud(SyncTableName.AuditLog);
+    let pendingAudit: typeof auditLog.$inferSelect[] = [];
+    if (auditLimit > 0) {
+      const business = await db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.syncStatus, pending), notLike(auditLog.action, DEFERRED_AUDIT_ACTION_PREFIX)))
+        .limit(auditLimit);
+      pendingAudit = business;
+      const rest = auditLimit - business.length;
+      if (rest > 0) {
+        const telemetry = await db
+          .select()
+          .from(auditLog)
+          .where(and(eq(auditLog.syncStatus, pending), like(auditLog.action, DEFERRED_AUDIT_ACTION_PREFIX)))
+          .limit(rest);
+        pendingAudit = pendingAudit.concat(telemetry);
+      }
+    }
     const valid: typeof pendingAudit = [];
     const invalidIds: string[] = [];
     for (const row of pendingAudit) {
@@ -1519,7 +1554,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(chatRooms)
       .where(eq(chatRooms.syncStatus, pending))
-      .limit(limitFor(SyncTableName.ChatRooms));
+      .limit(limitForLoud(SyncTableName.ChatRooms));
     await add(SyncTableName.ChatRooms, pendingRooms);
   }
   {
@@ -1527,7 +1562,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(chatMessages)
       .where(eq(chatMessages.syncStatus, pending))
-      .limit(limitFor(SyncTableName.ChatMessages));
+      .limit(limitForLoud(SyncTableName.ChatMessages));
     const valid: typeof pendingMessages = [];
     const invalidIds: string[] = [];
     for (const row of pendingMessages) {
@@ -1550,7 +1585,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(chatReads)
       .where(eq(chatReads.syncStatus, pending))
-      .limit(limitFor(SyncTableName.ChatReads));
+      .limit(limitForLoud(SyncTableName.ChatReads));
     const valid: typeof pendingReads = [];
     const invalidIds: string[] = [];
     for (const row of pendingReads) {
@@ -1573,7 +1608,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(notes)
       .where(eq(notes.syncStatus, pending))
-      .limit(limitFor(SyncTableName.Notes));
+      .limit(limitForLoud(SyncTableName.Notes));
     const valid: typeof pendingNotes = [];
     const invalidIds: string[] = [];
     for (const row of pendingNotes) {
@@ -1596,7 +1631,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(noteShares)
       .where(eq(noteShares.syncStatus, pending))
-      .limit(limitFor(SyncTableName.NoteShares));
+      .limit(limitForLoud(SyncTableName.NoteShares));
     const valid: typeof pendingShares = [];
     const invalidIds: string[] = [];
     for (const row of pendingShares) {
@@ -1619,7 +1654,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(cardDrafts)
       .where(eq(cardDrafts.syncStatus, pending))
-      .limit(limitFor(SyncTableName.CardDrafts));
+      .limit(limitForLoud(SyncTableName.CardDrafts));
     const valid: typeof pendingDrafts = [];
     const invalidIds: string[] = [];
     for (const row of pendingDrafts) {
@@ -1642,7 +1677,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(aiChatRequests)
       .where(eq(aiChatRequests.syncStatus, pending))
-      .limit(limitFor(SyncTableName.AiChatRequests));
+      .limit(limitForLoud(SyncTableName.AiChatRequests));
     const valid: typeof pendingAiRequests = [];
     const invalidIds: string[] = [];
     for (const row of pendingAiRequests) {
@@ -1665,7 +1700,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(userPresence)
       .where(eq(userPresence.syncStatus, pending))
-      .limit(limitFor(SyncTableName.UserPresence));
+      .limit(limitForLoud(SyncTableName.UserPresence));
     const valid: typeof pendingPresence = [];
     const invalidIds: string[] = [];
     for (const row of pendingPresence) {
@@ -1691,7 +1726,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(erpEngineInventoryLines)
       .where(eq(erpEngineInventoryLines.syncStatus, pending))
-      .limit(limitFor(SyncTableName.ErpEngineInventoryLines));
+      .limit(limitForLoud(SyncTableName.ErpEngineInventoryLines));
     const valid: typeof pendingLines = [];
     const invalidIds: string[] = [];
     for (const row of pendingLines) {
@@ -1713,7 +1748,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(erpContractPaymentSlots)
       .where(eq(erpContractPaymentSlots.syncStatus, pending))
-      .limit(limitFor(SyncTableName.ErpContractPaymentSlots));
+      .limit(limitForLoud(SyncTableName.ErpContractPaymentSlots));
     const valid: typeof pendingSlots = [];
     const invalidIds: string[] = [];
     for (const row of pendingSlots) {
@@ -1732,7 +1767,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(erpContractPayments)
       .where(eq(erpContractPayments.syncStatus, pending))
-      .limit(limitFor(SyncTableName.ErpContractPaymentPayments));
+      .limit(limitForLoud(SyncTableName.ErpContractPaymentPayments));
     const valid: typeof pendingPayments = [];
     const invalidIds: string[] = [];
     for (const row of pendingPayments) {
@@ -1755,7 +1790,7 @@ async function collectPending(db: BetterSQLite3Database) {
       .select()
       .from(erpEngineCards)
       .where(eq(erpEngineCards.syncStatus, pending))
-      .limit(limitFor(SyncTableName.ErpEngineCards));
+      .limit(limitForLoud(SyncTableName.ErpEngineCards));
     const valid: typeof pendingCards = [];
     const invalidIds: string[] = [];
     for (const row of pendingCards) {
