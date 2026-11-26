@@ -64,7 +64,7 @@
 
 - [🟡 Дубли общих модулей: объединить лестницы «где двигатель сейчас» и общий escapeHtml — решения владельца 🗓 since:2026-11-25](pending/dubl-obshchih-modulev-lestnicy-i-escapehtml.md)
 
-- [🟡 Отчётные таблицы вне кита: пресеты и конструктор отчётов — нужен устойчивый ключ строки от сервера 🗓 since:2026-11-23](pending/otchetnye-tablitsy-presetov-i-konstruktor-otchetov-vne-kita.md)
+- [🟡 Отчётные таблицы вне кита: пресеты и конструктор отчётов — нужен устойчивый ключ строки 🗓 since:2026-11-23](pending/otchetnye-tablitsy-presetov-i-konstruktor-otchetov-vne-kita.md)
 
 - [🟡 Индекс грабель у потолка: новая грабля не влезает без сокращения формулировок 🗓 since:2026-11-20](pending/indeks-grabeley-u-potolka.md)
 
@@ -95,7 +95,7 @@
 - [🟡 Файл ужесточения sshd на проде не подключён — лежит мёртвым грузом 🗓 since:2026-09-22](pending/fayl-uzhestocheniya-sshd-na-prode-ne-podklyuchen-lezhit.md)
 - [🟡 Парк скачает 209 МБ строк, которыми пока не умеет пользоваться — решение владельца 🗓 since:2026-09-06](pending/park-skachaet-209-mb-strok-kotorymi-poka-ne-umeet.md)
 - [🟢 Журнал в PostgreSQL — хвосты J3 после сноса цепочки 🗓 since:2026-09-12](pending/zhurnal-v-postgresql-khvosty-j3-posle-snosa-tsepochki.md)
-- [🟡 Список деталей двигателя → строгая таблица `erp_engine_inventory_lines` (E1, E2.2, E2.3 в коде; дальше релиз и контроль на живом потоке, затем E3) 🗓 since:2026-09-05](pending/spisok-detaley-dvigatelya-strogaya-tablitsa-erp-engine.md)
+- [🟡 Список деталей двигателя → строгая таблица `erp_engine_inventory_lines` (E1–E2.3 в коде; дальше релиз и E3) 🗓 since:2026-09-05](pending/spisok-detaley-dvigatelya-strogaya-tablitsa-erp-engine.md)
 - [🟡 Заказчик двигателя считается из договора: сделан расчёт, остался интерфейс 🗓 since:2026-09-07](pending/zakazchik-dvigatelya-schitaetsya-iz-dogovora-sdelan.md)
 - [Anthropic API блокирует РФ-IP → на проде AI работает через DeepSeek, заблокировано только PR-авторевью 🗓 since:2026-06-04](pending/anthropic-api-blokiruet-rf-ip-na-prode-ai-rabotaet.md)
 - [🟡 Уникальные ограничения в снимке схемы: сервер починен и выкачен, клиент пока только отчитывается 🗓 since:2026-08-30](pending/unikalnye-ogranicheniya-v-snimke-skhemy-server-pochinen.md)
@@ -107,11 +107,11 @@
 ## ⏳ Ждёт внешнего окна / события
 
 - [⏳ Прод-бэкфилл цехов программ: ждёт решения владельца (рантайм не пускает к прод-БД) 🗓 since:2026-11-24](pending/pp-backfill-workshop-na-prode-reshenie-vladeltsa.md)
-- [⏳ Данные оператора: серверная дверь починена, клиент 3.135.0 роняет pull — остались снимок машины, обновление ≥3.136.0 и приёмка 🗓 since:2026-11-23](pending/dannie-operatora-ne-uhodyat-na-server.md)
+- [⏳ Данные оператора: дверь починена, клиент 3.135.0 роняет pull — остались снимок, обновление ≥3.136.0 и приёмка 🗓 since:2026-11-23](pending/dannie-operatora-ne-uhodyat-na-server.md)
 - [⏳ Строки списка деталей застряли в отправке: правка в v3.147.0, ждём полевую приёмку 🗓 since:2026-11-24](pending/stroki-spiska-detaley-zastryali-v-otpravke.md)
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)
 - [⏳ Промты проекта из КАРМАНА (D-190): #137, #138, #143, #145, #151 сделаны кодом; #143 и #145 ждут полевой приёмки 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
-- [⏳ MiniMax-воркер на проде: воркер живой, звено включено; ждём первый ответ от MiniMax — пул Кармана пуст даже после сброса суток 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
+- [⏳ MiniMax-воркер на проде: воркер живой; ждём первый ответ от MiniMax — пул Кармана пуст даже после сброса суток 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
 - [⏳ Локальный MiniMax на клиенте: код выпущен (v3.142.0), ждём комнату «Кармана», рантайм в CI и смоук на живой машине 🗓 since:2026-11-23](pending/lokalnyy-minimax-na-kliente-privyka-i-runtaym.md)
 - [⏳ Планшетная версия «Матрицы РМЗ»: код готов, меню полное (промт #142, PR #2046), APK выложен релизом v3.143.0 — осталась приёмка глазами владельца на устройстве 🗓 since:2026-11-23](pending/planshetnaya-versiya-matritsy-rmz-na-planshete.md)
 - [⏳ Планшет — доступ как на компьютере (#111/#113/#115): доставка выдачи и снятия раздела починена (четыре обрыва, найдены замером) — осталась приёмка глазами владельца 🗓 since:2026-11-24](pending/planshet-celhovye-razdely-obem-porta.md)
@@ -120,11 +120,11 @@
 - [⏳ Клиент не отправлял атрибуты нового сотрудника — причина найдена, класс лечится 🗓 since:2026-11-16](pending/klient-ne-otpravlyaet-atributy-novogo-sotrudnika.md)
 - [⏳ «Поиск по файлам»: вёрстка, названия вместо id, сверка с карточкой, .xls — выкат v3.131.0 сделан, ждёт приёмки 🗓 since:2026-11-16](pending/poisk-po-failam-dorabotka-priemka.md)
 - [⏳ СИЗ: карточка смывающих средств — остаток по образцу №43 (свидетельство, способ выдачи, расписка) 🗓 since:2026-11-14](pending/siz-kartochka-smyvayushchih-sredstv.md)
-- [⏳ Панель фильтров: кнопка «Фильтры» в тулбаре, свёрнутая панель исчезает совсем — приёмка на парке (PR #2036, промт КАРМАНА #151) 🗓 since:2026-11-12](pending/panel-filtrov-spoilera-net-plashki-plavayushchie-priemka.md)
+- [⏳ Панель фильтров: кнопка «Фильтры», свёрнутая панель исчезает — приёмка на парке (PR #2036) 🗓 since:2026-11-12](pending/panel-filtrov-spoilera-net-plashki-plavayushchie-priemka.md)
 - [⏳ Приёмка парка на 3.102.0: приказ о СИЗ и должности должны быть видны оператору 🗓 since:2026-11-03](pending/priemka-parka-na-3-101-0-prikaz-o-siz.md)
-- [⏳ Проставить сроки носки по 113 годовым позициям приказа о СИЗ: без срока они не попадают в «пора выдавать» 🗓 since:2026-11-05](pending/prostat-sroki-noski-po-godovym-poziciyam-prikaza-siz.md)
+- [⏳ Проставить сроки носки по 113 позициям приказа о СИЗ: без срока не попадают в «пора выдавать» 🗓 since:2026-11-05](pending/prostat-sroki-noski-po-godovym-poziciyam-prikaza-siz.md)
 - [⏳ Выгрузка СИЗ в 1С: структура файла ждёт бухгалтера 🗓 since:2026-11-03](pending/vygruzka-siz-v-1s-struktura-zhdet-buhgaltera.md)
-- [⏳ Импорт ЗУП: настоящая выгрузка пришла (23.11) и упала на «Шапка не распознана» — разбор исправлен (PR #1968), ждём приёмку на файле 🗓 since:2026-10-18](pending/import-zup-zhivogo-obraztsa-vygruzki-tak-i-ne-bylo.md)
+- [⏳ Импорт ЗУП: выгрузка (23.11) упала на «Шапка не распознана» — разбор исправлен (PR #1968), ждём приёмку 🗓 since:2026-10-18](pending/import-zup-zhivogo-obraztsa-vygruzki-tak-i-ne-bylo.md)
 - [⏳ ПП: приёмка глазами — поля шапки и перетаскивание 🗓 since:2026-11-23](pending/pp-header-grid-acceptance.md)
 - [🟡 «Кладовщик»: показать раздел кладовщику завода (фаза 2) 🗓 since:2026-10-20](pending/kladovshchik-pokazat-razdel-kladovshchiku-zavoda-faza-2.md)
 - [🟡 Почта из программы: транспорт `mailto:`, SMTP — решением владельца 🗓 since:2026-10-21](pending/pochta-iz-programmy-transport-mailto-smtp-resheniem.md)
@@ -134,7 +134,7 @@
 - [Переход на нумерацию «Матрица3-РМЗ (N)» — раскат через Заглушку и Диспетчер 🗓 since:2026-08-15](pending/perekhod-na-numeratsiyu-matritsa3-rmz-n-raskat-cherez.md)
 - [🔴 Живая приёмка нового установщика (v2026.804.1200) — ДО раскатки на парк 🗓 since:2026-08-04](pending/zhivaya-priemka-novogo-ustanovshchika-v2026-804-1200-do.md)
 - [🟢 Android-планшет: ключ подписи заведён, планшет на релизе 🗓 since:2026-08-04](pending/android-planshet-klyuch-podpisi-zaveden-planshet-na.md)
-- [🟢 Реестр выпусков (`release_registry`) не ведётся — решение владельца 05.11: оставить как есть; для возврата нужен долгоживущий ключ 🗓 since:2026-11-05](pending/reestr-vypuskov-ne-vedetsya-reshenie-vladeltsa-05-11.md)
+- [🟢 Реестр выпусков (`release_registry`) не ведётся — решение владельца 05.11: оставить как есть 🗓 since:2026-11-05](pending/reestr-vypuskov-ne-vedetsya-reshenie-vladeltsa-05-11.md)
 - [🟡 Форс-килл клиента в установщике — сделать безусловным 🗓 since:2026-08-04](pending/fors-kill-klienta-v-ustanovshchike-sdelat-bezuslovnym.md)
 - [🟡 Настроить доверенную зону антивируса на парке 🗓 since:2026-08-04](pending/nastroit-doverennuyu-zonu-antivirusa-na-parke.md)
 - [Финальная визуальная проверка иконки клиента 🗓 since:2026-05-30](pending/finalnaya-vizualnaya-proverka-ikonki-klienta.md)
@@ -190,6 +190,7 @@
 
 ## 🟢 Крупные фичи / решения владельца
 
+- [🟡 Отбор заказчиков по виду договора (промт #147): фильтр сделан, ждут приёмки и решения «равен/совместим» 🗓 since:2026-11-26](pending/otbor-zakazchikov-po-vidu-dogovora.md)
 - [Списки по одним правилам (промт #67): кит, верхний уровень, карточки, отчёты, диалоги, ПП, список СИЗ и 4 справочника — сделаны; реестр списков заведён, ждут остальные 44 страницы 🗓 since:2026-11-23](pending/unified-list-rules-cards-and-reports.md)
 - [🟡 Подписи печатных форм: приёмка на живой печати ПП и перенос на наряд (нужен ли) 🗓 since:2026-11-23](pending/print-signature-slots-acceptance.md)
 - [Печатная форма ПП: колонки в одну строку и разрывы страниц — приёмка и решение по обрезанным значениям 🗓 since:2026-11-23](pending/pp-print-form-acceptance.md)

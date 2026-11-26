@@ -4,6 +4,7 @@ import {
   counterpartyLabel,
   counterpartySearchOptionsFromRows,
   counterpartySearchText,
+  filterCounterpartyOptionsByContractKind,
   mergeCounterpartyRows,
   type CounterpartyEavRow,
   type CounterpartyStrictRow,
@@ -76,5 +77,80 @@ describe('источник контрагентов (промт #146)', () => {
     const { strictById, merged } = mergeCounterpartyRows([], [bare]);
     expect(counterpartyLabel(merged[0]!, strictById)).toBe(bare.id);
     expect(counterpartySearchText(merged[0]!, strictById)).toBe('');
+  });
+});
+
+/**
+ * Промт КАРМАНА #147: «Префикс вида: фильтр по виду заказчика».
+ *
+ * Вид заказчика (префикс) лежит в строгой таблице `erp_counterparties.engine_kind` и уже
+ * участвует в общем правиле вида двигателя. Отбор подсказок поля «Контрагент» по виду
+ * договора — это ФИЛЬТР, а не гейт заведения двигателя.
+ */
+describe('отбор заказчиков по виду договора (промт #147)', () => {
+  const goz: CounterpartyStrictRow = {
+    id: 'cp-goz',
+    name: 'Заказчик ГОЗ',
+    engine_kind: 'military',
+  };
+  const civil: CounterpartyStrictRow = {
+    id: 'cp-civil',
+    name: 'Заказчик Гражданский',
+    engine_kind: 'civil',
+  };
+  const noKind: CounterpartyStrictRow = {
+    id: 'cp-none',
+    name: 'Заказчик без вида',
+    engine_kind: null,
+  };
+
+  it('подсказка несёт вид заказчика — оператор видит, почему заказчик предложен', () => {
+    const options = counterpartySearchOptionsFromRows([goz, civil, noKind], []);
+    expect(options.find((o) => o.id === 'cp-goz')?.engineKind).toBe('military');
+    expect(options.find((o) => o.id === 'cp-goz')?.hintText).toBe('Вид: ГОЗ');
+    expect(options.find((o) => o.id === 'cp-civil')?.hintText).toBe('Вид: Гражданский');
+    expect(options.find((o) => o.id === 'cp-none')?.hintText).toBe('Вид не задан');
+  });
+
+  it('в ГОЗ-договоре гражданский заказчик не предлагается', () => {
+    const options = counterpartySearchOptionsFromRows([goz, civil, noKind], []);
+    const visible = filterCounterpartyOptionsByContractKind(options, 'military');
+    expect(visible.map((o) => o.id)).toEqual(['cp-goz', 'cp-none']);
+  });
+
+  it('в гражданском договоре ГОЗ-заказчик не предлагается', () => {
+    const options = counterpartySearchOptionsFromRows([goz, civil, noKind], []);
+    const visible = filterCounterpartyOptionsByContractKind(options, 'civil');
+    expect(visible.map((o) => o.id)).toEqual(['cp-civil', 'cp-none']);
+  });
+
+  it('заказчик без вида предлагается в обоих договорах — но с пометкой «Вид не задан»', () => {
+    const options = counterpartySearchOptionsFromRows([goz, civil, noKind], []);
+    for (const kind of ['military', 'civil'] as const) {
+      const visible = filterCounterpartyOptionsByContractKind(options, kind);
+      expect(visible.map((o) => o.id)).toContain('cp-none');
+      expect(visible.find((o) => o.id === 'cp-none')?.hintText).toBe('Вид не задан');
+    }
+  });
+
+  it('выбранный контрагент чужого вида остаётся в поле', () => {
+    const options = counterpartySearchOptionsFromRows([goz, civil, noKind], []);
+    const visible = filterCounterpartyOptionsByContractKind(options, 'military', { keepIds: ['cp-civil'] });
+    expect(visible.map((o) => o.id)).toContain('cp-civil');
+  });
+
+  it('вид договора неизвестен — отбор выключен, показываются все', () => {
+    const options = counterpartySearchOptionsFromRows([goz, civil, noKind], []);
+    expect(filterCounterpartyOptionsByContractKind(options, null).map((o) => o.id)).toEqual([
+      'cp-goz',
+      'cp-civil',
+      'cp-none',
+    ]);
+  });
+
+  it('контрагент из EAV вида не имеет — источник вида один (строгая таблица)', () => {
+    const options = counterpartySearchOptionsFromRows([], [eavOnly]);
+    expect(options[0]?.engineKind ?? null).toBeNull();
+    expect(options[0]?.hintText).toBe('Вид не задан');
   });
 });

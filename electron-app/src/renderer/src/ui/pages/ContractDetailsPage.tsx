@@ -78,6 +78,7 @@ import {
   type ContractSections,
   CONTRACT_KIND_LABELS,
   type ContractKind,
+  counterpartyKindFilterNote,
   type ContractPrimarySection,
   type ContractAddonSection,
   type ContractEngineBrandRow,
@@ -103,7 +104,11 @@ import { buildAdvanceMemoSections } from '../utils/advanceMemo.js';
 import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
-import { loadCounterpartySearchOptions } from '../utils/counterpartyOptions.js';
+import {
+  filterCounterpartyOptionsByContractKind,
+  loadCounterpartySearchOptions,
+  type CounterpartySearchOption,
+} from '../utils/counterpartyOptions.js';
 import { compareEngineOptions, engineOptionLabel } from '../utils/engineOptionLabel.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
@@ -396,7 +401,8 @@ function SectionBlock(props: {
   isPrimary: boolean;
   engineBrandOptions: LinkOpt[];
   partOptions: LinkOpt[];
-  customerOptions?: LinkOpt[];
+  /** Подсказки поля «Контрагент» — с видом заказчика (префиксом) для отбора по виду договора. */
+  customerOptions?: CounterpartySearchOption[];
   onChange: (section: ContractPrimarySection | ContractAddonSection) => void;
   onRemove?: () => void;
   canEdit: boolean;
@@ -491,6 +497,31 @@ function SectionBlock(props: {
     ? (props.contractPayments?.slots ?? []).filter((s) => s.sectionKey === sectionToken)
     : [];
   const paymentsToday = todayIsoDate();
+
+  // Отбор подсказок поля «Контрагент» по виду договора (промт КАРМАНА #147).
+  //
+  // Правило живёт в домене (`filterCounterpartiesByContractKind`): заказчик чужого вида в
+  // этом договоре не предлагается, заказчик без вида предлагается всегда (но с пометкой
+  // «Вид не задан» в подсказке). Поле «Контрагент» есть только у основного договора —
+  // вид берём из его секции.
+  //
+  // Выбранный контрагент остаётся в поле в любом случае: иначе смена вида договора
+  // выглядела бы как «значение удалено», а это неправда.
+  const contractKind = isPrimary ? (section as ContractPrimarySection).kind : null;
+  const selectedCustomerId = isPrimary ? ((section as ContractPrimarySection).customerId ?? null) : null;
+  const customerOptionsByKind = useMemo(() => {
+    const visible = filterCounterpartyOptionsByContractKind(customerOptions, contractKind, {
+      keepIds: selectedCustomerId ? [selectedCustomerId] : [],
+    });
+    return { visible, hidden: Math.max(0, customerOptions.length - visible.length) };
+  }, [customerOptions, contractKind, selectedCustomerId]);
+  // Вид выбранного контрагента не совпал с видом договора — предупреждаем: иначе смена
+  // вида договора тихо оставила бы в поле «чужого» заказчика.
+  const selectedCustomerKind = selectedCustomerId
+    ? (customerOptions.find((o) => o.id === selectedCustomerId)?.engineKind ?? null)
+    : null;
+  const selectedCustomerKindMismatch =
+    contractKind != null && selectedCustomerKind != null && selectedCustomerKind !== contractKind;
 
   // Единый список секции: строка = слот. Двигатель садится в слот СВОЕЙ марки, поэтому
   // список слотов и есть список двигателей — разводить их по двум таблицам («Двигатели»
@@ -850,7 +881,7 @@ function SectionBlock(props: {
                     target="customer"
                     targetLabel="Контрагент"
                     value={primarySection.customerId ?? null}
-                    options={customerOptions}
+                    options={customerOptionsByKind.visible}
                     disabled={!canEdit}
                     canCreate={canEditMasterData}
                     createLabel="Новый контрагент"
@@ -864,6 +895,18 @@ function SectionBlock(props: {
                     {...(onOpenCounterparty ? { onOpen: onOpenCounterparty } : {})}
                   />
                 </div>
+                {/* Отбор по виду должен быть ВИДЕН оператору (промт #147, п.6): иначе
+                    «заказчик пропал из подсказок» читается как поломка, а не как отбор. */}
+                <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 4 }} data-counterparty-kind-note>
+                  {counterpartyKindFilterNote({ contractKind, hiddenCount: customerOptionsByKind.hidden })}
+                </div>
+                {selectedCustomerKindMismatch && (
+                  <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }} data-counterparty-kind-mismatch>
+                    Выбранный контрагент — вид «{CONTRACT_KIND_LABELS[selectedCustomerKind]}», а договор — «
+                    {CONTRACT_KIND_LABELS[contractKind]}». Он оставлен в поле, но в новых договорах такого вида
+                    не предлагается.
+                  </div>
+                )}
               </FormField>
             </>
           )}
@@ -1555,7 +1598,7 @@ export function ContractDetailsPage(props: {
   const [sections, setSections] = useState<ContractSections | null>(null);
   const [entityTypes, setEntityTypes] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [engineBrandOptions, setEngineBrandOptions] = useState<LinkOpt[]>([]);
-  const [customerOptions, setCustomerOptions] = useState<LinkOpt[]>([]);
+  const [customerOptions, setCustomerOptions] = useState<CounterpartySearchOption[]>([]);
   const [partOptions, setPartOptions] = useState<LinkOpt[]>([]);
   const [allEngineOptions, setAllEngineOptions] = useState<LinkOpt[]>([]);
   // Марка по id для ЛЮБОГО двигателя системы: при привязке двигатель ещё не в

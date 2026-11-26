@@ -24,6 +24,7 @@ const rows: CounterpartyFacetRow[] = [
     contractAmount: 12_000_000,
     enginesAtFactory: 3,
     overdueContracts: 1,
+    engineKind: 'military',
   },
   {
     id: 'cp-2',
@@ -33,6 +34,7 @@ const rows: CounterpartyFacetRow[] = [
     contractAmount: 500_000,
     enginesAtFactory: 0,
     overdueContracts: 0,
+    engineKind: 'civil',
   },
   {
     id: 'cp-3',
@@ -102,5 +104,20 @@ describe('ступени списка заказчиков', () => {
     for (const facet of COUNTERPARTY_FACETS) {
       expect(facet.label.length, `ступень ${facet.id} без подписи`).toBeGreaterThan(0);
     }
+  });
+
+  // Промт КАРМАНА #147: вида заказчика (префикса) в списке не было — ни ступени, ни
+  // колонки, и оператор не видел, почему заказчик предложен в договоре или не предложен.
+  it('ступень «Вид» отбирает по виду заказчика, а «без вида» — отдельно', () => {
+    expect(ids(applyCounterpartyFacets(rows, { kind: ['military'] }))).toEqual(['cp-1']);
+    expect(ids(applyCounterpartyFacets(rows, { kind: ['civil'] }))).toEqual(['cp-2']);
+    // Заказчик без вида не выпадает из отбора молча — у него своё значение ступени.
+    expect(ids(applyCounterpartyFacets(rows, { kind: ['none'] }))).toEqual(['cp-3']);
+  });
+
+  it('ряд ступени «Вид» полный: вида «ГОЗ» может не быть ни у кого', () => {
+    const options = counterpartyFacetOptions(rows, {}, 'kind');
+    expect(options.map((o) => o.value)).toEqual(['military', 'civil', 'none']);
+    expect(options.find((o) => o.value === 'none')?.label).toBe('Вид не задан');
   });
 });
