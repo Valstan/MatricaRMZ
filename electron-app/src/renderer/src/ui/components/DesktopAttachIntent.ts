@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 // Намерение «прикрепить эти файлы с Верстака к этой карточке».
 //
@@ -27,6 +27,15 @@ export type DesktopAttachIntent = DesktopAttachScope & {
 
 let current: DesktopAttachIntent | null = null;
 const listeners = new Set<() => void>();
+
+/** Подписка на записку — одна на всех подписчиков (функция стабильна, иначе React
+ *  переподписывался бы на каждом рендере). */
+function subscribe(onChange: () => void): () => void {
+  listeners.add(onChange);
+  return () => {
+    listeners.delete(onChange);
+  };
+}
 
 function emit(): void {
   for (const listener of listeners) listener();
@@ -69,12 +78,14 @@ export function takeDesktopAttachIntent(): void {
  * девяти карточках, и проп пришлось бы протаскивать через девять мест, где его можно забыть.
  */
 export function useDesktopAttachIntent(scope: DesktopAttachScope | undefined): DesktopAttachIntent | null {
-  return useSyncExternalStore(
-    (onChange) => {
-      listeners.add(onChange);
-      return () => listeners.delete(onChange);
-    },
-    () => desktopAttachIntentFor(scope),
-    () => null,
+  // `scope` в карточках — литерал, он новый на каждом рендере. Сравниваем по ЗНАЧЕНИЯМ полей,
+  // иначе подписка пересоздавалась бы на каждом рендере панели.
+  const ownerType = scope?.ownerType ?? '';
+  const ownerId = scope?.ownerId ?? '';
+  const category = scope?.category ?? '';
+  const getSnapshot = useCallback(
+    () => desktopAttachIntentFor({ ownerType, ownerId, category }),
+    [ownerType, ownerId, category],
   );
+  return useSyncExternalStore(subscribe, getSnapshot, () => null);
 }

@@ -84,7 +84,12 @@ export function DesktopFileActionsPanel(props: DesktopFileActionsPanelProps) {
             ✉️ Почта…
           </Button>
         ) : null}
-        <Button variant="ghost" disabled={props.busy} onClick={props.onRemoveShortcuts}>
+        <Button
+          variant="ghost"
+          disabled={props.busy}
+          onClick={props.onRemoveShortcuts}
+          title="Убрать выделенные ярлыки с Верстака (сами файлы останутся)"
+        >
           🗑 Убрать
         </Button>
         {!props.canUseDisk ? (
