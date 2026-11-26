@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
+import { DEFAULT_LIST_NUMBER_COLUMNS } from '@matricarmz/shared';
+
 import { Button } from './Button.js';
 import { persistPrintColumnIds, resolvePrintColumnIds } from '../utils/listColumnSelection.js';
 import {
@@ -9,7 +11,15 @@ import {
   printColumnMismatch,
 } from '../utils/printColumnMismatch.js';
 import { planListPrintLayout, printableHeightMm, type PrintColumnSpec, type PrintLayoutPlan, type PrintOrientationChoice } from '../utils/listPrintLayout.js';
-import { escapeHtml, formatMomentLabel, openPrintPreview, type PrintPreviewState } from '../utils/printPreview.js';
+import {
+  buildListPrintTableHtml,
+  filterPrintItemsBySelection,
+  flatRowsToPrintItems,
+  limitPrintItems,
+  type ListPrintItem,
+  type ListPrintNumberColumns,
+} from '../utils/listPrintTable.js';
+import { formatMomentLabel, openPrintPreview, type PrintPreviewState } from '../utils/printPreview.js';
 
 export type ListPrintColumn<T> = {
   id: string;
@@ -109,6 +119,22 @@ export function ListPrintDialog<T>(props: {
    * движке печати покрывает ВСЕ списки, а не каждый по отдельности.
    */
   rowBackground?: (row: T) => string | undefined;
+  /**
+   * Сгруппированный ряд печати (промт КАРМАНА #164): заголовки групп и строки в порядке
+   * групп — как на экране. Задан — печатается он; не задан — список печатается плоским,
+   * как раньше (отчёты, чей вид менять нельзя).
+   */
+  series?: readonly ListPrintItem<T>[];
+  /**
+   * Колонки-номера на листе: сквозная и групповая. Обе настраиваемые — как остальные
+   * колонки: отключённая не печатается вовсе (в том числе в шапке).
+   */
+  numberColumns?: ListPrintNumberColumns;
+  /**
+   * Отобрана ли строка. По умолчанию — по ссылке на строку из `selectedRows`; список, у
+   * которого строки пересобираются, отдаёт правило сам.
+   */
+  rowSelected?: (row: T) => boolean;
 }) {
   const [columnIds, setColumnIds] = useState<string[]>(() =>
     resolvePrintColumnIds({ storageKey: props.storageKey, columns: props.columns, visibleColumnIds: props.visibleColumnIds }),
@@ -141,13 +167,32 @@ export function ListPrintDialog<T>(props: {
   const rows = limitEnabled && Number.isFinite(limit) ? scopeRows.slice(0, limit) : scopeRows;
 
   const fields = props.columns.filter((c) => columnIds.includes(c.id));
-  const columnSpecs: PrintColumnSpec[] = fields.map((field) => {
-    let valueChars = 0;
-    for (const row of rows.slice(0, PRINT_SAMPLE_ROWS)) {
-      valueChars = Math.max(valueChars, field.printValue(row).length);
-    }
-    return { label: field.label, valueChars };
-  });
+  /**
+   * Колонки-номера на листе. По умолчанию — сквозная «№» (как печатали все списки до сих
+   * пор). Список может прислать свои: нумерация стала обычной колонкой, значит, её можно
+   * отключить — и отключённая не печатается вовсе.
+   */
+  const numberColumns: ListPrintNumberColumns = props.numberColumns ?? DEFAULT_LIST_NUMBER_COLUMNS;
+  /**
+   * Раскладка листа считается по тем колонкам, что реально поедут на печать. Список, который
+   * прислал свои колонки-номера (промт КАРМАНА #164), считает их вместе с полями — иначе
+   * лист оказался бы уже таблицы, и лишняя ширина ушла бы не в ту колонку.
+   */
+  const columnSpecs: PrintColumnSpec[] = [
+    ...(props.numberColumns
+      ? [
+          ...(numberColumns.number ? [{ label: '№', valueChars: 3 }] : []),
+          ...(numberColumns.groupNumber ? [{ label: '№ в группе', valueChars: 5 }] : []),
+        ]
+      : []),
+    ...fields.map((field) => {
+      let valueChars = 0;
+      for (const row of rows.slice(0, PRINT_SAMPLE_ROWS)) {
+        valueChars = Math.max(valueChars, field.printValue(row).length);
+      }
+      return { label: field.label, valueChars };
+    }),
+  ];
   const layout = planListPrintLayout({ columns: columnSpecs, orientation });
   const pages = Math.max(1, Math.ceil(rows.length / rowsPerPage(layout)));
   const canPrint = fields.length > 0 && rows.length > 0;
@@ -179,6 +224,23 @@ export function ListPrintDialog<T>(props: {
     setColumnIds(next);
   };
 
+  /**
+   * Ряд печати.
+   *
+   * Сгруппированный ряд приходит от страницы (заголовки групп, порядок групп, номера) —
+   * печатается ровно он, как на экране. Ряда нет — список печатается плоским, а заголовок
+   * группы появляется там, где меняется подпись (`rowGroupLabel`): так печатались отчёты
+   * до сих пор, и их вид менять нельзя.
+   */
+  const buildPrintItems = (): ListPrintItem<T>[] => {
+    const source = props.series
+      ? scope === 'selected' && hasSelection
+        ? filterPrintItemsBySelection(props.series, props.selectedRows, props.rowSelected)
+        : [...props.series]
+      : flatRowsToPrintItems(rows, props.rowGroupLabel);
+    return limitEnabled && Number.isFinite(limit) ? limitPrintItems(source, limit) : source;
+  };
+
   const emit = () => {
     const summary = props.filtersSummary ?? [];
     const planFor = (state: PrintPreviewState): PrintLayoutPlan =>
@@ -189,28 +251,19 @@ export function ListPrintDialog<T>(props: {
         // лист: иначе на книжном листе остались бы колонки от альбомных 12 pt и все обрезались.
         ...(state.fontSizePinned ? { fontSizePt: state.fontSizePt } : {}),
       });
+    // Колонки-номера и заголовки групп собирает общий сборщик (`listPrintTable.ts`): печать
+    // из тулбара, печать из контекстного меню и выгрузка в файл берут ОДИН ряд — иначе
+    // группировка снова останется только на экране (промт КАРМАНА #164).
+    const { thead, tbody } = buildListPrintTableHtml({
+      items: buildPrintItems(),
+      fields,
+      numberColumns,
+      ...(props.rowBackground ? { rowBackground: props.rowBackground } : {}),
+    });
     // Таблица собирается на каждую перерисовку: переключатели в окне предпросмотра меняют
     // ширины колонок, поэтому `<col>` из старого плана («книжный» на альбомном листе оставил
     // бы узкую полосу) на новом листе были бы неправдой.
     const tableHtml = (plan: PrintLayoutPlan): string => {
-      // Колонка «№» идёт на печать первой — как на экране (владелец 15.09.2026).
-      const thead = `<th style="text-align:right">№</th>${fields.map((f) => `<th>${escapeHtml(f.label)}</th>`).join('')}`;
-      let lastGroup: string | null = null;
-      const tbody = rows
-        .map((row, i) => {
-          const group = props.rowGroupLabel ? props.rowGroupLabel(row) : null;
-          const head =
-            group != null && group !== lastGroup
-              ? `<tr><td colspan="${fields.length + 1}" style="font-weight:600;background:#f3f4f6">${escapeHtml(group)}</td></tr>`
-              : '';
-          lastGroup = group;
-          // Фон строки (розовая пометка утиля) — инлайном: в печатном окне стили
-          // таблицы перебиваются, а фон строки должен пережить и перерисовку.
-          const bg = props.rowBackground?.(row);
-          const rowStyle = bg ? ` style="background:${escapeHtml(bg)}"` : '';
-          return `${head}<tr${rowStyle}><td style="text-align:right">${i + 1}</td>${fields.map((f) => `<td>${escapeHtml(f.printValue(row) || '—')}</td>`).join('')}</tr>`;
-        })
-        .join('');
       const colgroup = `<colgroup><col style="width:${plan.widthsMm[0]}mm"/>${plan.widthsMm
         .slice(1)
         .map((w) => `<col style="width:${w}mm"/>`)

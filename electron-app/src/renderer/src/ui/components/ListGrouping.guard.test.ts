@@ -12,6 +12,9 @@ function src(rel: string): string {
 
 const ENGINES = src('../pages/EnginesPage.tsx');
 const SHEETS = src('../pages/WorkSheetsPage.tsx');
+// Разрезы группировки списка двигателей живут в домене (промт КАРМАНА #164): страница и
+// сторож читают один список, иначе новый разрез можно добавить «только на экран».
+const ENGINE_GROUPING = src('../../../../../../shared/src/domain/engineListGrouping.ts');
 
 describe('группировка списка двигателей', () => {
   it('селектор разреза живёт в тулбаре рядом с фильтром', () => {
@@ -22,27 +25,27 @@ describe('группировка списка двигателей', () => {
     expect(ENGINES).not.toContain('<span className="ui-muted">Группировать</span>');
   });
 
-  it('разрезы — те же, что в отчёте «Сейчас на заводе»', () => {
-    expect(ENGINES).toContain('engineFactoryStage(e, sheetTypes, stageTemplates)');
-    expect(ENGINES).toContain("case 'customer_stage':");
+  it('разрезы и их уровни — в домене, страница берёт их оттуда', () => {
+    expect(ENGINE_GROUPING).toContain("case 'customer_stage':");
+    expect(ENGINE_GROUPING).toContain("case 'customer_contract':");
+    expect(ENGINE_GROUPING).toContain('engineFactoryStage(e, deps.sheetTypes, deps.stageTemplates)');
+    expect(ENGINES).toContain('engineListGroupLevels(groupBy');
   });
 
   it('разрез «По договору»: ключ — договор карточки, подпись — номер договора', () => {
     // Промт КАРМАНА #105: группировка по контрактам (договорам) в списке двигателей.
-    expect(ENGINES).toContain("contract: 'По договору'");
-    expect(ENGINES).toContain("case 'contract':");
-    expect(ENGINES).toContain('return [byContract];');
-    expect(ENGINES).toContain("const id = String(e.contractId ?? '').trim();");
-    expect(ENGINES).toContain("const label = String(e.contractName ?? '').trim();");
+    expect(ENGINE_GROUPING).toContain('contract: \'По договору\'');
+    expect(ENGINE_GROUPING).toContain("const id = String(e.contractId ?? '').trim();");
+    expect(ENGINE_GROUPING).toContain("const label = String(e.contractName ?? '').trim();");
   });
 
   it('двигатель без договора — отдельная группа «Без договора»', () => {
-    expect(ENGINES).toContain("label: label || 'Без договора'");
+    expect(ENGINE_GROUPING).toContain("label: label || 'Без договора'");
   });
 
   it('комбинация «Заказчик → договор» — тем же приёмом, что «Заказчик → этап»', () => {
-    expect(ENGINES).toContain("customer_contract: 'Заказчик → договор'");
-    expect(ENGINES).toContain('return [byCustomer, byContract];');
+    expect(ENGINE_GROUPING).toContain('customer_contract: \'Заказчик → договор\'');
+    expect(ENGINE_GROUPING).toContain('return [byCustomer, byContract];');
   });
 
   it('строки раскладывает flattenGrouped, а не плоский массив', () => {
@@ -52,16 +55,34 @@ describe('группировка списка двигателей', () => {
 
   it('заголовок группы — без чекбокса, без номера и без клика в карточку', () => {
     expect(ENGINES).toContain('data-engine-group={it.key}');
-    expect(ENGINES).toContain("return it.kind === 'group' ? null : it.number;");
     expect(ENGINES).toContain("return it.kind === 'group' ? { 'data-engine-group': it.key } : engineRowProps(it.row);");
+    // Заголовок группы занимает всю ширину строки — вместе с колонками-номерами.
+    expect(ENGINES).toContain('colSpan={visibleColumns.length + 1 + numberColumnCount}');
+  });
+
+  it('нумерации — обычные колонки списка: обе видны в «Колонках списка» и обе отключаются', () => {
+    expect(ENGINES).toContain('LIST_NUMBER_COLUMN_IDS');
+    expect(ENGINES).toContain("columnLayout.isVisible('rowNumber')");
+    expect(ENGINES).toContain("columnLayout.isVisible('groupNumber')");
   });
 
   it('сгруппированный список — одной колонкой: двухколоночная раскладка группы не раскладывает', () => {
     expect(ENGINES).toContain("{twoCol && groupBy === 'none' ? (");
   });
 
-  it('печать несёт путь заголовков групп, как на экране', () => {
-    expect(ENGINES).toContain('rowGroupLabel={(e) => groupLabelByRow.get(String(e.id)) || null}');
+  it('печать и выгрузка получают тот же сгруппированный ряд, что и экран', () => {
+    // Промт КАРМАНА #164: разрез «Заказчик → договор» жил только на экране — печать,
+    // выгрузка и меню получали плоский отсортированный список. Сторож ловит именно эту
+    // подмену: печать и выгрузка обязаны получать РЯД группировки, а не плоский список.
+    const seriesUsages = ENGINES.match(/series=\{groupedItems\}/g) ?? [];
+    expect(seriesUsages.length, 'печать и выгрузка получают сгруппированный ряд').toBeGreaterThanOrEqual(2);
+    expect(ENGINES).not.toContain('rowGroupLabel={(e) =>');
+  });
+
+  it('печать и копирование из контекстного меню знают про группировку', () => {
+    expect(ENGINES).toContain('listPrintAction<EngineListItem>');
+    expect(ENGINES).toContain('listCopyAction<EngineListItem>');
+    expect(ENGINES).toContain('filterPrintItemsBySelection(groupedItems, rows)');
   });
 });
 

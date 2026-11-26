@@ -2,6 +2,33 @@
 
 > Вырезано из [`../../PC79.md`](../../PC79.md) 24.11.2026: профиль разложен на части (индекс и что где — в `../../PC79.md`). Пиши сюда по мере изучения, в свою часть.
 
+## Рецепт: прочитать промты и отправить в архив (26.11.2026)
+
+Промты проекта лежат в **разделе КАРМАНА** `MatricaRMZ` (`GET/POST /api/prompts/section?project=MatricaRMZ`).
+Токен раздела и адрес сервиса — **вне репо**, в `%USERPROFILE%\.matricarmz-keys\` (`prompts-token`, `vault-url`).
+
+```powershell
+# 1) прокси мешает fetch — обнуляем (привычка Happ VPN)
+$env:HTTP_PROXY=''; $env:HTTPS_PROXY=''; $env:ALL_PROXY=''; $env:NO_PROXY='*'
+# 2) кладём токен и адрес
+$env:PROMPTS_TOKEN_MATRICARMZ = (Get-Content "$env:USERPROFILE\.matricarmz-keys\prompts-token" -Raw).Trim()
+$env:KARMAN_URL = (Get-Content "$env:USERPROFILE\.matricarmz-keys\vault-url" -Raw).Trim()
+# 3) читаем
+node scripts/karman/prompts-section.mjs list        # заголовки живых (id + первая строка)
+node scripts/karman/prompts-section.mjs full        # тексты живых ЦЕЛИКОМ — план, критерии, риски
+node scripts/karman/prompts-section.mjs show <id>   # один промт (живой или архивный)
+node scripts/karman/prompts-section.mjs archived    # что закрыто
+# 4) выполнил и смержил — отправляем в архив («архив = сделано»)
+node scripts/karman/prompts-section.mjs archive <id>
+```
+
+- **Порядок взятия: свежие сверху** — верхушка списка `full`/`list` и есть следующая задача.
+- `list` печатает только первую строку промта: **план, критерии приёмки и развилки живут дальше** —
+  читать `full` (или `show <id>`), иначе решение принимается вслепую.
+- Развилки, которые промт отдал владельцу: закрыть по умолчанию, записать в PENDING и вынести
+  владельцу — «архив = сделано» не значит «владелец подтвердил решение».
+- Пустой список — «очереди нет», а не «канал сломан» (канал отдал 200 и раздел честно пуст).
+
 ## Канал промтов с этой машины
 
 - **✅ Канал промтов КАРМАНА с этой машины ЖИВ (проверено 25.11.2026):** гейт больше не режет чтение `%USERPROFILE%\.matricarmz-keys\*` — токен раздела и адрес сервиса читаются, `node scripts/karman/prompts-section.mjs list` отвечает. Рабочий порядок (тот же, что ниже в разделе «Промты проекта из КАРМАНА»): обнулить прокси (`HTTP(S)_PROXY`/`ALL_PROXY` → пусто, `NO_PROXY=*`), положить `PROMPTS_TOKEN_MATRICARMZ` из `%USERPROFILE%\.matricarmz-keys\prompts-token` и `KARMAN_URL` из `%USERPROFILE%\.matricarmz-keys\vault-url`, затем `list` / `archived` / `archive <id>`.

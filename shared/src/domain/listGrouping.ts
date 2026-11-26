@@ -4,10 +4,16 @@
  * группам (этап на заводе, заказчик, заказчик → этап). Таблица рисует ряд `items`: строка
  * группы — один `<td colSpan>`, строка данных — обычная. Нумерация строк сквозная и не
  * прерывается заголовками.
+ *
+ * Промт КАРМАНА #164: у строки теперь **две** нумерации. Сквозная (`number`) — прежняя:
+ * считает строки по всему списку, заголовками групп не сбивается. Групповая (`groupNumber`) —
+ * номер строки внутри группы, с единицы в каждой нижней (самой глубокой) группе. Обе нужны
+ * как обычные колонки списка: их видно в «Колонках списка», каждую можно отключить, и
+ * отключённая не печатается и не выгружается.
  */
 export type GroupedListItem<Row> =
   | { kind: 'group'; key: string; label: string; depth: number; count: number }
-  | { kind: 'row'; row: Row; number: number };
+  | { kind: 'row'; row: Row; number: number; groupNumber: number };
 
 export type GroupKey = { key: string; label: string; /** Порядок групп: больше — раньше. Без ранга — по подписи. */ rank?: number };
 
@@ -45,7 +51,11 @@ export function flattenGrouped<Row>(rows: readonly Row[], levels: ReadonlyArray<
   const walk = (subset: readonly Row[], depth: number, parentKey: string) => {
     const level = levels[depth];
     if (!level) {
-      for (const row of subset) out.push({ kind: 'row', row, number: ++number });
+      // Уровней больше нет ⇒ мы в самой глубокой группе: групповой номер сбрасывается
+      // в каждой такой группе. Без группировки (уровней нет вовсе) группа одна — и
+      // групповой номер совпадает со сквозным.
+      let groupNumber = 0;
+      for (const row of subset) out.push({ kind: 'row', row, number: ++number, groupNumber: ++groupNumber });
       return;
     }
     for (const bucket of bucketize(subset, level.keyOf)) {
@@ -57,3 +67,25 @@ export function flattenGrouped<Row>(rows: readonly Row[], levels: ReadonlyArray<
   walk(rows, 0, '');
   return out;
 }
+
+/**
+ * Колонки-номера списка — сквозная и групповая (промт КАРМАНА #164).
+ *
+ * Это **обычные** колонки: свои идентификаторы, свой порядок, видны в «Колонках списка»,
+ * каждую можно отключить. Отключённая не показывается на экране, не печатается и не
+ * выгружается. Идентификаторы живут в домене, потому что ими пользуются и список, и
+ * печать, и выгрузка — иначе «отключена» значила бы разное в разных местах.
+ */
+export const LIST_NUMBER_COLUMN_IDS = ['rowNumber', 'groupNumber'] as const;
+
+export type ListNumberColumnId = (typeof LIST_NUMBER_COLUMN_IDS)[number];
+
+export const LIST_NUMBER_COLUMN_LABELS: Record<ListNumberColumnId, string> = {
+  rowNumber: '№',
+  groupNumber: '№ в группе',
+};
+
+/** Какие колонки-номера показывать: обе настраиваемые, по умолчанию включена сквозная. */
+export type ListNumberColumns = { number: boolean; groupNumber: boolean };
+
+export const DEFAULT_LIST_NUMBER_COLUMNS: ListNumberColumns = { number: true, groupNumber: false };

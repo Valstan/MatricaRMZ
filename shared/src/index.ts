@@ -44,7 +44,7 @@ export * from './domain/engineScrap.js';
 export * from './domain/engineReclamation.js';
 export * from './domain/listGrouping.js';
 export * from './domain/engineFactoryStage.js';
-export * from './domain/listGrouping.js';
+export * from './domain/engineListGrouping.js';
 export * from './domain/contractListFacets.js';
 export * from './domain/counterpartyListFacets.js';
 export * from './domain/employeeListFacets.js';

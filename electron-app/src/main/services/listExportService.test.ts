@@ -180,3 +180,35 @@ describe('расширение файла', () => {
     expect(exportFileExtension('docx')).toBe('.docx');
   });
 });
+
+/**
+ * Выгрузка с группировкой (промт КАРМАНА #164): файл повторяет раскладку списка — заголовок
+ * группы стоит ПЕРЕД первой строкой своей группы, и строки идут внутри своих групп. Раньше
+ * файл был плоской сеткой, и связь «эти строки — под этим заказчиком» терялась.
+ */
+const GROUPED_SPEC: ListExportSpec = {
+  ...SPEC,
+  groups: [
+    { rowIndex: 0, label: 'Альфа', depth: 0 },
+    { rowIndex: 2, label: '12/2024', depth: 1 },
+  ],
+};
+
+describe('выгрузка списка с группировкой', () => {
+  it('в книге — заголовок группы строкой перед первой строкой своей группы', async () => {
+    const sheet = await reopenWorkbook(GROUPED_SPEC);
+    expect(sheet.getCell('A7').value).toBe('Альфа');
+    expect(sheet.getCell('A10').value).toBe('12/2024');
+    // Строки данных сдвинулись: первая — в строке 8, вторая — в 9, третья — в 11.
+    expect(sheet.getCell('B8').value).toBe('41/26');
+    expect(sheet.getCell('B9').value).toBe('42/26');
+    expect(sheet.getCell('B11').value).toBe('007');
+  });
+
+  it('в документе Word — заголовок группы ячейкой на всю ширину таблицы', async () => {
+    const xml = await documentXml(GROUPED_SPEC);
+    expect(xml).toContain('Альфа');
+    expect(xml).toContain('12/2024');
+    expect(xml).toContain(`<w:gridSpan w:val="${GROUPED_SPEC.columns.length}"/>`);
+  });
+});
