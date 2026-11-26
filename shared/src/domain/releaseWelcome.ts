@@ -6441,3 +6441,62 @@ export function buildReleaseWelcomeDigest(
   };
 }
 
+/**
+ * Оформление окна приветствия (промт КАРМАНА #162). Три варианта живут в программе
+ * одновременно; какой показывать — решает клиент (см. `pickReleaseWelcomeVariant`).
+ */
+export type ReleaseWelcomeVariant = 'aurora' | 'vines' | 'snow';
+
+export const RELEASE_WELCOME_VARIANTS: readonly ReleaseWelcomeVariant[] = ['aurora', 'vines', 'snow'];
+
+/**
+ * С какой версии действует правило компактного текста новинок (промт КАРМАНА #162).
+ * Записи прошлых релизов не переписываются: правило обязательно для новых.
+ */
+export const RELEASE_WELCOME_COMPACT_FROM = '3.148.0';
+
+/** Предел длины строки новинки (знаков вместе с эмодзи и зачином). */
+export const RELEASE_WELCOME_HIGHLIGHT_MAX_CHARS = 160;
+
+/**
+ * Оформление окна выбирается на клиенте: у разных машин — разное, у одной машины в
+ * рамках одного обновления — одно и то же (пока окно открыто, оформление не прыгает).
+ * Считает главный процесс, рендерер получает готовый вариант.
+ *
+ * Пустой `clientId` — редкий случай (идентичность машины всегда есть); тогда выбор
+ * падает на версию, и оформление одинаково у таких машин.
+ */
+export function pickReleaseWelcomeVariant(clientId: string, version: string): ReleaseWelcomeVariant {
+  const seed = `${String(clientId ?? '').trim()}|${String(version ?? '').trim()}`;
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return RELEASE_WELCOME_VARIANTS[(hash >>> 0) % RELEASE_WELCOME_VARIANTS.length]!;
+}
+
+export type ReleaseWelcomeLine = {
+  /** Символ-маркер в начале строки (эмодзи-буллет), рисуется в колонке точки. */
+  marker: string;
+  /** Зачин строки — то, что было между `**`. Жирный. */
+  lead: string;
+  /** Остаток строки без маркеров. */
+  rest: string;
+};
+
+/**
+ * Разбор строки новинки: `✦ **Зачин.** Остальной текст` → маркер `✦`, жирный зачин
+ * `Зачин.`, остальное обычным текстом. Символов `*` в окне не видно.
+ */
+export function parseReleaseWelcomeLine(text: string): ReleaseWelcomeLine {
+  const raw = String(text ?? '').replace(/\s+/g, ' ').trim();
+  const bold = /\*\*([^*]+)\*\*/.exec(raw);
+  if (!bold) return { marker: '', lead: '', rest: raw };
+  return {
+    marker: raw.slice(0, bold.index).trim(),
+    lead: (bold[1] ?? '').trim(),
+    rest: raw.slice(bold.index + bold[0].length).trim(),
+  };
+}
+

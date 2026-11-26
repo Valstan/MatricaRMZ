@@ -757,6 +757,17 @@ export type ReleaseWelcomeGetResult =
       shouldShow: boolean;
       currentVersion: string;
       previouslySeenVersion: string | null;
+      /**
+       * Оформление окна. Считает главный процесс по `clientId` и номеру релиза:
+       * у разных машин — разное, у одной машины до следующего обновления — одно и то же.
+       * В рендерере своей случайности быть не должно (промт КАРМАНА #162).
+       */
+      variant: ReleaseWelcomeVariant;
+      /**
+       * Логотип завода картинкой (`data:`-URL). Файла от владельца пока нет — тогда
+       * поля нет, а окно рисует заглушку.
+       */
+      logoDataUrl?: string;
       welcome?: ReleaseWelcomeContent;
       /**
        * Кому звонить (D-042). Приезжает из настроек экземпляра, а не из кода;
@@ -1091,7 +1102,7 @@ import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../doma
 import type { StatusCode } from '../domain/contract.js';
 import type { IncomingReferenceGroup } from '../domain/entityReference.js';
 import type { UiControlSettings } from '../domain/uiControl.js';
-import type { ReleaseWelcomeContent } from '../domain/releaseWelcome.js';
+import type { ReleaseWelcomeContent, ReleaseWelcomeVariant } from '../domain/releaseWelcome.js';
 import type { AnalyticsBucket, EngineOutputMetric, EngineOutputResult } from '../domain/analytics.js';
 import type {
   ReportPreset1cXmlResult,

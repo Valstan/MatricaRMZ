@@ -16,6 +16,7 @@ import type {
   V2Prefs,
   V3Prefs,
   ReleaseWelcomeContent,
+  ReleaseWelcomeVariant,
   SupportContact,
   ReportPresetFilters,
   ReportPresetId,
@@ -24,7 +25,7 @@ import type {
   SupplyRequestPayload,
   SectionMembershipSource,
 } from '@matricarmz/shared';
-import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew, pendingExportReasonText, stuckAgeMinutes } from '@matricarmz/shared';
+import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew, parseReleaseWelcomeLine, pendingExportReasonText, stuckAgeMinutes } from '@matricarmz/shared';
 import {
   ACCESS_SECTION_CATALOG,
   formatAppVersionLabel,
@@ -123,6 +124,7 @@ import { DesktopFilesProvider } from './components/DesktopFilesContext.js';
 import { ProgramFeedbackDialog, type ProgramFeedbackKind } from './components/ProgramFeedbackDialog.js';
 import { AccountSwitchDialog } from './components/AccountSwitchDialog.js';
 import { ListContextMenu } from './components/ListContextMenu.js';
+import { ReleaseWelcomeDecor } from './components/ReleaseWelcomeDecor.js';
 import { useConfirm } from './components/ConfirmContext.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { GlobalInputAssist } from './components/GlobalInputAssist.js';
@@ -333,100 +335,27 @@ const NotesPage = lazyPage('./pages/NotesPage.tsx', 'NotesPage');
 const HistoryPage = lazyPage('./pages/HistoryPage.tsx', 'HistoryPage');
 const SuperadminAuditPage = lazyPage('./pages/SuperadminAuditPage.tsx', 'SuperadminAuditPage');
 
-function renderEnginePartSvg(kind: 'gear' | 'piston' | 'bolt' | 'nut' | 'ring' | 'rod' | 'valve' | 'spark') {
-  switch (kind) {
-    case 'gear':
-      return (
-        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-          <g fill="currentColor">
-            <path d="M30 2h4l1 6 6 1 3-5 3.5 2-1 6 5 4 5-3 2.5 3-4 5 2 6-6 1-1 6 5 3-2.5 3.5-6-1-4 5 3 5-3 2.5-5-3-6 1-1 6h-4l-1-6-6-1-3 5-3.5-2.5 3-5-5-4-5 3-2.5-3.5 5-4-2-6 6-1 1-6-5-3 2.5-3.5 6 1 4-5-3-5 3-2.5 5 3 6-1z" />
-            <circle cx="32" cy="32" r="9" fill="rgba(15,23,42,0.55)" />
-            <circle cx="32" cy="32" r="5.5" fill="currentColor" />
-          </g>
-        </svg>
-      );
-    case 'piston':
-      return (
-        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-          <g fill="currentColor">
-            <rect x="18" y="6" width="28" height="22" rx="3" />
-            <rect x="20" y="9" width="24" height="2" fill="rgba(15,23,42,0.5)" />
-            <rect x="20" y="13" width="24" height="2" fill="rgba(15,23,42,0.5)" />
-            <rect x="20" y="17" width="24" height="2" fill="rgba(15,23,42,0.5)" />
-            <rect x="28" y="28" width="8" height="14" />
-            <circle cx="32" cy="50" r="9" fill="none" stroke="currentColor" strokeWidth="4" />
-            <circle cx="32" cy="50" r="3" />
-          </g>
-        </svg>
-      );
-    case 'bolt':
-      return (
-        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-          <g fill="currentColor">
-            <polygon points="32,4 50,14 50,28 32,38 14,28 14,14" />
-            <polygon points="32,12 44,18 44,26 32,32 20,26 20,18" fill="rgba(15,23,42,0.5)" />
-            <rect x="29" y="34" width="6" height="26" />
-            <path d="M28 38h8M28 42h8M28 46h8M28 50h8M28 54h8" stroke="rgba(15,23,42,0.45)" strokeWidth="1.5" />
-          </g>
-        </svg>
-      );
-    case 'nut':
-      return (
-        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-          <g fill="currentColor">
-            <polygon points="32,6 54,18 54,46 32,58 10,46 10,18" />
-            <circle cx="32" cy="32" r="11" fill="rgba(15,23,42,0.6)" />
-            <circle cx="32" cy="32" r="7" fill="none" stroke="currentColor" strokeWidth="1.5" opacity="0.6" />
-          </g>
-        </svg>
-      );
-    case 'ring':
-      return (
-        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-          <g fill="none" stroke="currentColor" strokeWidth="5">
-            <circle cx="32" cy="32" r="22" />
-          </g>
-          <path d="M30 8h4l-1 4-2 0z" fill="currentColor" />
-        </svg>
-      );
-    case 'rod':
-      return (
-        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-          <g fill="currentColor">
-            <circle cx="32" cy="12" r="9" />
-            <circle cx="32" cy="12" r="4" fill="rgba(15,23,42,0.6)" />
-            <path d="M28 18 L24 50 L40 50 L36 18 Z" />
-            <ellipse cx="32" cy="54" rx="14" ry="6" />
-            <ellipse cx="32" cy="54" rx="7" ry="3" fill="rgba(15,23,42,0.6)" />
-          </g>
-        </svg>
-      );
-    case 'valve':
-      return (
-        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-          <g fill="currentColor">
-            <ellipse cx="32" cy="50" rx="16" ry="8" />
-            <ellipse cx="32" cy="50" rx="10" ry="4" fill="rgba(15,23,42,0.55)" />
-            <rect x="29" y="8" width="6" height="40" />
-            <rect x="26" y="6" width="12" height="4" />
-          </g>
-        </svg>
-      );
-    case 'spark':
-      return (
-        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-          <g fill="currentColor">
-            <rect x="26" y="4" width="12" height="10" rx="1.5" />
-            <polygon points="22,16 42,16 40,22 24,22" />
-            <polygon points="24,24 40,24 38,32 26,32" fill="rgba(15,23,42,0.55)" />
-            <rect x="28" y="34" width="8" height="14" />
-            <polygon points="30,48 34,48 32,60" />
-          </g>
-        </svg>
-      );
-    default:
-      return null;
-  }
+/**
+ * Строка новинки в окне приветствия: `**зачин**` — жирным, символы `*` не видны,
+ * эмодзи-маркер — в колонке точки (промт КАРМАНА #162).
+ */
+function renderReleaseWelcomeLine(text: string, withDot: boolean) {
+  const { marker, lead, rest } = parseReleaseWelcomeLine(text);
+  return (
+    <>
+      {withDot ? (
+        <span className="release-welcome-list-dot" aria-hidden="true">
+          {marker || '✦'}
+        </span>
+      ) : null}
+      <span className="release-welcome-line">
+        {!withDot && marker ? <span className="release-welcome-line-marker">{marker} </span> : null}
+        {lead ? <strong className="release-welcome-line-lead">{lead}</strong> : null}
+        {lead && rest ? ' ' : null}
+        {rest}
+      </span>
+    </>
+  );
 }
 
 function recentVisitsStorageKey(userId: string) {
@@ -1100,6 +1029,9 @@ export function App() {
     currentVersion: string;
     previousVersion: string | null;
     supportContact: SupportContact;
+    /** Оформление окна выбирает главный процесс (clientId + версия) — здесь своей случайности нет. */
+    variant: ReleaseWelcomeVariant;
+    logoDataUrl: string | null;
     closing: boolean;
   }>({
     open: false,
@@ -1107,6 +1039,8 @@ export function App() {
     currentVersion: '',
     previousVersion: null,
     supportContact: EMPTY_SUPPORT_CONTACT,
+    variant: 'aurora',
+    logoDataUrl: null,
     closing: false,
   });
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: null });
@@ -2143,6 +2077,8 @@ export function App() {
           currentVersion: String(r.currentVersion ?? ''),
           previousVersion: r.previouslySeenVersion ? String(r.previouslySeenVersion) : null,
           supportContact: sanitizeSupportContact(r.supportContact),
+          variant: r.variant ?? 'aurora',
+          logoDataUrl: r.logoDataUrl ?? null,
           closing: false,
         });
       })
@@ -5711,42 +5647,9 @@ export function App() {
       { kind: 'outro' as const, text: c.outro },
     ];
     const releaseLabel = c.releaseLabel || (releaseWelcomeUi.currentVersion ? `v${releaseWelcomeUi.currentVersion}` : 'MatricaRMZ');
-    const parts: Array<{ kind: 'gear' | 'piston' | 'bolt' | 'nut' | 'ring' | 'rod' | 'valve' | 'spark'; cls: string }> = [
-      { kind: 'gear', cls: 'release-welcome-part--gear-1' },
-      { kind: 'piston', cls: 'release-welcome-part--piston-1' },
-      { kind: 'bolt', cls: 'release-welcome-part--bolt-1' },
-      { kind: 'nut', cls: 'release-welcome-part--nut-1' },
-      { kind: 'ring', cls: 'release-welcome-part--ring-1' },
-      { kind: 'gear', cls: 'release-welcome-part--gear-2' },
-      { kind: 'rod', cls: 'release-welcome-part--rod-1' },
-      { kind: 'valve', cls: 'release-welcome-part--valve-1' },
-      { kind: 'spark', cls: 'release-welcome-part--spark-1' },
-      { kind: 'gear', cls: 'release-welcome-part--gear-3' },
-      { kind: 'bolt', cls: 'release-welcome-part--bolt-2' },
-      { kind: 'ring', cls: 'release-welcome-part--ring-2' },
-      { kind: 'nut', cls: 'release-welcome-part--nut-2' },
-      { kind: 'piston', cls: 'release-welcome-part--piston-2' },
-      { kind: 'gear', cls: 'release-welcome-part--gear-4' },
-      { kind: 'piston', cls: 'release-welcome-part--piston-3' },
-      { kind: 'bolt', cls: 'release-welcome-part--bolt-3' },
-      { kind: 'nut', cls: 'release-welcome-part--nut-3' },
-      { kind: 'ring', cls: 'release-welcome-part--ring-3' },
-      { kind: 'rod', cls: 'release-welcome-part--rod-2' },
-      { kind: 'valve', cls: 'release-welcome-part--valve-2' },
-      { kind: 'spark', cls: 'release-welcome-part--spark-2' },
-    ];
     return (
-      <div className="release-welcome-overlay">
-        <div className="release-welcome-aurora release-welcome-aurora--one" />
-        <div className="release-welcome-aurora release-welcome-aurora--two" />
-        <div className="release-welcome-aurora release-welcome-aurora--three" />
-        <div className="release-welcome-parts" aria-hidden="true">
-          {parts.map((p, i) => (
-            <span key={i} className={`release-welcome-part release-welcome-part--${p.kind} ${p.cls}`}>
-              {renderEnginePartSvg(p.kind)}
-            </span>
-          ))}
-        </div>
+      <div className={`release-welcome-overlay release-welcome-overlay--${releaseWelcomeUi.variant}`}>
+        <ReleaseWelcomeDecor variant={releaseWelcomeUi.variant} logoDataUrl={releaseWelcomeUi.logoDataUrl} />
         <div className="release-welcome-card">
           <div className="release-welcome-topbar">
             {hasSupportContact(releaseWelcomeUi.supportContact) ? (
@@ -5797,25 +5700,20 @@ export function App() {
           <div className="release-welcome-teleprompter-shell">
             <div className="release-welcome-teleprompter-glow release-welcome-teleprompter-glow--one" />
             <div className="release-welcome-teleprompter-glow release-welcome-teleprompter-glow--two" />
-            <div className="release-welcome-teleprompter-mask release-welcome-teleprompter-mask--top" />
-            <div className="release-welcome-teleprompter-mask release-welcome-teleprompter-mask--bottom" />
+            {/* Текст стоит сразу и никуда не едет: оператор не ждёт, пока текст уедет.
+                Прокрутка осталась запасным путём — если строк всё же больше, чем влезло. */}
             <div className="release-welcome-teleprompter-viewport">
-              <div className="release-welcome-teleprompter-track">
-                {[0, 1].map((copyIdx) => (
-                  <div key={`teleprompter-copy-${copyIdx}`} className="release-welcome-teleprompter-sequence">
-                    {teleprompterItems.map((item, idx) => (
-                      <div
-                        key={`${copyIdx}-${idx}-${item.text}`}
-                        className={
-                          item.kind === 'highlight'
-                            ? 'release-welcome-teleprompter-item release-welcome-teleprompter-item--highlight'
-                            : 'release-welcome-teleprompter-item'
-                        }
-                      >
-                        {item.kind === 'highlight' ? <span className="release-welcome-list-dot">✦</span> : null}
-                        <span>{item.text}</span>
-                      </div>
-                    ))}
+              <div className="release-welcome-teleprompter-sequence">
+                {teleprompterItems.map((item, idx) => (
+                  <div
+                    key={`${idx}-${item.text}`}
+                    className={
+                      item.kind === 'highlight'
+                        ? 'release-welcome-teleprompter-item release-welcome-teleprompter-item--highlight'
+                        : 'release-welcome-teleprompter-item'
+                    }
+                  >
+                    {renderReleaseWelcomeLine(item.text, item.kind === 'highlight')}
                   </div>
                 ))}
               </div>

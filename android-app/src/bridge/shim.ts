@@ -126,6 +126,7 @@ const matrica = {
       shouldShow: false,
       currentVersion: SPIKE_VERSION,
       previouslySeenVersion: null,
+      variant: 'aurora',
     }),
     releaseWelcomeAcknowledge: async () => ({ ok: true }),
   }),

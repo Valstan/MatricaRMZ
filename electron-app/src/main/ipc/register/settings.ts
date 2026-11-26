@@ -4,6 +4,7 @@ import {
   DEFAULT_UI_CONTROL_SETTINGS,
   UI_DEFAULTS_VERSION,
   buildReleaseWelcomeDigest,
+  pickReleaseWelcomeVariant,
   sanitizeSupportContact,
   sanitizeUiControlSettings,
   sanitizeUiShellPrefs,
@@ -14,6 +15,7 @@ import { getSession } from '../../services/authService.js';
 import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean, settingsSetString } from '../../services/settingsStore.js';
 import { criticalEventDelete, criticalEventsClear, criticalEventsList } from '../../services/criticalEventsService.js';
 import { httpAuthed } from '../../services/httpClient.js';
+import { readReleaseWelcomeLogo } from '../../services/releaseWelcomeLogo.js';
 
 const THEMES = new Set(['auto', 'light', 'dark', 'warm']);
 // Оформление «Строго/Красиво» и цветовая гамма — ортогональны теме яркости
@@ -319,6 +321,12 @@ export function registerSettingsIpc(ctx: IpcContext) {
         return { ok: false as const, error: 'current version is empty' };
       }
 
+      // Оформление окна выбираем здесь, в главном процессе: машина знает свою
+      // идентичность, а рендерер своей случайности иметь не должен — иначе оформление
+      // прыгало бы при перезапуске программы (промт КАРМАНА #162).
+      const clientId = String((await settingsGetString(ctx.sysDb, SettingsKey.ClientId)) ?? '').trim();
+      const variant = pickReleaseWelcomeVariant(clientId, currentVersion);
+
       if (!previouslySeenVersion) {
         await settingsSetString(ctx.sysDb, SettingsKey.ReleaseWelcomeSeenVersion, currentVersion);
         return {
@@ -326,6 +334,7 @@ export function registerSettingsIpc(ctx: IpcContext) {
           shouldShow: false,
           currentVersion,
           previouslySeenVersion: null,
+          variant,
         };
       }
 
@@ -335,14 +344,19 @@ export function registerSettingsIpc(ctx: IpcContext) {
           shouldShow: false,
           currentVersion,
           previouslySeenVersion,
+          variant,
         };
       }
+
+      const logo = await readReleaseWelcomeLogo();
 
       return {
         ok: true as const,
         shouldShow: true,
         currentVersion,
         previouslySeenVersion,
+        variant,
+        ...(logo ? { logoDataUrl: logo.dataUrl } : {}),
         welcome: buildReleaseWelcomeDigest(currentVersion),
         supportContact: await loadSupportContact(ctx),
       };
