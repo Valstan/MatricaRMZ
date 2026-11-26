@@ -131,7 +131,7 @@
 - [⏳ Проставить сроки носки по 113 позициям приказа о СИЗ: без срока не попадают в «пора выдавать» 🗓 since:2026-11-05](pending/prostat-sroki-noski-po-godovym-poziciyam-prikaza-siz.md)
 - [⏳ Выгрузка СИЗ в 1С: структура файла ждёт бухгалтера 🗓 since:2026-11-03](pending/vygruzka-siz-v-1s-struktura-zhdet-buhgaltera.md)
 - [⏳ Импорт ЗУП: выгрузка (23.11) упала на «Шапка не распознана» — разбор исправлен (PR #1968), ждём приёмку 🗓 since:2026-10-18](pending/import-zup-zhivogo-obraztsa-vygruzki-tak-i-ne-bylo.md)
-- [⏳ ПП: приёмка глазами — поля шапки и перетаскивание 🗓 since:2026-11-23](pending/pp-header-grid-acceptance.md)
+- [⏳ ПП: приёмка глазами — поля шапки, перетаскивание и сквозной «№ п/п» 🗓 since:2026-11-23](pending/pp-header-grid-acceptance.md)
 - [🟡 «Кладовщик»: показать раздел кладовщику завода (фаза 2) 🗓 since:2026-10-20](pending/kladovshchik-pokazat-razdel-kladovshchiku-zavoda-faza-2.md)
 - [🟡 Почта из программы: транспорт `mailto:`, SMTP — решением владельца 🗓 since:2026-10-21](pending/pochta-iz-programmy-transport-mailto-smtp-resheniem.md)
 - [Ложные «Возвраты» в этапах ремонта на проде — пересчёт скриптом, нужно ОК владельца 🗓 since:2026-10-22](pending/lozhnye-vozvraty-v-etapakh-remonta-na-prode-pereschet.md)
