@@ -54,6 +54,7 @@
 
 ## 🟡 Техдолг и отложенное
 
+- [🟡 Тревога «очередь застряла» может быть ложной: отчёт собирается по устаревшей пробе 🗓 since:2026-11-26](pending/trevoga-ochered-zastryla-otchet-po-ustarevshey-probe.md)
 - [🟡 Сканер документов: решения владельца (промт #148) 🗓 since:2026-11-26](pending/skaner-otkrytye-resheniya.md)
 - [🟡 «В МАКС на телефон» из вложений: канал не подключён 🗓 since:2026-11-26](pending/vygruzka-v-maks-na-telefon.md)
 - [🟡 Управляющие кнопки вправо: остаток обхода — подвалы модалок (промт #141) 🗓 since:2026-11-25](pending/knopki-vpravo-obhod-renderer.md)
