@@ -1,6 +1,6 @@
 # Утиль: ремонт не начинаем, пока деталь не отремонтирована (промт КАРМАНА #170)
 
-**Дата:** 2026-11-26 · **Решение владельца:** зачитка 26.11.2026 · **Статус:** реализовано по коду, ждёт приёмки глазами владельца
+**Дата:** 2026-11-26 · **Решение владельца:** зачитка 26.11.2026 · **Статус:** реализовано по коду (PR **#2119** слит `88cbdae3`), ждёт приёмки глазами владельца
 
 ## Задача
 
@@ -146,5 +146,8 @@ legacy-метка `is_scrap`), и для уехавших с завода — п
 - `electron-app/src/main/services/repairStageService.ts` — блокировка в воронке.
 - `electron-app/src/main/services/engineScrapResolveService.ts` (+ тест) — снятие утиля.
 - `electron-app/src/main/ipc/register/engineScrap.ts` — IPC `engines:scrap:*`.
+- `android-app/src/core/ipcWiring.ts` — домен снятия утиля подключён к мосту планшета
+  (иначе шим ответил бы «недоступно на планшете», и оператор с планшета не смог бы снять
+  утиль, чтобы завести этап).
 - `electron-app/src/renderer/src/ui/components/ScrapStageBlockDialog.tsx`, `ScrapStageBlockHost.tsx`,
   `utils/scrapStageGate.ts` — окно и его вызовы.
