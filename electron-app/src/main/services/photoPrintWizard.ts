@@ -31,6 +31,14 @@ import { join } from 'node:path';
 //     `IDropTarget::Drop` отвечает E_INVALIDARG. То есть путь через оболочку —
 //     единственный рабочий.
 //
+//  6. ⚠️ ПРОМАХ, НАЙДЕННЫЙ 26.11.2026 (промт КАРМАНА #159): мастер не открывался
+//     НИКОГДА, потому что `SHParseDisplayName` была объявлена с ЧЕТЫРЬМЯ
+//     параметрами вместо пяти (нативная функция читает pcchEaten/pdwAttributes
+//     из мусора → E_INVALIDARG → «Value does not fall within the expected range»).
+//     С объявлением на пять параметров все шаги проходят: SHParseDisplayName →
+//     BindToObject → ILFindChild → GetUIObjectOf → QueryContextMenu (115 пунктов),
+//     и мастер открывается (проверено на машине 26.11.2026).
+//
 // Отдельный процесс PowerShell — по трём причинам:
 //   * `photowiz.dll` грузится в адресное пространство вызывающего; в главном
 //     процессе Electron это ломает всё приложение;
@@ -44,6 +52,7 @@ import { join } from 'node:path';
 /** C#-часть помощника. Только ASCII: файл скрипта пишется без BOM, PowerShell 5.1 читает такие как ANSI. */
 const HELPER_CSHARP = `
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -86,8 +95,14 @@ struct CMINVOKECOMMANDINFO
 
 public static class MatricaPhotoWizard
 {
+    // NOTE: SHParseDisplayName takes FIVE parameters
+    // (pszName, pbc, &pidl, pcchEaten, pdwAttributes). Declaring it with four
+    // makes the native call read pcchEaten/pdwAttributes from garbage and
+    // return E_INVALIDARG -- the wizard then NEVER opened ("Value does not fall
+    // within the expected range", checked on the machine 26.11.2026).
+    // Keep this block ASCII-only: PowerShell 5.1 reads the script as ANSI.
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
-    static extern void SHParseDisplayName([MarshalAs(UnmanagedType.LPWStr)] string name, IntPtr bc, out IntPtr pidl);
+    static extern void SHParseDisplayName([MarshalAs(UnmanagedType.LPWStr)] string name, IntPtr bc, out IntPtr pidl, out uint pcchEaten, out uint pdwAttributes);
 
     [DllImport("shell32.dll", PreserveSig = false)]
     static extern void SHGetDesktopFolder([MarshalAs(UnmanagedType.Interface)] out IShellFolderRaw psf);
@@ -115,8 +130,48 @@ public static class MatricaPhotoWizard
     [DllImport("user32.dll")]
     static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
 
-    /// Открыть мастер печати фотографий на ВСЕ снимки сразу.
-    /// Возвращает "ok" либо текст причины (её показывает оператору).
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern int GetWindowText(IntPtr h, StringBuilder s, int max);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern int GetClassName(IntPtr h, StringBuilder s, int max);
+
+    /// Visible top-level windows (handles only).
+    static List<IntPtr> VisibleWindowHandles()
+    {
+        var list = new List<IntPtr>();
+        EnumWindows((h, p) =>
+        {
+            if (IsWindowVisible(h)) list.Add(h);
+            return true;
+        }, IntPtr.Zero);
+        return list;
+    }
+
+    /// Handles of visible windows BEFORE the wizard was invoked.
+    static HashSet<IntPtr> windowsBeforeInvoke = new HashSet<IntPtr>();
+
+    /// Title of the photo printing wizard in Russian (Unicode escapes: the helper
+    /// script is written as UTF-8 without BOM and PowerShell 5.1 reads it as ANSI,
+    /// so a literal here would arrive as mojibake).
+    const string WizardTitleRu = "\u041F\u0435\u0447\u0430\u0442\u044C";
+
+    /// Is this window the photo printing wizard?
+    /// The wizard is a XAML host ("NativeHWNDHost") whose title names the print.
+    static bool IsWizardWindow(IntPtr h)
+    {
+        StringBuilder cls = new StringBuilder(64);
+        GetClassName(h, cls, 64);
+        if (cls.ToString() != "NativeHWNDHost") return false;
+        StringBuilder title = new StringBuilder(256);
+        GetWindowText(h, title, 256);
+        string t = title.ToString();
+        return t.IndexOf(WizardTitleRu, StringComparison.OrdinalIgnoreCase) >= 0
+            || t.IndexOf("Print", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    /// Open the photo printing wizard for ALL pictures at once.
+    /// Returns "ok" or the reason (the reason is shown to the operator).
     public static string Open(string[] files)
     {
         if (files == null || files.Length == 0) return "no-files";
@@ -124,7 +179,9 @@ public static class MatricaPhotoWizard
         if (string.IsNullOrEmpty(folder)) return "no-folder";
 
         IntPtr folderPidl;
-        SHParseDisplayName(folder, IntPtr.Zero, out folderPidl);
+        uint eatenFolder;
+        uint attrsFolder;
+        SHParseDisplayName(folder, IntPtr.Zero, out folderPidl, out eatenFolder, out attrsFolder);
 
         IShellFolderRaw desktop;
         SHGetDesktopFolder(out desktop);
@@ -138,7 +195,9 @@ public static class MatricaPhotoWizard
         for (int i = 0; i < n; i++)
         {
             IntPtr abs;
-            SHParseDisplayName(files[i], IntPtr.Zero, out abs);
+            uint eaten;
+            uint attrs;
+            SHParseDisplayName(files[i], IntPtr.Zero, out abs, out eaten, out attrs);
             children[i] = ILFindChild(folderPidl, abs);
             CoTaskMemFree(abs);
         }
@@ -160,26 +219,45 @@ public static class MatricaPhotoWizard
         cmi.lpVerb = Marshal.StringToHGlobalAnsi("print");
         IntPtr pcmi = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(CMINVOKECOMMANDINFO)));
         Marshal.StructureToPtr(cmi, pcmi, false);
+        // Snapshot of visible windows BEFORE the wizard appears: the wizard runs in
+        // its own process, so "my own visible window" never tells us that it is open.
+        windowsBeforeInvoke = new HashSet<IntPtr>(VisibleWindowHandles());
         menu.InvokeCommand(pcmi, IntPtr.Zero);
         DestroyMenu(hmenu);
         return "ok";
     }
 
-    /// Есть ли у этого процесса видимое окно (мастер печати).
-    /// Консоль PowerShell скрыта, значит видимое окно — это мастер.
-    public static bool HasVisibleWindow()
+    /// Wait until the wizard window is closed by the operator.
+    /// The wizard runs in its own process (a COM surrogate), so "my own visible
+    /// window" never tells us that it is open: we watch for the wizard window
+    /// itself and wait until it disappears.
+    /// Returns false if the wizard never appeared (it did not open).
+    public static bool WaitWizardClosed(int timeoutMs, int appearTimeoutMs)
     {
-        bool found = false;
-        uint self = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
-        EnumWindows((h, p) =>
+        DateTime deadline = DateTime.Now.AddMilliseconds(timeoutMs);
+        DateTime giveUp = DateTime.Now.AddMilliseconds(appearTimeoutMs);
+        IntPtr wizard = IntPtr.Zero;
+        while (DateTime.Now < deadline)
         {
-            if (!IsWindowVisible(h)) return true;
-            uint pid;
-            GetWindowThreadProcessId(h, out pid);
-            if (pid == self) found = true;
-            return true;
-        }, IntPtr.Zero);
-        return found;
+            List<IntPtr> now = VisibleWindowHandles();
+            if (wizard == IntPtr.Zero)
+            {
+                foreach (IntPtr h in now)
+                {
+                    if (windowsBeforeInvoke.Contains(h)) continue;
+                    if (!IsWizardWindow(h)) continue;
+                    wizard = h;
+                    break;
+                }
+                if (wizard == IntPtr.Zero && DateTime.Now > giveUp) return false;
+            }
+            else if (!now.Contains(wizard))
+            {
+                return true;
+            }
+            System.Threading.Thread.Sleep(400);
+        }
+        return false;
     }
 }
 `;
@@ -187,17 +265,22 @@ public static class MatricaPhotoWizard
 /** Обёртка PowerShell: компилируем C#, открываем мастер, ждём его закрытия. */
 const HELPER_PS = `$ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$files = @(Get-Content -Raw -Encoding UTF8 (Join-Path $here 'files.json') | ConvertFrom-Json)
+# NOTE: ConvertFrom-Json pushes a JSON array as ONE object into the pipeline.
+# Wrapping it in @() collapses it into a single element, and the cast to
+# [string] then glues the paths with a space -- the shell then gets a
+# non-existent path and fails with E_INVALIDARG. So: -InputObject, no @().
+$files = ConvertFrom-Json -InputObject (Get-Content -Raw -Encoding UTF8 (Join-Path $here 'files.json'))
+$files = [string[]]$files
 Add-Type -TypeDefinition @'
 ${HELPER_CSHARP}
 '@
 $res = [MatricaPhotoWizard]::Open([string[]]$files)
 if ($res -ne 'ok') { Write-Output $res; exit 2 }
-$deadline = (Get-Date).AddMinutes(60)
-while ((Get-Date) -lt $deadline) {
-  if (-not [MatricaPhotoWizard]::HasVisibleWindow()) { break }
-  Start-Sleep -Milliseconds 500
-}
+# Wait until the operator closes the wizard: the wizard runs in its own process
+# (a COM surrogate), so we watch for the wizard window itself. If it does not
+# appear within appearTimeoutMs, the wizard did not open -- the caller falls back
+# to the per-file path (one window per file), which always works.
+if (-not [MatricaPhotoWizard]::WaitWizardClosed(3600000, $env:MATRICA_WIZARD_APPEAR_MS)) { Write-Output 'wizard-not-opened'; exit 3 }
 Write-Output 'ok'
 exit 0
 `;
@@ -207,10 +290,15 @@ exit 0
  *
  * Ждёт, пока оператор закроет мастер: возврат обещания — это и есть сигнал
  * «окно закрылось», по которому программа возвращает фокус и убирает копии.
+ *
+ * ⚠️ Проверено на машине (PC79, 26.11.2026): глагол «Печать» у МНОЖЕСТВЕННОГО
+ * выделения мастер не открывает (окно не появляется) — оболочка печатает по
+ * одному файлу. Поэтому `appearTimeoutMs` ограничивает ожидание, а вызывающий
+ * (общий модуль печати) уходит в запасной путь «по одному окну на файл».
  */
 export async function openPhotoPrintWizard(
   paths: string[],
-  opts: { workDir: string; timeoutMs?: number },
+  opts: { workDir: string; timeoutMs?: number; appearTimeoutMs?: number },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const list = paths.map((p) => String(p ?? '').trim()).filter(Boolean);
   if (list.length === 0) return { ok: false, error: 'Не выбрано ни одной картинки' };
@@ -227,6 +315,7 @@ export async function openPhotoPrintWizard(
   }
 
   const timeoutMs = opts.timeoutMs ?? 65 * 60 * 1000;
+  const appearTimeoutMs = opts.appearTimeoutMs ?? 12_000;
   return new Promise((resolve) => {
     let settled = false;
     let out = '';
@@ -243,7 +332,11 @@ export async function openPhotoPrintWizard(
         ['-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
         // НЕ detached и НЕ windowsHide: по грабле из clientOpsService.ts оба флага
         // убивают графическое окно (мастер печати).
-        { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: false },
+        {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: false,
+          env: { ...process.env, MATRICA_WIZARD_APPEAR_MS: String(appearTimeoutMs) },
+        },
       );
     } catch (e) {
       finish({ ok: false, error: `Не удалось запустить мастер печати: ${String(e)}` });

@@ -1652,9 +1652,15 @@ export type MatricaApi = {
     imagePreview: (args: { id: string }) => Promise<
       { ok: true; dataUrl: string } | { ok: false; error: string }
     >;
-    /** Отобранные картинки — на печать. `mode: 'os'` — системный мастер печати фотографий. */
+    /**
+     * Отобранные картинки — на печать. `mode: 'os'` — системный мастер печати фотографий.
+     *
+     * `note` — когда печать ушла не туда, куда просил оператор (например, диалог
+     * печати на машине не работает и печать ушла в системный мастер): оператор
+     * должен видеть это в сообщении, а не гадать.
+     */
     printImages: (args: { ids: string[]; mode?: 'dialog' | 'os' }) => Promise<
-      { ok: true; opened?: number; failed?: number } | { ok: false; error: string }
+      { ok: true; opened?: number; failed?: number; note?: string } | { ok: false; error: string }
     >;
     /** Умеет ли машина системный мастер печати фотографий (кнопка прячется сама). */
     printCapabilities: () => Promise<
