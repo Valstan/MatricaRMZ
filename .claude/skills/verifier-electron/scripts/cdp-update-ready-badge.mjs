@@ -7,7 +7,8 @@
  * не знал — плашка показалась один раз и погасла, а кнопка «Перезапуск» в шапке
  * выглядела как обычная. Теперь:
  *   1. главный процесс держит состояние «обновление скачано» (state=downloaded);
- *   2. кнопка «Перезапуск» помечена (`data-update-ready`), с точкой и другой рамкой;
+ *   2. кнопка «Перезапуск» помечена (`data-update-ready`) и МИГАЕТ КРАСНЫМ
+ *      (промт КАРМАНА #150 — тихий синий кружок оператор не замечал);
  *   3. подсказка кнопки называет версию обновления;
  *   4. плашка-напоминание видна и ПОВТОРЯЕТСЯ, пока обновление не поставили.
  *
@@ -110,12 +111,16 @@ const HELPERS = `
   const restartButton = () => {
     const b = document.querySelector('[data-restart-app-btn]');
     if (!b) return null;
+    const cs = getComputedStyle(b);
     return {
       exists: true,
       ready: b.getAttribute('data-update-ready') ?? null,
       classes: b.className ?? '',
       title: b.getAttribute('title') ?? '',
-      hasDot: Boolean(b.querySelector('.v3-update-ready-dot')),
+      pulse: cs.animationName ?? '',
+      pulseDuration: cs.animationDuration ?? '',
+      color: cs.color ?? '',
+      borderColor: cs.borderColor ?? '',
       text: txt(b),
     };
   };
@@ -165,7 +170,11 @@ async function main() {
     'у кнопки отдельный вид (рамка/фон)',
     { classes: button?.classes ?? null },
   );
-  note(button?.hasDot === true, 'на кнопке есть точка готовности', { hasDot: button?.hasDot ?? null });
+  note(
+    String(button?.pulse ?? '').includes('v3-restart-ready-pulse'),
+    'кнопка мигает красным — признак готовности один (сама кнопка)',
+    { pulse: button?.pulse ?? null, период: button?.pulseDuration ?? null },
+  );
   note(
     String(button?.title ?? '').includes('Обновление'),
     'подсказка кнопки называет обновление',
