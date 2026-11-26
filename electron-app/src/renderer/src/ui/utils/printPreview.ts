@@ -141,6 +141,61 @@ function renderSectionsHtml(sections: PrintSection[]): string {
 }
 
 /**
+ * Разметка ДОКУМЕНТА окна печати — ровно то, что уходит в принтер.
+ *
+ * Вынесена из `openPrintPreview` отдельной чистой функцией, чтобы аудит печати
+ * (скрипт `scripts/wo-print-audit.mjs`) измерял ТОТ ЖЕ лист, который печатает
+ * оператор, а не его приближение. Правок поведения здесь нет: `openPrintPreview`
+ * собирает разметку этой же функцией.
+ */
+export function buildPrintPreviewDocumentHtml(opts: {
+  title: string;
+  subtitle?: string | undefined;
+  sections: PrintSection[];
+  extraCss?: string | undefined;
+  orientation: PrintOrientation;
+  fontSizePt: number;
+  printHeader?: PrintHeader | undefined;
+  /** Правила скрытия разделов галочками окна (то же, что рисует `openPrintPreview`). */
+  visibilityCss?: string | undefined;
+  /** Служебный блок управления окна (кнопка «Печать / PDF»). Пусто — для аудита. */
+  controlsHtml?: string | undefined;
+}): string {
+  const title = escapeHtml(opts.title);
+  const subtitle = opts.subtitle ? escapeHtml(opts.subtitle) : '';
+  const header = opts.printHeader;
+  // Шапка окна (заголовок и подзаголовок) — печатается вместе с листом, если форма
+  // не отдала свою (`printHeader`).
+  const windowHead =
+    opts.controlsHtml === undefined
+      ? ''
+      : `<div class="no-print">
+    ${header ? '' : `<h1>${title}</h1>`}
+    ${header || !subtitle ? '' : `<div class="subtitle">${subtitle}</div>`}
+    ${opts.controlsHtml}
+  </div>`;
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>${title}</title>
+  <style>${PRINT_BASE_CSS}
+    ${opts.visibilityCss ?? ''}
+    @page { size: A4 ${opts.orientation}; margin: ${PRINT_MARGIN_MM}mm; }
+    @media print { body { margin: 0; } }
+    table th, table td { font-size: ${opts.fontSizePt}pt; }
+    ${opts.extraCss ?? ''}
+  </style>
+</head>
+<body>
+  ${windowHead}
+  ${header ? renderPrintHeader(header) : ''}
+  ${renderSectionsHtml(opts.sections)}
+</body>
+</html>`;
+}
+
+/**
  * Standalone A4-документ для живого предпросмотра в iframe: только печатный контент,
  * без управляющих элементов; контент шириной с A4-лист (186мм = 210 − 2×12мм поля).
  * Высоту печатной области одной страницы (273мм) меряет вызывающий по scrollHeight.
@@ -214,8 +269,6 @@ ${renderSectionsHtml(opts.sections)}
  * переключатели молчали бы, а разделы застревали бы скрытыми — «пустая страница»).
  */
 export function openPrintPreview(opts: PrintPreviewOptions) {
-  const title = escapeHtml(opts.title);
-  const subtitle = opts.subtitle ? escapeHtml(opts.subtitle) : '';
   const previewState: PrintPreviewState = {
     orientation: opts.orientation ?? 'portrait',
     fontSizePt: opts.fontSizePt ?? PREVIEW_FONT_STEPS[0],
@@ -270,34 +323,22 @@ export function openPrintPreview(opts: PrintPreviewOptions) {
       const previous = state.sections.find((old) => old.id === s.id);
       return previous?.checked == null ? s : { ...s, checked: previous.checked };
     });
-    return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <title>${title}</title>
-  <style>${PRINT_BASE_CSS}
-    ${visibilityCss}
-    @page { size: A4 ${state.orientation}; margin: ${PRINT_MARGIN_MM}mm; }
-    @media print { body { margin: 0; } }
-    table th, table td { font-size: ${state.fontSizePt}pt; }
-    ${extraCss ?? ''}
-  </style>
-</head>
-<body>
-  <div class="no-print">
-    ${header ? '' : `<h1>${title}</h1>`}
-    ${header || !subtitle ? '' : `<div class="subtitle">${subtitle}</div>`}
-    <div class="controls">
+    return buildPrintPreviewDocumentHtml({
+      title: opts.title,
+      subtitle: opts.subtitle,
+      sections,
+      extraCss,
+      orientation: state.orientation,
+      fontSizePt: state.fontSizePt,
+      printHeader: header,
+      visibilityCss,
+      controlsHtml: `<div class="controls">
       ${orientationControls()}
       ${fontControls()}
       ${sectionControls()}
       <button class="action" id="printBtn">Печать / PDF</button>
-    </div>
-  </div>
-  ${header ? renderPrintHeader(header) : ''}
-  ${renderSectionsHtml(sections)}
-</body>
-</html>`;
+    </div>`,
+    });
   };
 
   const w = window.open('', '_blank');
