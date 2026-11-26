@@ -51,6 +51,17 @@ export function SuggestInput(props: {
   onCreate?: (label: string) => Promise<string | null>;
   onBlur?: () => void;
   onFocus?: () => void;
+  /** Enter в поле, когда подсказка не выбрана (выпадашка закрыта или пуста). */
+  onSubmit?: () => void;
+  /**
+   * Ждать подсказок: выпадашка открывается только когда есть что показать.
+   *
+   * Для поля, где подсказки приезжают из базы с задержкой (например, номер
+   * двигателя по последним цифрам): пустой список «Нет совпадений» только мешал
+   * бы вводу — слова оператор ищет по содержимому файлов, а подсказок по номеру
+   * для слова нет. Список пришёл — выпадашка открывается сама.
+   */
+  waitForOptions?: boolean;
   style?: React.CSSProperties;
   // Auto-close the dropdown after this many ms without interaction
   // (typing, arrow keys, hover/scroll over the list). Typing reopens it.
@@ -60,6 +71,7 @@ export function SuggestInput(props: {
   const disabled = props.disabled === true;
   const previewLimit = 15;
   const hints = useComponentSuggestionSuppress();
+  const waitForOptions = props.waitForOptions === true;
 
   const dropdown = useSuggestionDropdown(
     props.options.map((o) =>
@@ -77,11 +89,16 @@ export function SuggestInput(props: {
   // useState setters from useSuggestionDropdown, so they are referentially stable.
   const setDropdownQuery = dropdown.setQuery;
   const setDropdownActiveIdx = dropdown.setActiveIdx;
+  const setDropdownOpen = dropdown.setOpen;
+  const dropdownFiltered = dropdown.filtered;
+  const dropdownOpen = dropdown.open;
 
   const openDropdown = useCallback(() => {
     if (disabled || hints.suppressed) return;
+    // «Ждать подсказок»: пустой список не показываем.
+    if (waitForOptions && dropdownFiltered.length === 0) return;
     dropdown.setOpen(true);
-  }, [disabled, dropdown, hints.suppressed]);
+  }, [disabled, dropdown, dropdownFiltered.length, hints.suppressed, waitForOptions]);
 
   const hideSuggestions = useCallback(() => {
     hints.suppress();
@@ -108,6 +125,27 @@ export function SuggestInput(props: {
     if (!dropdown.filtered.length) return;
     setDropdownActiveIdx((i) => Math.min(Math.max(0, i), dropdown.filtered.length - 1));
   }, [dropdown.filtered.length, dropdown.open, setDropdownActiveIdx]);
+
+  /**
+   * Асинхронные подсказки: список пришёл после ввода — показываем его сразу.
+   *
+   * Показываем именно НОВЫЙ список (по числу подсказок): закрытый оператором
+   * список (Escape, автоскрытие) сам собой не открывается снова.
+   */
+  const shownOptionsCountRef = useRef(0);
+  useEffect(() => {
+    if (!waitForOptions) return;
+    const count = dropdownFiltered.length;
+    if (count === 0) {
+      shownOptionsCountRef.current = 0;
+      return;
+    }
+    if (count <= shownOptionsCountRef.current) return;
+    shownOptionsCountRef.current = count;
+    if (dropdownOpen) return;
+    if (document.activeElement !== inputRef.current) return;
+    setDropdownOpen(true);
+  }, [waitForOptions, dropdownFiltered.length, dropdownOpen, setDropdownOpen]);
 
   function pick(value: string) {
     props.onChange(value);
@@ -185,13 +223,19 @@ export function SuggestInput(props: {
             if (!dropdown.filtered.length) return;
             dropdown.setActiveByKeyboard((p) => (p <= 0 ? 0 : p - 1));
           } else if (e.key === 'Enter') {
-            if (!dropdown.open) return;
+            if (!dropdown.open) {
+              // Выпадашки нет — значит подсказку выбирать нечего: Enter запускает поиск.
+              props.onSubmit?.();
+              return;
+            }
             e.preventDefault();
             if (dropdown.activeIdx >= 0) {
               const active = dropdown.filtered[dropdown.activeIdx];
               if (active) pick(active.id);
             } else if (props.onCreate && dropdown.query.trim()) {
               void submitCreate();
+            } else {
+              props.onSubmit?.();
             }
           } else if (e.key === 'Escape') {
             e.preventDefault();
@@ -223,7 +267,7 @@ export function SuggestInput(props: {
         }}
       />
 
-      {dropdown.open && !disabled && dropdown.popupRect
+      {dropdown.open && !disabled && dropdown.popupRect && !(waitForOptions && dropdown.filtered.length === 0)
         ? createPortal(
             <div
               ref={dropdown.popupRef}

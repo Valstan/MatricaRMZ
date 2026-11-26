@@ -32,6 +32,34 @@ export type FileSearchFolderSource = {
  */
 export type FileSearchFolderMatchKind = 'folder' | 'file';
 
+/**
+ * Область совпадения при поиске по папкам.
+ *
+ * `any` — как было: совпадение и по названию папки, и по названию файла.
+ * `folder` — только по названию ПАПКИ: режим «Фото двигателя». Находка тогда —
+ * папка целиком (со всеми её фотографиями), а не отдельный файл, имя которого
+ * случайно подошло.
+ */
+export type FileSearchFolderSearchScope = 'any' | 'folder';
+
+/** Допустимые области — renderer и main читают один список. */
+export const FILE_SEARCH_FOLDER_SEARCH_SCOPES: readonly FileSearchFolderSearchScope[] = ['any', 'folder'];
+
+/**
+ * Область из аргументов канала: неизвестное значение — «any» (старое поведение).
+ *
+ * Мусор в аргументах не должен молча менять смысл поиска: не поняли — ищем как
+ * раньше, по названию папки и по названию файла.
+ */
+export function normalizeFileSearchFolderScope(raw: unknown): FileSearchFolderSearchScope {
+  return raw === 'folder' ? 'folder' : 'any';
+}
+
+/** Допускает ли область находку по названию ФАЙЛА. */
+export function folderScopeAllowsFileMatches(scope: FileSearchFolderSearchScope): boolean {
+  return scope !== 'folder';
+}
+
 /** Одно найденное совпадение: папка или файл. */
 export type FileSearchFolderMatch = {
   /** Ключ совпадения — по нему картинки привязываются к своей находке. */

@@ -101,7 +101,7 @@ describe('модуль «Поиск по файлам»: сторож формы
 
   it('папки ищутся по названию, а превью крупные', () => {
     expect(PAGE).toContain('searchFolders');
-    expect(PAGE).toContain('по названию в папках');
+    expect(PAGE).toContain('В папках по названию');
     // Крупное превью: 220×220 и contain — картинка не обрезается.
     expect(PAGE).toContain('width: 220');
     expect(PAGE).toContain('objectFit: \'contain\'');
@@ -126,5 +126,49 @@ describe('модуль «Поиск по файлам»: сторож формы
 
   it('модуль не пишет ни в папки, ни в файлы', () => {
     expect(PAGE).not.toMatch(/writeFile|createWriteStream|showSaveDialog|mkdir|rmSync|unlink/);
+  });
+
+  // Промт КАРМАНА #155: подсказки номера двигателя и три режима поиска.
+  // Пять правил, которые легко сломать правкой страницы:
+  // 1. Режимы — кнопками рядом со строкой поиска, и выбранный виден.
+  // 2. «Фото двигателя» — совпадение ТОЛЬКО по названию папки: папка целиком.
+  // 3. Подсказки номера — из базы, с задержкой, и только когда ввод похож на номер.
+  // 4. Выбор подсказки подставляет ПОЛНЫЙ номер, а не дописывает его.
+  // 5. Переключение режимов не сбрасывает отбор и не теряет отмеченные картинки.
+  it('режимы переключаются кнопками рядом со строкой поиска, выбранный виден', () => {
+    expect(PAGE).toContain('SEARCH_MODES.map');
+    expect(PAGE).toContain("label: 'В файлах'");
+    expect(PAGE).toContain("label: 'В папках по названию'");
+    expect(PAGE).toContain("label: 'Фото двигателя'");
+    // Выбранный режим — залитая кнопка.
+    expect(PAGE).toContain("variant={mode === item.code ? 'primary' : 'outline'}");
+  });
+
+  it('режим «Фото двигателя» ищет по названию папки и берёт её целиком', () => {
+    expect(PAGE).toContain("mode === 'photos' ? 'folder' : 'any'");
+    expect(PAGE).toContain('scope: folderScopeOfMode(mode)');
+  });
+
+  it('подсказки номера приходят из базы и только когда ввод похож на номер', () => {
+    expect(PAGE).toContain('engineNumberSuggestions');
+    expect(PAGE).toContain('isFileSearchEngineNumberLike');
+    expect(PAGE).toContain('SUGGEST_DEBOUNCE_MS');
+    // Выпадашка — готовая компонента проекта, не самодельная.
+    expect(PAGE).toContain('SuggestInput');
+  });
+
+  it('выбор подсказки подставляет полный номер в строку', () => {
+    expect(PAGE).toContain('onChange={setQuery}');
+    expect(PAGE).toContain('value: item.engineNumber');
+  });
+
+  it('переключение режимов не сбрасывает отбор картинок', () => {
+    // Смена режима — только setMode: отметки и превью остаются.
+    expect(PAGE).toContain('onClick={() => setMode(item.code)}');
+    const modeSwitch = PAGE.split('onClick={() => setMode(item.code)}')[1]?.split('/>')[0] ?? '';
+    expect(modeSwitch).not.toContain('setPicked');
+    expect(modeSwitch).not.toContain('setPreviews');
+    // А сброс отметок живёт только в самом поиске (старые id не печатаются).
+    expect(PAGE).toContain('setPicked(new Set())');
   });
 });

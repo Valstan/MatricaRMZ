@@ -20,11 +20,14 @@ import { basename, join, sep } from 'node:path';
 import {
   fileSearchImageExtension,
   folderMatchKey,
+  folderScopeAllowsFileMatches,
   isFileSearchImage,
   normalizeFileSearchQuery,
+  normalizeFileSearchFolderScope,
   type FileSearchFolderImage,
   type FileSearchFolderMatch,
   type FileSearchFolderResult,
+  type FileSearchFolderSearchScope,
   type FileSearchFolderSource,
   type FileSearchUnreadable,
 } from '@matricarmz/shared';
@@ -225,13 +228,21 @@ async function scanSourceTree(
  * Находка — папка, в названии которой есть запрос, либо файл с таким
  * названием. Для папки показываем её содержимое (картинки внутри), для файла —
  * сам файл.
+ *
+ * Область поиска (`scope`) решает, что считается находкой:
+ *  * `any` (по умолчанию) — как было: и папка, и отдельный файл;
+ *  * `folder` — режим «Фото двигателя»: совпадение ТОЛЬКО по названию папки,
+ *    находка — папка целиком со всеми её фотографиями. Отдельный файл, имя
+ *    которого случайно подошло, в этом режиме находкой не является.
  */
 export async function searchFolderSources(
   sources: readonly FileSearchFolderSource[],
   rawQuery: string,
+  options?: { scope?: FileSearchFolderSearchScope },
 ): Promise<FileSearchFolderResult> {
   const started = Date.now();
   const query = normalizeFileSearchQuery(rawQuery);
+  const scope = normalizeFileSearchFolderScope(options?.scope);
   const matches: FileSearchFolderMatch[] = [];
   const images: FileSearchFolderImage[] = [];
   const unreadable: FileSearchUnreadable[] = [];
@@ -319,34 +330,39 @@ export async function searchFolderSources(
 
     // Находки по названию файла. Файл внутри уже найденной папки отдельной
     // находкой не показываем — содержимое папки оператор и так видит.
-    for (const file of outcome.files) {
-      if (!file.name.toLowerCase().includes(lowerQuery)) continue;
-      if (matches.length >= MAX_FOLDER_MATCHES) {
-        notes.push(`Находок больше ${MAX_FOLDER_MATCHES} — показываем первые`);
-        break;
-      }
-      const inMatchedFolder = matchedFolderPaths.some((folderPath) =>
-        folderPath ? file.relativePath.startsWith(folderPath + sep) : true,
-      );
-      if (inMatchedFolder) continue;
-      const key = folderMatchKey({ sourceId: source.id, relativePath: file.relativePath, matchedBy: 'file' });
-      matches.push({
-        key,
-        sourceId: source.id,
-        sourceName: source.name,
-        relativePath: file.relativePath,
-        name: file.name,
-        matchedBy: 'file',
-        imageCount: file.isImage ? 1 : 0,
-      });
-      if (file.isImage) {
-        images.push({
-          id: registerImage(file.absolutePath, file.name),
-          matchKey: key,
-          name: file.name,
+    //
+    // В области `folder` (режим «Фото двигателя») файлы находками не являются
+    // вовсе: там ищем папку с номером в названии и отдаём её целиком.
+    if (folderScopeAllowsFileMatches(scope)) {
+      for (const file of outcome.files) {
+        if (!file.name.toLowerCase().includes(lowerQuery)) continue;
+        if (matches.length >= MAX_FOLDER_MATCHES) {
+          notes.push(`Находок больше ${MAX_FOLDER_MATCHES} — показываем первые`);
+          break;
+        }
+        const inMatchedFolder = matchedFolderPaths.some((folderPath) =>
+          folderPath ? file.relativePath.startsWith(folderPath + sep) : true,
+        );
+        if (inMatchedFolder) continue;
+        const key = folderMatchKey({ sourceId: source.id, relativePath: file.relativePath, matchedBy: 'file' });
+        matches.push({
+          key,
+          sourceId: source.id,
+          sourceName: source.name,
           relativePath: file.relativePath,
-          size: file.size,
+          name: file.name,
+          matchedBy: 'file',
+          imageCount: file.isImage ? 1 : 0,
         });
+        if (file.isImage) {
+          images.push({
+            id: registerImage(file.absolutePath, file.name),
+            matchKey: key,
+            name: file.name,
+            relativePath: file.relativePath,
+            size: file.size,
+          });
+        }
       }
     }
   }
