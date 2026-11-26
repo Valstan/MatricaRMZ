@@ -56,7 +56,7 @@
 
 - [🟡 Управляющие кнопки вправо: остаток обхода — подвалы модалок (промт #141) 🗓 since:2026-11-25](pending/knopki-vpravo-obhod-renderer.md)
 - [🟡 Совет специалистов: три решения владельца (состав, обязательность, место протоколов) 🗓 since:2026-11-25](pending/sovet-specialistov-tri-resheniya-vladeltsa.md)
-- [🟢 Кнопка «где искать»: остальные списки и серверный слой 🗓 since:2026-11-26](pending/gde-iskat-ostatniye-spiski-i-servernyy-sloy.md)
+- [🟢 Кнопка «где искать»: остальные списки 🗓 since:2026-11-26](pending/gde-iskat-spiski.md)
 
 - [✅ Кит перетаскивания: живой прогон второго пути (карточки) доведён 🗓 since:2026-11-24](pending/kit-peretaskivaniya-zhivoy-progon-vtorogo-pute.md)
 - [🟡 Списки вне кита: 39 таблиц-страниц ещё не переведены 🗓 since:2026-11-25](pending/list-kit-remaining-pages.md)
@@ -109,7 +109,7 @@
 - [⏳ Данные оператора: серверная дверь починена, клиент 3.135.0 роняет pull — остались снимок машины, обновление ≥3.136.0 и приёмка 🗓 since:2026-11-23](pending/dannie-operatora-ne-uhodyat-na-server.md)
 - [⏳ Строки списка деталей застряли в отправке: правка в v3.147.0, ждём полевую приёмку 🗓 since:2026-11-24](pending/stroki-spiska-detaley-zastryali-v-otpravke.md)
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)
-- [⏳ Промты проекта из КАРМАНА (D-190): #137, #143, #151 сделаны кодом, живые #138 и далее (сужение поиска, верстак, планшет); #143 ждёт полевой приёмки 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
+- [⏳ Промты проекта из КАРМАНА (D-190): #137, #138, #143, #151 сделаны кодом; #143 ждёт полевой приёмки 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
 - [⏳ MiniMax-воркер на проде: воркер живой, звено включено; ждём первый ответ от MiniMax — пул Кармана пуст даже после сброса суток 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
 - [⏳ Локальный MiniMax на клиенте: код выпущен (v3.142.0), ждём комнату «Кармана», рантайм в CI и смоук на живой машине 🗓 since:2026-11-23](pending/lokalnyy-minimax-na-kliente-privyka-i-runtaym.md)
 - [⏳ Планшетная версия «Матрицы РМЗ»: код готов, меню полное (промт #142, PR #2046), APK выложен релизом v3.143.0 — осталась приёмка глазами владельца на устройстве 🗓 since:2026-11-23](pending/planshetnaya-versiya-matritsy-rmz-na-planshete.md)
