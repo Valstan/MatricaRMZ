@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import { parseRepairHistoryMeta } from '@matricarmz/shared';
 
 import { resolveEngineScrap } from './engineScrapResolveService.js';
-import { getOperation } from './operationService.js';
 
 // СНЯТИЕ УТИЛЯ — действие «Деталь отремонтирована» (промт КАРМАНА #170).
 //
@@ -64,7 +63,7 @@ describe('снятие утиля: «Деталь отремонтирована
     // Флаг утиля снят.
     expect(readFlag(db)).toBe(false);
     // След в истории: причина и автор на месте.
-    const rows = (db as unknown as { $client: { prepare: (sql: string) => { all: () => Array<Record<string, unknown>> } } }).$client
+    const rows = (db as unknown as { $client: { prepare: (sql: string) => { all: (...args: unknown[]) => Array<Record<string, unknown>> } } }).$client
       .prepare('SELECT * FROM operations WHERE operation_type = ?')
       .all('repair_history_entry');
     expect(rows).toHaveLength(1);

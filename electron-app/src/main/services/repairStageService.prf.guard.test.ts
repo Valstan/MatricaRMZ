@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_REPAIR_STAGE_TEMPLATES } from '@matricarmz/shared';
 
 import { saveRepairStageRow } from './repairStageService.js';
+import { resolveEngineScrap } from './engineScrapResolveService.js';
 
 const DDL = `
   CREATE TABLE entities (id text PRIMARY KEY, type_id text,
@@ -123,10 +124,40 @@ describe('PR-F: dual-entry даты дефектовки и снятие ути�
     expect(moved, 'укладка не должна попадать под вопрос о дате дефектовки').not.toHaveProperty('defectDateChange');
   });
 
-  it('укладка снимает все метки утиля и ставит их в очередь синка', async () => {
+  it('укладка у утильного двигателя не создаётся — ремонт не начинаем (гейт #170)', async () => {
     const { sqlite, db } = makeDb();
     seedScrapDefs(sqlite);
     seedScrapFlags(sqlite, 'eng-1');
+
+    const res = await saveRepairStageRow(
+      db,
+      { id: 'u1', engineId: 'eng-1', code: 'ukladka', atMs: DAY1 },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error('ожидался отказ гейта утиля');
+    expect(res.scrapGate, 'экран должен показать окно с двумя действиями').toBeTruthy();
+
+    // Метки утиля на месте: этап не начат, утиль молча не снят.
+    expect(readFlag(sqlite, 'av-scrap').value_json).toBe('"1"');
+    expect(readFlag(sqlite, 'av-rej').value_json).toBe('true');
+    expect(readFlag(sqlite, 'av-scrap').sync_status).toBe('synced');
+  });
+
+  it('после снятия утиля укладка заводится, а метки утиля снимаются в очередь синка', async () => {
+    const { sqlite, db } = makeDb();
+    seedScrapDefs(sqlite);
+    seedScrapFlags(sqlite, 'eng-1');
+
+    // Действие «Деталь отремонтирована»: утиль снят С ПРИЧИНОЙ, след в истории.
+    const resolved = await resolveEngineScrap({
+      db,
+      engineId: 'eng-1',
+      input: { engineId: 'eng-1', partLabel: 'Картер', reason: 'Ремонт', atMs: DAY1 },
+      actor: 'tester',
+    });
+    expect(resolved.ok).toBe(true);
 
     const res = await saveRepairStageRow(
       db,

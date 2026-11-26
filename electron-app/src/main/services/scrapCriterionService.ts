@@ -87,8 +87,10 @@ function warnOnce(message: string): void {
  * Одноразово на базу клиента (флаг в настройках, ВЕРСИОНИРОВАН): снятую владельцем
  * метку наполнение не возвращает, но новый состав доводится до парка повторным
  * наполнением — иначе главные детали, добавленные после первого запуска, остались бы
- * немаркированными. Помеченные детали уезжают на сервер общим каналом атрибутов —
- * остальной парк подхватит их при следующем pull.
+ * немаркированными. Повторное наполнение трогает только те детали, по которым владелец
+ * ЕЩЁ НЕ высказался: где метка уже стоит или уже снята — решение владельца, его
+ * наполнение не переставляет. Помеченные детали уезжают на сервер общим каналом
+ * атрибутов — остальной парк подхватит их при следующем pull.
  */
 export const SCRAP_CRITERION_SEED_VERSION = '2';
 
@@ -122,7 +124,12 @@ export async function seedScrapCriterionParts(
 
     const marked: Array<{ partId: string; name: string }> = [];
     for (const [partId, name] of candidates) {
-      if (await readCriterionEnabled(db, partId)) continue;
+      // Решение владельца по детали (метка стоит ИЛИ снята) — наполнение его не трогает.
+      // Иначе расширение состава (новый состав главных деталей) возвращало бы снятую
+      // владельцем метку обратно — обещание «снятую метку наполнение не возвращает»
+      // перестало бы быть правдой.
+      const decision = await readCriterionDecision(db, partId);
+      if (decision.exists) continue;
       const written = await setScrapCriterionFlag(db, partId, true);
       if (written.ok) marked.push({ partId, name });
     }
@@ -366,10 +373,18 @@ export async function getScrapCriterionState(
   return { ok: true, enabled, partId, name: parts[0]?.name ?? '', ...impact };
 }
 
-/** Стоит ли метка на детали (значение атрибута — три представления «нет» учтены). */
-async function readCriterionEnabled(db: BetterSQLite3Database, partId: string): Promise<boolean> {
+/**
+ * Решение владельца по детали: стоит ли метка «уводит двигатель в утиль».
+ *
+ * `exists` — высказался ли владелец по этой детали (метка стоит ИЛИ снята). Это не то же,
+ * что `enabled`: снятая метка — тоже решение, и наполнение по умолчанию её не возвращает.
+ */
+async function readCriterionDecision(
+  db: BetterSQLite3Database,
+  partId: string,
+): Promise<{ exists: boolean; enabled: boolean }> {
   const partTypeId = await getPartTypeId(db);
-  if (!partTypeId) return false;
+  if (!partTypeId) return { exists: false, enabled: false };
   const defRows = await db
     .select({ id: attributeDefs.id })
     .from(attributeDefs)
@@ -382,7 +397,7 @@ async function readCriterionEnabled(db: BetterSQLite3Database, partId: string): 
     )
     .limit(1);
   const defId = defRows[0]?.id ? String(defRows[0].id) : null;
-  if (!defId) return false;
+  if (!defId) return { exists: false, enabled: false };
   const valueRows = await db
     .select({ valueJson: attributeValues.valueJson })
     .from(attributeValues)
@@ -395,8 +410,13 @@ async function readCriterionEnabled(db: BetterSQLite3Database, partId: string): 
     )
     .orderBy(desc(attributeValues.updatedAt))
     .limit(1);
-  if (!valueRows[0]) return false;
-  return isEavFlagSet(parseJson(valueRows[0].valueJson));
+  if (!valueRows[0]) return { exists: false, enabled: false };
+  return { exists: true, enabled: isEavFlagSet(parseJson(valueRows[0].valueJson)) };
+}
+
+/** Стоит ли метка на детали (значение атрибута — три представления «нет» учтены). */
+async function readCriterionEnabled(db: BetterSQLite3Database, partId: string): Promise<boolean> {
+  return (await readCriterionDecision(db, partId)).enabled;
 }
 
 /**

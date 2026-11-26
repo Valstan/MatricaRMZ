@@ -745,19 +745,18 @@ export function ProductionProgramPage(props: Props) {
       const atMs = parseIsoDate(args.date);
       if (atMs == null) return { ok: false, error: 'Укажите дату, когда этап был завершён' };
       const wsLabel = workshops.find((w) => w.id === args.workshopId)?.label ?? '';
-      const saveArgs = {
-        id: crypto.randomUUID(),
-        engineId: dialog.engineId,
-        code: args.code,
-        atMs,
-        ...(args.note.trim() ? { note: args.note.trim() } : {}),
-        ...(args.workshopId ? { workshopId: args.workshopId } : {}),
-        ...(wsLabel ? { workshopName: wsLabel } : {}),
-        ...(args.repeatPass ? { repeatPass: args.repeatPass } : {}),
-        ...(args.confirmDefectDate ? { confirmDefectDate: true } : {}),
-      };
       try {
-        const res = await window.matrica.workSheets.stages.save(saveArgs);
+        const res = await window.matrica.workSheets.stages.save({
+          id: crypto.randomUUID(),
+          engineId: dialog.engineId,
+          code: args.code,
+          atMs,
+          ...(args.note.trim() ? { note: args.note.trim() } : {}),
+          ...(args.workshopId ? { workshopId: args.workshopId } : {}),
+          ...(wsLabel ? { workshopName: wsLabel } : {}),
+          ...(args.repeatPass ? { repeatPass: args.repeatPass } : {}),
+          ...(args.confirmDefectDate ? { confirmDefectDate: true } : {}),
+        });
         // Гейт утиля (промт КАРМАНА #170): этап у утильного двигателя не заводится — окно
         // спрашивает, отремонтирована ли деталь, и после «да» повторяет запись.
         if (handleScrapStageResult({ result: res, engineId: dialog.engineId, retry: (warning) => void submitStageRef.current?.(args).then(() => { if (warning) setStatus(warning); }) })) {
