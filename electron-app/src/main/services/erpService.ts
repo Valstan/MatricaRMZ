@@ -4,6 +4,7 @@ import { filterRowsTiered } from '@matricarmz/shared';
 import type { GlobalSearchResponse, PartMetadata, PartSpec, WarehouseLookupOption, WarehouseLookups } from '@matricarmz/shared';
 
 import { httpAuthed } from './httpClient.js';
+import { SearchCancelledError } from './searchAbort.js';
 import { httpFailureLine } from './httpFailureText.js';
 import { listEntitiesByTypeWithAttrs } from './entityService.js';
 import { decorateNomenclatureReplicaRow, masterdataLookupLabel, type NomenclatureReplicaRefs } from './nomenclatureReplica.js';
@@ -585,7 +586,7 @@ export async function warehouseNomenclatureList(
 export async function globalSearchQuery(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { q: string; limit?: number },
+  args: { q: string; limit?: number; signal?: AbortSignal },
 ): Promise<GlobalSearchResponse> {
   const query = String(args?.q ?? '').trim();
   if (!query) return { query: '', hits: [], truncated: false };
@@ -593,7 +594,13 @@ export async function globalSearchQuery(
     const qp = new URLSearchParams();
     qp.set('q', query);
     if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
-    const r = await httpAuthed(db, apiBaseUrl, `/search?${qp.toString()}`, { method: 'GET' }, { timeoutMs: 15_000 });
+    const r = await httpAuthed(
+      db,
+      apiBaseUrl,
+      `/search?${qp.toString()}`,
+      { method: 'GET', ...(args?.signal ? { signal: args.signal } : {}) },
+      { timeoutMs: 15_000 },
+    );
     if (!r.ok || !r.json || typeof r.json !== 'object') return { query, hits: [], truncated: false };
     const json = r.json as Partial<GlobalSearchResponse>;
     return {
@@ -602,6 +609,8 @@ export async function globalSearchQuery(
       truncated: Boolean(json.truncated),
     };
   } catch {
+    // Отмена оператором — не «сервер не ответил»: поиск прекращён по-настоящему.
+    if (args?.signal?.aborted) throw new SearchCancelledError();
     return { query, hits: [], truncated: false };
   }
 }

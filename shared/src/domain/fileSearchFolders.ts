@@ -102,6 +102,11 @@ export type FileSearchFolderResult = {
   notes: string[];
   scannedFolders: number;
   durationMs: number;
+  /**
+   * Поиск остановлен по команде оператора («Отмена»): отдан частичный
+   * результат — то, что успели найти до остановки.
+   */
+  cancelled: boolean;
 };
 
 /** Расширения, которые показываем превью и печатаем как картинки. */

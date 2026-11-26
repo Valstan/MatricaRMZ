@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import type { CardExportSpec, ChatDeepLinkPayload, EngineBulkIntakeApplyInput, FileSearchFolderSearchScope, FileSearchFolderSource, FileSearchSource, ListExportFormat, ListExportSpec, PartMetadata } from '@matricarmz/shared';
+import type { CardExportSpec, ChatDeepLinkPayload, EngineBulkIntakeApplyInput, FileSearchFolderSearchScope, FileSearchFolderSource, FileSearchSource, ListExportFormat, ListExportSpec, PartMetadata, SearchProgressEvent } from '@matricarmz/shared';
 import type { MailAttachmentSpec } from '../main/services/mailService.js';
 
 // Нативный сканер QR ставит сюда планшет (android-app/src/platform/qrScan.ts) до
@@ -38,6 +38,17 @@ const matricaApi = {
     cardContent: async (args: { entityIds: string[]; q: string }) => ipcRenderer.invoke('search:cardContent', args),
     enginesByStampedNumber: async (args: { q: string; limit?: number }) =>
       ipcRenderer.invoke('search:enginesByStampedNumber', args),
+    // Общий прогресс поиска (промт КАРМАНА #166): событие из главного процесса.
+    // Подписка ОДНА на всю программу — в `ui/services/searchProgressService.ts`.
+    onProgress: (handler: (event: SearchProgressEvent) => void) => {
+      const wrapped = (_e: Electron.IpcRendererEvent, payload: SearchProgressEvent) => handler(payload);
+      ipcRenderer.on('search:progress', wrapped);
+      return () => ipcRenderer.removeListener('search:progress', wrapped);
+    },
+    /** Отменить поиск: работа прекращается, отдаётся частичный результат. */
+    cancel: async (args: { searchId: string }) => ipcRenderer.invoke('search:cancel', args),
+    /** Текущие состояния поисков — окно открылось посреди операции. */
+    progressList: async () => ipcRenderer.invoke('search:progress:list'),
   },
   scan: {
     qrSupported: async () => ({ ok: true as const, supported: typeof nativeQrScanHook() === 'function' }),

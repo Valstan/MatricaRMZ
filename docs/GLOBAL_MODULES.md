@@ -1,7 +1,7 @@
 # Глобальные модули программы — реестр
 
 > Куратируемый документ: **не автогенерируется**, держится ≤200 строк (план #125, п.1). Правило: **прежде чем писать новый модуль — сюда**.
-> Живёт отдельно от карты приложения [`docs/CODEBASE_MAP.md`](CODEBASE_MAP.md): карта уже 52 КБ при обещании «≤2 экрана», и реестр в неё класть нельзя — в карте осталась короткая ссылка (план #128, п.1).
+> Живёт отдельно от карты [`docs/CODEBASE_MAP.md`](CODEBASE_MAP.md): карта уже 52 КБ, реестр в неё класть нельзя — в карте короткая ссылка (план #128, п.1).
 > Гейт актуальности — [`electron-app/src/main/services/globalModules.guard.test.ts`](../electron-app/src/main/services/globalModules.guard.test.ts): пути из реестра существуют, новые копии общих модулей запрещены.
 
 ## Правило
@@ -47,8 +47,9 @@
 | `electron-app/src/renderer/src/ui/shellV2/v2ButtonCatalog.ts` | Сборка глобальных кнопок под пресеты (в т. ч. планшетный) | 6 | Пресет = подмножество каталога | Права (считаются отдельно) |
 | `electron-app/src/main/services/scannerService.ts` | **Сканер документов**: захват кадра со сканера (WIA), имя файла по правилу, укладка в папку объекта | 3 | Любая карточка с вложениями получает «Со сканера» без своих настроек; скан идёт тем же путём, что и файл с диска | Право на загрузку (оно остаётся серверным) |
 | `electron-app/src/main/services/photoPrint.ts` | **Печать картинок**: единый шаг печати (диалог печати ИЛИ системный мастер печати фотографий), проверка принтера, внятный отказ | 5 | Печать вложений карточки, мастер печати для вложений (`files:printWizard`), печать из панели вложений и печать из выдачи «Поиска по файлам» идут ОДНИМ кодом `printPhotos`; гейт `electron-app/src/main/services/photoPrint.test.ts` | Печатные бланки домена (у них своя модель — `shared/src/domain/printTemplate.ts`); PDF из картинок (это сборка, не печать) |
+| `electron-app/src/main/services/searchProgress.ts` | **Общий прогресс поиска**: событие в окно (`search:progress`) + отмена (`AbortController`) | 8 | Полоса одна на программу (`electron-app/src/renderer/src/ui/components/SearchProgressBar.tsx`), подписка одна; сторож `SearchProgressBar.guard.test.ts` | Потолки по времени/количеству и мгновенный поиск по спискам |
 
-**Что НЕ является глобальным модулем:** тонкая обёртка над общим движком (переиспользование — не дубль, см. §«Дубли»), правила конкретной страницы, зеркала клиент/сервер (осознанное дублирование, сервер авторитетен).
+**Что НЕ является глобальным модулем:** тонкая обёртка над общим движком (не дубль, §«Дубли»), правила конкретной страницы, зеркала клиент/сервер (осознанное дублирование).
 
 ## Дубли
 
@@ -101,24 +102,7 @@
 
 ### Перенос карточек на каталог
 
-Набор кнопок карточки задаёт домен (`OBJECT_CAPABILITIES`), а не рукописный список пропсов. Прогресс переноса (все карточки с панелью `CardActionBar`):
-
-| Карточка | Тип объекта | На каталоге |
-|---|---|---|
-| `WorkSheetDetailsPage.tsx` | work_sheet_row | да |
-| `ContractDetailsPage.tsx` | contract | да |
-| `CounterpartyDetailsPage.tsx` | counterparty | да |
-| `EmployeeDetailsPage.tsx` | employee | да |
-| `EngineDetailsPage.tsx` | engine | да |
-| `EngineBrandDetailsPage.tsx` | engine_brand | да |
-| `EngineAssemblyBomDetailsPage.tsx` | bom | да |
-| `SupplyRequestDetailsPage.tsx` | supply_request | да |
-| `ToolDetailsPage.tsx` | tool | да |
-| `ToolPropertyDetailsPage.tsx` | tool_property | да |
-| `SimpleMasterdataDetailsPage.tsx` | masterdata | да |
-| `WorkOrderDetailsPage.tsx` | work_order | да |
-
-**Было 12 карточек с набором кнопок «руками» → стало 0.** Сторож `electron-app/src/renderer/src/ui/pages/cardActionCatalog.guard.test.ts` краснеет, если появится новая карточка, собирающая кнопки вручную.
+Набор кнопок карточки задаёт домен (`OBJECT_CAPABILITIES`), а не рукописный список пропсов. Перенос карточек на каталог **завершён**: все 12 карточек с панелью `CardActionBar` — на каталоге (`WorkSheetDetailsPage.tsx`, `ContractDetailsPage.tsx`, `CounterpartyDetailsPage.tsx`, `EmployeeDetailsPage.tsx`, `EngineDetailsPage.tsx`, `EngineBrandDetailsPage.tsx`, `EngineAssemblyBomDetailsPage.tsx`, `SupplyRequestDetailsPage.tsx`, `ToolDetailsPage.tsx`, `ToolPropertyDetailsPage.tsx`, `SimpleMasterdataDetailsPage.tsx`, `WorkOrderDetailsPage.tsx`); **было 12 карточек с набором кнопок «руками» → стало 0.** Сторож `electron-app/src/renderer/src/ui/pages/cardActionCatalog.guard.test.ts` краснеет, если появится новая карточка, собирающая кнопки вручную.
 
 Перенос не меняет права: право на правку (`canEdit`) — часть условия появления кнопки, новые права не вводились. Legacy-пропы `CardActionBar` сохранены — карточка, переведённая позже, продолжит работать как раньше.
 

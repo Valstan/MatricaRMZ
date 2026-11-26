@@ -31,6 +31,7 @@ import {
   searchFolderSources,
 } from '../../services/fileSearchFolderService.js';
 import { readLocalImagePreview } from '../../services/localImagePreview.js';
+import { beginSearchProgress } from '../../services/searchProgress.js';
 import { osPrintWizardAvailable } from '../../services/localImagePrint.js';
 import { photosAssemblePdfLocalPaths } from '../../services/fileService.js';
 import { printPhotos } from '../../services/photoPrint.js';
@@ -169,8 +170,34 @@ export function registerFileSearchIpc(ctx: IpcContext) {
     > => {
       try {
         const sources = Array.isArray(args?.sources) ? args.sources : [];
-        const result = await searchFileSources(sources, String(args?.query ?? ''));
-        return { ok: true, result };
+        const query = String(args?.query ?? '').trim();
+        // Пустой запрос — искать нечего: полоса прогресса не должна мигать.
+        if (!query || sources.length === 0) {
+          const result = await searchFileSources(sources, query);
+          return { ok: true, result };
+        }
+        const progress = beginSearchProgress({
+          kind: 'files',
+          title: 'Поиск по файлам',
+          total: sources.length,
+        });
+        try {
+          const result = await searchFileSources(sources, query, {
+            signal: progress.signal,
+            onProgress: (p) =>
+              progress.report({
+                current: p.current,
+                scanned: p.scanned,
+                total: p.total,
+                found: p.found,
+              }),
+          });
+          progress.finish({ state: result.cancelled ? 'cancelled' : 'done' });
+          return { ok: true, result };
+        } catch (e) {
+          progress.finish({ state: 'error', error: String(e) });
+          throw e;
+        }
       } catch (e) {
         return { ok: false, error: String(e) };
       }
@@ -356,10 +383,38 @@ export function registerFileSearchIpc(ctx: IpcContext) {
         const userId = (await ctx.currentActor()) || 'local';
         const raw = await settingsGetString(ctx.sysDb, SettingsKey.FileSearchFolders);
         const folders = parseFolderMap(raw)[userId] ?? [];
-        const result = await searchFolderSources(folders, String(args?.query ?? ''), {
-          scope: normalizeFileSearchFolderScope(args?.scope),
+        const query = String(args?.query ?? '').trim();
+        // Пустой запрос — искать нечего: полоса прогресса не должна мигать.
+        if (!query || folders.length === 0) {
+          const result = await searchFolderSources(folders, query, {
+            scope: normalizeFileSearchFolderScope(args?.scope),
+          });
+          return { ok: true, result };
+        }
+        const progress = beginSearchProgress({
+          kind: 'folders',
+          title: 'Поиск по папкам',
+          total: folders.length,
         });
-        return { ok: true, result };
+        try {
+          const result = await searchFolderSources(folders, query, {
+            scope: normalizeFileSearchFolderScope(args?.scope),
+            signal: progress.signal,
+            onProgress: (p) =>
+              progress.report({
+                current: p.current,
+                scanned: p.scanned,
+                total: p.total,
+                found: p.found,
+                detail: `В дереве папок: ${p.foldersInTree}`,
+              }),
+          });
+          progress.finish({ state: result.cancelled ? 'cancelled' : 'done' });
+          return { ok: true, result };
+        } catch (e) {
+          progress.finish({ state: 'error', error: String(e) });
+          throw e;
+        }
       } catch (e) {
         return { ok: false, error: String(e) };
       }

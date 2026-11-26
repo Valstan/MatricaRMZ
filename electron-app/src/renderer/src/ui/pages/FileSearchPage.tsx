@@ -356,7 +356,14 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
       setPreviews({});
       // Первая находка открыта сразу: оператор сразу видит, что в папке.
       setExpanded(new Set(res.result.matches.slice(0, 1).map((m) => m.key)));
-      setStatus('');
+      // Отмена (промт КАРМАНА #166): поиск остановлен по-настоящему, но
+      // найденное до отмены остаётся на экране — и в статусе сказано, что
+      // поиск отменён.
+      setStatus(
+        res.result.cancelled
+          ? `Поиск отменён — показано то, что успели найти (находок: ${res.result.matches.length}).`
+          : '',
+      );
     } finally {
       setBusy(false);
     }
@@ -723,7 +730,11 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
         return;
       }
       setResult(res.result);
-      setStatus('');
+      setStatus(
+        res.result.cancelled
+          ? `Поиск отменён — показано то, что успели найти (находок: ${res.result.matches.length}).`
+          : '',
+      );
       await loadEngine(q);
     } finally {
       setBusy(false);

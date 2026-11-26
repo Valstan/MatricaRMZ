@@ -50,6 +50,7 @@ import { registerProductionProgramIpc } from '../../../electron-app/src/main/ipc
 import { registerReportsIpc } from '../../../electron-app/src/main/ipc/register/reports.js';
 import { registerScrapCriterionIpc } from '../../../electron-app/src/main/ipc/register/scrapCriterion.js';
 import { registerEngineScrapIpc } from '../../../electron-app/src/main/ipc/register/engineScrap.js';
+import { registerSearchProgressIpc } from '../../../electron-app/src/main/ipc/register/searchProgress.js';
 import { registerSectionFavoritesIpc } from '../../../electron-app/src/main/ipc/register/sectionFavorites.js';
 import { registerServicePricingIpc } from '../../../electron-app/src/main/ipc/register/servicePricing.js';
 import { registerSettingsIpc } from '../../../electron-app/src/main/ipc/register/settings.js';
@@ -158,6 +159,13 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
   registerNotesIpc(ctx);
   registerPartsIpc(ctx);
   registerErpIpc(ctx);
+  // Общий прогресс поиска (промт КАРМАНА #166): полоса с кнопкой «Отмена» —
+  // одна на всю программу, и на планшете она нужна ровно так же: поиск по
+  // содержимому карточек и серверный глобальный поиск идут через те же
+  // main-сервисы. Шим electron отдаёт `BrowserWindow.getAllWindows()` с одним
+  // «окном» (WebView), поэтому события прогресса доходят до renderer тем же
+  // каналом `search:progress`, что и на десктопе.
+  registerSearchProgressIpc(ctx);
   // Производственная программа (промт КАРМАНА #70, п.4): план на планшете.
   // Чтение — из локальной реплики (работает без сети), запись — серверной дверью
   // REST (как на десктопе: «нужна сеть» здесь штатно).

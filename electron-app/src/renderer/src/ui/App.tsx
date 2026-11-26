@@ -129,6 +129,7 @@ import { useConfirm } from './components/ConfirmContext.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { GlobalInputAssist } from './components/GlobalInputAssist.js';
 import { GlobalSearchOverlay } from './components/GlobalSearchOverlay.js';
+import { SearchProgressBar } from './components/SearchProgressBar.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
 import { ScrapStageBlockHost } from './components/ScrapStageBlockHost.js';
 import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
@@ -7306,6 +7307,8 @@ export function App() {
       <Page uiTheme={resolvedTheme}>
         {renderReleaseWelcomeModal()}
         {renderFullSyncModal()}
+        {/* Общий прогресс поиска — одна полоса на всю программу (промт КАРМАНА #166). */}
+        <SearchProgressBar />
         {renderFatalModal()}
         {renderCardCloseModal()}
         {renderRecoveryModal()}

@@ -41,6 +41,7 @@ import type {
 import type { FileSearchResult, FileSearchSource } from '../domain/fileSearch.js';
 import type { FileSearchFolderResult, FileSearchFolderSearchScope, FileSearchFolderSource } from '../domain/fileSearchFolders.js';
 import type { FileSearchEngineSuggestion } from '../domain/fileSearchEngineSuggest.js';
+import type { SearchProgressEvent } from '../domain/searchProgress.js';
 import type { PrintTemplateRow } from '../domain/printTemplate.js';
 import type { PrintDocumentDto } from '../domain/printDocuments.js';
 
@@ -1352,11 +1353,23 @@ export type MatricaApi = {
   };
   search: {
     global: (args: { q: string; limit?: number }) => Promise<GlobalSearchResponse>;
-    cardContent: (args: { entityIds: string[]; q: string }) => Promise<{ ok: true; ids: string[] } | { ok: false; error: string }>;
+    cardContent: (args: { entityIds: string[]; q: string }) => Promise<
+      { ok: true; ids: string[]; cancelled?: boolean } | { ok: false; error: string }
+    >;
     // Двигатели по НАБИТОМУ на детали номеру («№ на детали», не сборочный) из списка деталей карточки.
     enginesByStampedNumber: (args: { q: string; limit?: number }) => Promise<
       { ok: true; hits: GlobalSearchHit[] } | { ok: false; error: string }
     >;
+    /**
+     * Общий прогресс поиска (промт КАРМАНА #166). Один канал на всю программу:
+     * подписка одна (`ui/services/searchProgressService.ts`), полоса одна
+     * (`ui/components/SearchProgressBar.tsx`).
+     */
+    onProgress: (handler: (event: SearchProgressEvent) => void) => () => void;
+    /** Отменить поиск: работа прекращается, отдаётся частичный результат. */
+    cancel: (args: { searchId: string }) => Promise<{ ok: true; cancelled: boolean } | { ok: false; error: string }>;
+    /** Текущие состояния поисков — окно открылось посреди операции. */
+    progressList: () => Promise<{ ok: true; events: SearchProgressEvent[] } | { ok: false; error: string }>;
   };
   scan: {
     /** Есть ли сканирование QR на этой платформе (только планшет с камерой). */
