@@ -121,6 +121,8 @@ Copy-Item 'D:\valstan\REPO\MatricaRMZ\.verifier-electron\abi-electron-20261022\b
 ```
 **Переключать нужно ОБА пакета** (см. предупреждение ниже). Копировать с `cd` в той же команде safety-политика блокирует — указывать абсолютные пути.
 
+**Лок на `.node` держит не только клиент, но и backend стенда (26.11.2026, полоса 6).** После `stop.ps1` (клиент погашен) копирование Node-ABI всё равно падало: «Процесс не может получить доступ к файлу … так как этот файл используется другим процессом», а `rm` в корзину — «The system call level is not correct». Держал **backend** (`tsx src/index.ts`): он открывает `better_sqlite3.node` при старте ⇒ **порядок: сначала гасить backend, потом копировать ABI** (иначе стенд вернёт Electron-ABI, а тесты упадут на `NODE_MODULE_VERSION`). Кто держит файл — видно так: `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*worktrees\\<имя>*' }`.
+
 **`pnpm rebuild better-sqlite3-multiple-ciphers` НЕ помогает** — он ничего не пересобирает (тихий no-op). `pnpm rebuild better-sqlite3` пересобирает только «обычный» пакет, а тесты и клиент берут **multiple-ciphers**. Рабочая команда — `prebuild-install` выше.
 
 **⚠️ Нативных пакетов ДВА, и переключать нужно оба (выучено 2026-11-11).** Клиент (Electron-ABI) берёт `better-sqlite3-multiple-ciphers`, а тесты `android-app` берут **обычный** `better-sqlite3` — это разные пакеты в `.pnpm` с разными бинарями. Переключил только multiple-ciphers → `pnpm -r test` упал на `android-app` (13 файлов / 57 тестов) с `NODE_MODULE_VERSION 148 ... requires 137`; `android-app` при этом зелёный был в одиночку до переключения. Лечится той же командой `prebuild-install` из каталога второго пакета:
