@@ -585,7 +585,9 @@ export function DesktopPane(props: {
       fileIds: files.map((f) => f.fileId),
     });
     props.onOpenLink({ kind: 'app_link', tab: target.tab, [target.linkField]: target.id }, files[0]?.shortcutId ?? '');
-    notify(`Карточка «${target.label}» открыта: файлы с Верстака уже отмечены — нажмите «Приложить».`);
+    notify(
+      `Карточка «${target.label}» открыта. Файлы с Верстака уже отмечены во вкладке файлов карточки — нажмите «Приложить».`,
+    );
   }
 
   // ─── лассо ────────────────────────────────────────────────────────────────
