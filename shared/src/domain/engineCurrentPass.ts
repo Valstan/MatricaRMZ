@@ -130,6 +130,28 @@ export function currentPassLastStage(entries: readonly EngineStageEntry[]): Engi
 }
 
 /**
+ * Начало ТЕКУЩЕГО заезда: дата последней приёмки на завод (обычной или по рекламации).
+ *
+ * Граница заезда — та же, что у «сейчас» (промт КАРМАНА #170): всё, что было до
+ * последней приёмки, — прошлый заезд. Нужна не только спискам: по ней считается, чей
+ * это утиль — текущего заезда или прошлого (см. `engineScrapStageGate.ts`).
+ *
+ * `null` — приёмки не было: заезда не существует, и «текущим» считается всё, что есть.
+ */
+export function currentVisitStartAt(entries: readonly EngineStageEntry[]): number | null {
+  const sorted = [...(entries ?? [])]
+    .filter((entry) => entry && codeOf(entry))
+    .sort((a, b) => compareStageRecency(a, b));
+  let start: number | null = null;
+  for (const entry of sorted) {
+    if (!isVisitStart(codeOf(entry))) continue;
+    const at = atOf(entry);
+    if (at > 0) start = at;
+  }
+  return start;
+}
+
+/**
  * Строка списка в режиме «сейчас»: действующие этапы вместо всей истории.
  *
  * Трансформация строки, а не отдельная ветка в каждом отчёте: все существующие отборы,

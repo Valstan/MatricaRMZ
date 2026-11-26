@@ -35,6 +35,15 @@ const CHECKLIST_PANEL = src('../../renderer/src/ui/components/RepairChecklistPan
 const TRIGGER = src('../../../../shared/src/domain/repairChecklist.ts');
 /** Серверный разбор разнобоя «строка этапа ↔ дата карточки». */
 const REVIEW_SCRIPT = src('../../../../backend-api/src/scripts/reviewRepairStageOrder.ts');
+/** Гейт утиля (промт КАРМАНА #170): правило, сбор состояния, воронка и окно. */
+const SCRAP_GATE_DOMAIN = src('../../../../shared/src/domain/engineScrapStageGate.ts');
+const SCRAP_GATE_SERVICE = src('./engineScrapStageGateService.ts');
+const REPAIR_STAGE_SERVICE = src('./repairStageService.ts');
+const ENGINE_HISTORY_PANEL = src('../../renderer/src/ui/components/EngineHistoryFeedPanel.tsx');
+const ENGINES_PAGE = src('../../renderer/src/ui/pages/EnginesPage.tsx');
+const PRODUCTION_PROGRAM_PAGE = src('../../renderer/src/ui/pages/ProductionProgramPage.tsx');
+const BULK_STAGE_DIALOG = src('../../renderer/src/ui/components/BulkStageAddDialog.tsx');
+const SCRAP_BLOCK_DIALOG = src('../../renderer/src/ui/components/ScrapStageBlockDialog.tsx');
 
 describe('воронка этапов: все писатели через save/ensure', () => {
   it('ручной ввод идёт только через stages.save → saveRepairStageRow', () => {
@@ -119,5 +128,75 @@ describe('воронка этапов: все писатели через save/e
     expect(fn).toContain('rec.scrap_qty');
     expect(fn).toContain('rec.replace_qty');
     expect(fn).not.toContain('rec.repairable_qty');
+  });
+});
+
+/**
+ * ГЕЙТ УТИЛЯ (промт КАРМАНА #170): утильный двигатель не начинает ремонт.
+ *
+ * Сторож держит МЕСТО блокировки: она обязана стоять в воронке записи этапа
+ * (`saveRepairStageRow`), а не на одном экране — иначе её обойдут другим путём
+ * (карточка, производственная программа, автоматы мастеров). Проверено временной правкой:
+ * убрать вызов гейта из `saveRepairStageRow` — краснеют проверки этого блока.
+ */
+describe('гейт утиля: блокировка стоит в воронке записи этапа', () => {
+  it('правило живёт в домене, а не в экране', () => {
+    expect(SCRAP_GATE_DOMAIN).toContain('export function evaluateScrapStageGate');
+    expect(SCRAP_GATE_DOMAIN).toContain('export function isScrapStageStateConsistent');
+    // Правило «блокирует только утиль, неглавная деталь — подсказка» — здесь же.
+    expect(SCRAP_GATE_DOMAIN).toContain('SCRAP_PART_HINT');
+  });
+
+  it('воронка записи этапа спрашивает гейт и возвращает его экрану', () => {
+    expect(REPAIR_STAGE_SERVICE).toContain('resolveScrapStageGate');
+    expect(REPAIR_STAGE_SERVICE).toContain('scrapGate');
+    // Гейт спрашивается ВНУТРИ saveRepairStageRow (общий путь), а не в отдельной функции.
+    const start = REPAIR_STAGE_SERVICE.indexOf('export async function saveRepairStageRow');
+    const end = REPAIR_STAGE_SERVICE.indexOf('\nexport ', start + 1);
+    const fn = REPAIR_STAGE_SERVICE.slice(start, end < 0 ? undefined : end);
+    // Именно ВЫЗОВ, а не упоминание в типе: `typeof resolveScrapStageGate` в аннотации
+    // остался бы, даже если вызов убрать — сторож обязан краснеть на такой откат.
+    expect(fn).toContain('resolveScrapStageGate(');
+    expect(fn).toContain('scrapGate');
+  });
+
+  it('гейт спрашивается ДО записи строки — этап не пишется мимо гейта', () => {
+    const start = REPAIR_STAGE_SERVICE.indexOf('export async function saveRepairStageRow');
+    const end = REPAIR_STAGE_SERVICE.indexOf('\nexport ', start + 1);
+    const fn = REPAIR_STAGE_SERVICE.slice(start, end < 0 ? undefined : end);
+    const gateAt = fn.indexOf('resolveScrapStageGate(');
+    const writeAt = fn.indexOf('upsertOperation(');
+    expect(gateAt).toBeGreaterThan(-1);
+    expect(writeAt).toBeGreaterThan(-1);
+    expect(gateAt, 'гейт спрашивается до записи строки').toBeLessThan(writeAt);
+  });
+
+  it('автоматы мастеров идут через тот же путь — гейт останавливает и их', () => {
+    const start = REPAIR_STAGE_SERVICE.indexOf('export async function ensureRepairStageRow');
+    const end = REPAIR_STAGE_SERVICE.indexOf('\nexport ', start + 1);
+    const fn = REPAIR_STAGE_SERVICE.slice(start, end < 0 ? undefined : end);
+    expect(fn).toContain('saveRepairStageRow');
+  });
+
+  it('состояние двигателя для гейта собирается в одном месте', () => {
+    expect(SCRAP_GATE_SERVICE).toContain('export async function readEngineScrapGateState');
+    expect(SCRAP_GATE_SERVICE).toContain('isScrapCriterionEngineUtil');
+  });
+
+  it('все экраны, которые заводят этап, обрабатывают отказ гейта', () => {
+    for (const [name, text] of [
+      ['EngineHistoryFeedPanel', ENGINE_HISTORY_PANEL],
+      ['EnginesPage', ENGINES_PAGE],
+      ['ProductionProgramPage', PRODUCTION_PROGRAM_PAGE],
+      ['BulkStageAddDialog', BULK_STAGE_DIALOG],
+    ] as Array<[string, string]>) {
+      expect(`${name}: ${text.includes('handleScrapStageResult')}`).toBe(`${name}: true`);
+    }
+  });
+
+  it('окно предлагает ровно два действия и спрашивает причину', () => {
+    expect(SCRAP_BLOCK_DIALOG).toContain('Деталь отремонтирована');
+    expect(SCRAP_BLOCK_DIALOG).toContain('Отмена (не была отремонтирована)');
+    expect(SCRAP_BLOCK_DIALOG).toContain('Причина снятия утиля');
   });
 });

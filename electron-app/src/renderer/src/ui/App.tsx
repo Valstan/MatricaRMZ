@@ -130,6 +130,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { GlobalInputAssist } from './components/GlobalInputAssist.js';
 import { GlobalSearchOverlay } from './components/GlobalSearchOverlay.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
+import { ScrapStageBlockHost } from './components/ScrapStageBlockHost.js';
 import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { useAutoGrowInputs } from './hooks/useAutoGrowInputs.js';
@@ -7656,6 +7657,10 @@ export function App() {
           onNavigateTab={(tabId) => { void navigateToRoute({ kind: "tab", id: tabId }); }}
         />
         <GlobalInputAssist storageKey="matrica_client_input_assist_history_v1" />
+        {/* Окно гейта утиля (промт КАРМАНА #170): одно на приложение — экраны, которые
+            заводят этап, разные (карточка, список, производственная программа), а правило
+            одно: утильный двигатель ремонт не начинает. */}
+        <ScrapStageBlockHost />
       </Page>
       </DesktopFilesProvider>
     </ErrorBoundary>

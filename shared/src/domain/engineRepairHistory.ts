@@ -178,6 +178,14 @@ export type RepairHistoryScrapResolved = {
   outcome: 'repaired' | 'replaced';
   /** Подпись детали строки дефектовки (снимком — строка акта остаётся источником). */
   partLabel?: string;
+  /**
+   * ПРИЧИНА снятия утиля (промт КАРМАНА #170, пункт 10): закупка, ремонт, иное.
+   *
+   * Без причины след снятия неполон: по истории нельзя собрать отчёт «почему двигатель
+   * снят с утиля». Автор записи живёт в самой строке операции (`performedBy`) — отдельным
+   * полем его не дублируем.
+   */
+  reason?: string;
   /** Момент события: по нему решается, какое событие свежее — утиль или его снятие. */
   atMs: number;
 };
@@ -339,7 +347,8 @@ function parseScrapResolved(raw: unknown): RepairHistoryScrapResolved | null {
   const atMs = typeof obj.atMs === 'number' && Number.isFinite(obj.atMs) && obj.atMs > 0 ? obj.atMs : null;
   if (atMs === null) return null;
   const partLabel = text(obj.partLabel).slice(0, 200);
-  return { outcome, atMs, ...(partLabel ? { partLabel } : {}) };
+  const reason = text(obj.reason).slice(0, 200);
+  return { outcome, atMs, ...(partLabel ? { partLabel } : {}), ...(reason ? { reason } : {}) };
 }
 
 function parseSheet(raw: unknown): RepairHistorySheet | null {

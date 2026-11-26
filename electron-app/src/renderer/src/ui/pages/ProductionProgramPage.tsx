@@ -72,6 +72,7 @@ import { useListSelection } from '../hooks/useListSelection.js';
 import { LIST_DROP_INDICATOR_COLOR, listDragRowStyle, type ListDropTarget } from '../utils/listDragVisual.js';
 import type { ListMoveGrouping } from '../utils/listKeyboardMove.js';
 import { listToText } from '../utils/mailText.js';
+import { handleScrapStageResult } from '../utils/scrapStageGate.js';
 import {
   buildListContextMenuItems,
   buildRowsText,
@@ -756,6 +757,11 @@ export function ProductionProgramPage(props: Props) {
           ...(args.repeatPass ? { repeatPass: args.repeatPass } : {}),
           ...(args.confirmDefectDate ? { confirmDefectDate: true } : {}),
         });
+        // Гейт утиля (промт КАРМАНА #170): этап у утильного двигателя не заводится — окно
+        // спрашивает, отремонтирована ли деталь, и после «да» повторяет запись.
+        if (handleScrapStageResult({ result: res, engineId: dialog.engineId, retry: (warning) => void submitStageRef.current?.(args).then(() => { if (warning) setStatus(warning); }) })) {
+          return { ok: false, error: res.ok ? '' : res.error };
+        }
         if (!res.ok) {
           // Вопросы гейтов (дубль за день, смена даты дефектовки) решает модалка.
           return {
@@ -782,7 +788,11 @@ export function ProductionProgramPage(props: Props) {
           }
         }
         setError('');
-        setStatus('Этап записан в историю ремонта двигателя. На остальные компьютеры придёт при синхронизации.');
+        setStatus(
+          res.scrapHint
+            ? `Этап записан в историю ремонта двигателя. ${res.scrapHint}`
+            : 'Этап записан в историю ремонта двигателя. На остальные компьютеры придёт при синхронизации.',
+        );
         return { ok: true };
       } catch (e) {
         return { ok: false, error: `Не удалось записать этап: ${String(e instanceof Error ? e.message : e)}` };
@@ -790,6 +800,14 @@ export function ProductionProgramPage(props: Props) {
     },
     [applyRows, selectedId, stageDialog, workshops],
   );
+
+  /**
+   * Последняя версия `submitStage` — для повтора записи этапа после снятия утиля
+   * (промт КАРМАНА #170). Через ref, а не напрямую: иначе `useCallback` ссылался бы
+   * сам на себя в своём же инициализаторе.
+   */
+  const submitStageRef = useRef<((args: ProductionProgramStageSubmitArgs) => Promise<ProductionProgramStageSubmitResult>) | null>(null);
+  submitStageRef.current = submitStage;
 
   /** Закрыть модалку этапа. */
   const closeStageDialog = useCallback(() => {

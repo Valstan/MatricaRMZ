@@ -447,14 +447,36 @@ export type SaveRepairStageInput = {
   reclamationQueueNo?: number;
 };
 
+/**
+ * Гейт утиля, вернувшийся из воронки записи этапа (промт КАРМАНА #170).
+ *
+ * Этап у утильного двигателя не заводится: экран показывает окно с двумя действиями
+ * («Деталь отремонтирована» / «Отмена»). Данные нужны окну — какая деталь утильная и
+ * в каком двигателе.
+ */
+export type ScrapStageGate = {
+  /** Подпись утильной детали (может быть пустой — деталь названа в акте). */
+  partLabel: string | null;
+  /** id утильной детали — по нему деталь возвращается в ремонтный фонд. */
+  partId: string | null;
+  /** Номер двигателя. */
+  engineNumber: string | null;
+  /** Подпись этапа, который не удалось завести. */
+  stageName: string;
+  /** Человеческое объяснение — его показывает окно. */
+  error: string;
+};
+
 export type SaveRepairStageResult =
-  | { ok: true; id: string; created: boolean; backward: boolean; pass: number }
+  | { ok: true; id: string; created: boolean; backward: boolean; pass: number; scrapHint?: string | null }
   | {
       ok: false;
       error: string;
       duplicate?: { refs: WorkSheetDuplicateRef[]; nextPass: number; typeName: string; atMs: number };
       /** Смена даты дефектовки требует подтверждения: сейчас в базе `currentAtMs`. */
       defectDateChange?: { currentAtMs: number; nextAtMs: number; typeName: string };
+      /** Двигатель утильный: этап не заведён, экран показывает окно (промт КАРМАНА #170). */
+      scrapGate?: ScrapStageGate;
     };
 
 /**

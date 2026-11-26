@@ -245,4 +245,22 @@ describe('наполнение набора критериями по умолч
     const again = await seedScrapCriterionParts(fx.db);
     expect(again.ok && again.skipped).toBe('already-seeded');
   });
+
+  it('снятая владельцем метка наполнением не возвращается', async () => {
+    const fx = fixture();
+    // Деталь-критерий, по которому владелец высказался: метку снял.
+    // Имя детали — «Блок цилиндров»: старое правило «картер» (D-#9) тут не мешает,
+    // признак утиля может дать только набор критериев.
+    markCriterion(fx, 'part-carter', 'false');
+    addScrapLine(fx, { partId: 'nom-part-carter', partName: 'Блок цилиндров' });
+
+    const seeded = await seedScrapCriterionParts(fx.db);
+    expect(seeded.ok).toBe(true);
+    if (!seeded.ok) return;
+    expect(seeded.parts.map((p) => p.partId), 'снятую метку наполнение не возвращает').not.toContain('part-carter');
+
+    // Метка так и снята — деталь критерием не стала, двигатель утильным не стал.
+    const map = await getScrapCriterionEngineMap(fx.db, [fx.engineId]);
+    expect(map.get(fx.engineId)).toBeUndefined();
+  });
 });

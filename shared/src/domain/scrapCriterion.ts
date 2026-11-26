@@ -93,6 +93,28 @@ export function normalizeScrapPartName(name: string | null | undefined): string 
 export const LEGACY_CRANKCASE_FALLBACK = true;
 
 /**
+ * ГЛАВНЫЕ ДЕТАЛИ — состав набора критериев утиля (промт КАРМАНА #170, пункт 8).
+ *
+ * Зачитка владельца 26.11.2026: «главные детали — картер, головка и блок». До этого
+ * набор наполнялся одними картерами (историческое правило D-#9), а владелец называл три
+ * группы деталей.
+ *
+ * Список подстрок, а не точных имён: картеры, головки и блоки заводят с уточнениями
+ * («Картер верхний», «Блок цилиндров», «Головка блока»).
+ *
+ * НАБОР ОТКРЫТ: владелец дополняет его сам — одна галка на карточке детали. Наполнение
+ * по умолчанию только ДОБАВЛЯЕТ (снятую владельцем метку наполнение не возвращает).
+ */
+export const SCRAP_MAIN_PART_NAME_PARTS: readonly string[] = ['картер', 'головка', 'блок'];
+
+/** Деталь — главная (её уход в утиль уводит двигатель в утиль). */
+export function isMainScrapCriterionName(name: string | null | undefined): boolean {
+  const normalized = normalizeScrapPartName(name);
+  if (!normalized) return false;
+  return SCRAP_MAIN_PART_NAME_PARTS.some((part) => normalized.includes(part));
+}
+
+/**
  * Имя детали-критерия по умолчанию: картер (перенесён в набор критериев).
  */
 export function isLegacyCrankcaseName(name: string | null | undefined): boolean {

@@ -7,6 +7,7 @@ import {
   SCRAP_CRITERION_ATTR_NAME,
   createScrapCriterionSet,
   isEavFlagSet,
+  isMainScrapCriterionName,
   normalizeScrapPartName,
   type ScrapCriterionSet,
 } from '@matricarmz/shared';
@@ -79,29 +80,35 @@ function warnOnce(message: string): void {
 }
 
 /**
- * Наполняет набор критериями по умолчанию: детали, в названии которых есть
- * «картер» — историческое правило D-#9 (картер в утиле уводил двигатель в
- * утиль). Переносим его в глобальный набор, чтобы картер был обычной
- * деталью-критерием: метка стоит на карточке детали, видна в фильтре
- * «Только утильные детали» и считается сухим прогоном.
+ * Наполняет набор критериями по умолчанию: ГЛАВНЫЕ детали — картер, головка, блок
+ * (зачитка владельца 26.11.2026, промт КАРМАНА #170 пункт 8). Раньше наполняли одними
+ * картерами (историческое правило D-#9) — теперь список главных детелей шире.
  *
- * Одноразово на базу клиента (флаг в настройках): снятую владельцем метку
- * наполнение не возвращает. Помеченные детали уезжают на сервер общим
- * каналом атрибутов — остальной парк подхватит их при следующем pull.
+ * Одноразово на базу клиента (флаг в настройках, ВЕРСИОНИРОВАН): снятую владельцем
+ * метку наполнение не возвращает, но новый состав доводится до парка повторным
+ * наполнением — иначе главные детали, добавленные после первого запуска, остались бы
+ * немаркированными. Повторное наполнение трогает только те детали, по которым владелец
+ * ЕЩЁ НЕ высказался: где метка уже стоит или уже снята — решение владельца, его
+ * наполнение не переставляет. Помеченные детали уезжают на сервер общим каналом
+ * атрибутов — остальной парк подхватит их при следующем pull.
  */
+export const SCRAP_CRITERION_SEED_VERSION = '2';
+
 export async function seedScrapCriterionParts(
   db: BetterSQLite3Database,
 ): Promise<{ ok: true; marked: number; parts: Array<{ partId: string; name: string }>; skipped?: 'already-seeded' } | { ok: false; error: string }> {
   try {
     const seeded = (await settingsGetString(db, SettingsKey.ScrapCriterionSeeded).catch(() => null)) ?? '';
-    if (String(seeded).trim() === '1') return { ok: true, marked: 0, parts: [], skipped: 'already-seeded' };
+    if (String(seeded).trim() === SCRAP_CRITERION_SEED_VERSION) {
+      return { ok: true, marked: 0, parts: [], skipped: 'already-seeded' };
+    }
 
     const partTypeId = await getPartTypeId(db);
     if (!partTypeId) return { ok: false, error: 'Не найден тип справочника «детали»' };
     const defId = await ensureScrapCriterionDef(db, partTypeId);
     if (!defId) return { ok: false, error: 'Не удалось завести атрибут «уводит двигатель в утиль»' };
 
-    // Детали-картеры: номенклатурные позиции деталей с «картер» в названии.
+    // ГЛАВНЫЕ детали: картер, головка, блок (зачитка владельца 26.11.2026).
     const nomRows = await db
       .select({ id: erpNomenclature.id, name: erpNomenclature.name, refId: erpNomenclature.directoryRefId })
       .from(erpNomenclature)
@@ -110,18 +117,23 @@ export async function seedScrapCriterionParts(
     const candidates = new Map<string, string>();
     for (const row of nomRows) {
       const name = String(row.name ?? '').trim();
-      if (!name || !isCrankcaseCriterionName(name)) continue;
+      if (!name || !isMainScrapCriterionName(name)) continue;
       const partId = String(row.refId ?? '').trim() || String(row.id ?? '').trim();
       if (partId) candidates.set(partId, name);
     }
 
     const marked: Array<{ partId: string; name: string }> = [];
     for (const [partId, name] of candidates) {
-      if (await readCriterionEnabled(db, partId)) continue;
+      // Решение владельца по детали (метка стоит ИЛИ снята) — наполнение его не трогает.
+      // Иначе расширение состава (новый состав главных деталей) возвращало бы снятую
+      // владельцем метку обратно — обещание «снятую метку наполнение не возвращает»
+      // перестало бы быть правдой.
+      const decision = await readCriterionDecision(db, partId);
+      if (decision.exists) continue;
       const written = await setScrapCriterionFlag(db, partId, true);
       if (written.ok) marked.push({ partId, name });
     }
-    await settingsSetString(db, SettingsKey.ScrapCriterionSeeded, '1');
+    await settingsSetString(db, SettingsKey.ScrapCriterionSeeded, SCRAP_CRITERION_SEED_VERSION);
     invalidateScrapCriterionIndex();
     return { ok: true, marked: marked.length, parts: marked };
   } catch (e) {
@@ -130,11 +142,11 @@ export async function seedScrapCriterionParts(
 }
 
 /**
- * Имя детали-критерия по умолчанию: картер. Подстрока, а не точное имя —
- * картеры заводят и как «Картер верхний», и как «Картер блока цилиндров».
+ * Имя детали-критерия по умолчанию: главные детали (картер, головка, блок).
+ * Подстрока, а не точное имя — их заводят и как «Картер верхний», и как «Блок цилиндров».
  */
 export function isCrankcaseCriterionName(name: string | null | undefined): boolean {
-  return normalizeScrapPartName(name).includes('картер');
+  return isMainScrapCriterionName(name);
 }
 
 /**
@@ -361,10 +373,18 @@ export async function getScrapCriterionState(
   return { ok: true, enabled, partId, name: parts[0]?.name ?? '', ...impact };
 }
 
-/** Стоит ли метка на детали (значение атрибута — три представления «нет» учтены). */
-async function readCriterionEnabled(db: BetterSQLite3Database, partId: string): Promise<boolean> {
+/**
+ * Решение владельца по детали: стоит ли метка «уводит двигатель в утиль».
+ *
+ * `exists` — высказался ли владелец по этой детали (метка стоит ИЛИ снята). Это не то же,
+ * что `enabled`: снятая метка — тоже решение, и наполнение по умолчанию её не возвращает.
+ */
+async function readCriterionDecision(
+  db: BetterSQLite3Database,
+  partId: string,
+): Promise<{ exists: boolean; enabled: boolean }> {
   const partTypeId = await getPartTypeId(db);
-  if (!partTypeId) return false;
+  if (!partTypeId) return { exists: false, enabled: false };
   const defRows = await db
     .select({ id: attributeDefs.id })
     .from(attributeDefs)
@@ -377,7 +397,7 @@ async function readCriterionEnabled(db: BetterSQLite3Database, partId: string): 
     )
     .limit(1);
   const defId = defRows[0]?.id ? String(defRows[0].id) : null;
-  if (!defId) return false;
+  if (!defId) return { exists: false, enabled: false };
   const valueRows = await db
     .select({ valueJson: attributeValues.valueJson })
     .from(attributeValues)
@@ -390,8 +410,13 @@ async function readCriterionEnabled(db: BetterSQLite3Database, partId: string): 
     )
     .orderBy(desc(attributeValues.updatedAt))
     .limit(1);
-  if (!valueRows[0]) return false;
-  return isEavFlagSet(parseJson(valueRows[0].valueJson));
+  if (!valueRows[0]) return { exists: false, enabled: false };
+  return { exists: true, enabled: isEavFlagSet(parseJson(valueRows[0].valueJson)) };
+}
+
+/** Стоит ли метка на детали (значение атрибута — три представления «нет» учтены). */
+async function readCriterionEnabled(db: BetterSQLite3Database, partId: string): Promise<boolean> {
+  return (await readCriterionDecision(db, partId)).enabled;
 }
 
 /**

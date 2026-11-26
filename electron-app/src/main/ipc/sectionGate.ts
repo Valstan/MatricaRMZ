@@ -132,6 +132,9 @@ const WRITE_CHANNELS = new Set([
   'engine:setAttr',
   'engine:dedupe:merge',
   'engines:card:save',
+  // Снятие утиля двигателя (промт КАРМАНА #170): меняет состояние движка (флаги карточки
+  // и след в истории ремонта) — идёт через write-гейт раздела, как остальные записи.
+  'engines:scrap:resolve',
   'ops:add',
   'ops:delete',
   'ops:updateManual',
