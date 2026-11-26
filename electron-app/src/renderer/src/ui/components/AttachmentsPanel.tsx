@@ -7,6 +7,7 @@ import { CardTable } from './CardTable.js';
 import { FileActionsMenu, type FileActionId } from './FileActionsMenu.js';
 import { Input } from './Input.js';
 import { ListCount } from './ListCount.js';
+import { PopupLayer } from './PopupLayer.js';
 import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { SendFileToColleagueDialog } from './SendFileToColleagueDialog.js';
 import { useConfirm } from './ConfirmContext.js';
@@ -1546,17 +1547,21 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
       />
 
       {/* Выбор получателя: коллеге (файл ляжет у него на Верстаке) или в личные
-          сообщения чата. Диалог общий с Верстаком и поиском по файлам. */}
-      <SendFileToColleagueDialog
-        open={sendMode != null}
-        fileName={
-          sendMode === 'chat'
-            ? `В личные сообщения: ${describeFiles(menuFiles)}`
-            : `Коллеге на Верстак: ${describeFiles(menuFiles)}`
-        }
-        onClose={() => setSendMode(null)}
-        onSend={(recipientUserId) => void sendFilesTo(recipientUserId)}
-      />
+          сообщения чата. Диалог общий с Верстаком и поиском по файлам.
+          Портал: окно выбора — всплывающий слой, и на планшете `position: fixed`
+          внутри прокручиваемого контейнера рисуется в слое предка (см. PopupLayer). */}
+      <PopupLayer>
+        <SendFileToColleagueDialog
+          open={sendMode != null}
+          fileName={
+            sendMode === 'chat'
+              ? `В личные сообщения: ${describeFiles(menuFiles)}`
+              : `Коллеге на Верстак: ${describeFiles(menuFiles)}`
+          }
+          onClose={() => setSendMode(null)}
+          onSend={(recipientUserId) => void sendFilesTo(recipientUserId)}
+        />
+      </PopupLayer>
 
       {uploadFlow.renameDialog}
     </div>
