@@ -3,9 +3,11 @@
  * Канал промтов проекта в КАРМАНе (мандат brain D-190).
  *
  * Проект читает СВОЙ раздел и архивирует выполненное:
- *   node scripts/karman/prompts-section.mjs list
- *   node scripts/karman/prompts-section.mjs archived
- *   node scripts/karman/prompts-section.mjs archive <id>
+ *   node scripts/karman/prompts-section.mjs list        — заголовки живых промтов
+ *   node scripts/karman/prompts-section.mjs full        — тексты живых промтов ЦЕЛИКОМ
+ *   node scripts/karman/prompts-section.mjs show <id>   — текст одного промта (живого или архивного)
+ *   node scripts/karman/prompts-section.mjs archived    — заголовки архивных промтов
+ *   node scripts/karman/prompts-section.mjs archive <id>   — «архив = сделано»
  *   node scripts/karman/prompts-section.mjs unarchive <id>
  *
  * Внешние входы (в репозитории их быть не может — значение токена и адрес сервиса):
@@ -65,6 +67,32 @@ try {
     const query = command === 'archived' ? '&archived=1' : '';
     const data = await call('GET', `/api/prompts/section?project=${PROJECT}${query}`);
     print(data.prompts ?? []);
+  } else if (command === 'full') {
+    // Тексты живых промтов целиком: `list` показывает только первую строку, а план
+    // (критерии приёмки, решения, риски) живёт дальше — читать его надо целиком.
+    const data = await call('GET', `/api/prompts/section?project=${PROJECT}`);
+    for (const p of data.prompts ?? []) {
+      console.log(`\n=== #${p.id} · ${p.createdAt} · ${p.title || ''} ===`);
+      console.log(p.body ?? '');
+    }
+  } else if (command === 'show') {
+    const id = Number(rawId);
+    if (!Number.isInteger(id) || id <= 0) {
+      console.error('Нужен числовой id промта.');
+      process.exit(2);
+    }
+    const live = await call('GET', `/api/prompts/section?project=${PROJECT}`);
+    let prompt = (live.prompts ?? []).find((p) => p.id === id);
+    if (!prompt) {
+      const arch = await call('GET', `/api/prompts/section?project=${PROJECT}&archived=1`);
+      prompt = (arch.prompts ?? []).find((p) => p.id === id);
+    }
+    if (!prompt) {
+      console.error(`Промт #${id} в разделе не найден (ни живой, ни архивный).`);
+      process.exit(1);
+    }
+    console.log(`#${prompt.id} · ${prompt.createdAt} · ${prompt.title || ''}`);
+    console.log(prompt.body ?? '');
   } else if (command === 'archive' || command === 'unarchive') {
     const id = Number(rawId);
     if (!Number.isInteger(id) || id <= 0) {
@@ -78,7 +106,7 @@ try {
     });
     console.log(`Промт #${data.id}: archived=${data.archived}`);
   } else {
-    console.error(`Неизвестная команда: ${command}. list | archived | archive <id> | unarchive <id>`);
+    console.error(`Неизвестная команда: ${command}. list | full | show <id> | archived | archive <id> | unarchive <id>`);
     process.exit(2);
   }
 } catch (err) {

@@ -27,6 +27,23 @@ Internal reasoning, code comments, commit messages, identifiers — in English (
 - [`docs/plans/`](docs/plans/) — **активные** многоэтапные планы. Завершённые → [`docs/plans/_archive/`](docs/plans/_archive/). **При планировании создавай файл сразу здесь** (`docs/plans/<slug>.md`), а не в служебном каталоге своего инструмента — иначе план не виден на других компах и другим моделям.
 - [`docs/machines/<hostname>.md`](docs/machines/README.md) — **профиль окружения этого компа**: порты dev-стенда (PG/backend/vite/CDP), пути к инструментам, как поднимать скиллы (`verifier-electron`), машинные грабли. По файлу на hostname (правит только свой комп → нет межмашинных конфликтов). `/start` §0.5 читает свой по hostname; **пиши по мере изучения** «как тут запускается X». Без секретов. **Читать всегда** (свой). Конвенция — [`docs/machines/README.md`](docs/machines/README.md).
 
+### Промты проекта — раздел КАРМАНА `MatricaRMZ`
+
+Задачи владельца приходят **промтами в раздел КАРМАНА** (мандат brain D-190), а не письмами в почту. Раздел один на проект; адрес сервиса и токен раздела лежат **вне репозитория**, в локальном файле машины (на PC79 — `%USERPROFILE%\.matricarmz-keys\vault-url` и `prompts-token`).
+
+```bash
+node scripts/karman/prompts-section.mjs list        # заголовки живых промтов (id + первая строка)
+node scripts/karman/prompts-section.mjs full        # тексты живых промтов ЦЕЛИКОМ (план, критерии, риски)
+node scripts/karman/prompts-section.mjs show <id>   # текст одного промта (живого или архивного)
+node scripts/karman/prompts-section.mjs archived    # что уже закрыто
+node scripts/karman/prompts-section.mjs archive <id>   # «архив = сделано»
+```
+
+- **Правило взятия:** верхушка очереди — **свежие сверху** (по дате создания, сверху вниз). Взял верхний — он твой.
+- **Правило исполнения:** взять → сверить план с нашим кодом и **уточнить у себя** (библиотеку не переписываем) → выполнить (код + гейты) → **отправить в архив после мержа**. «Архив = сделано», а не «взяли в работу». Развилки, которые промт отдал владельцу, — закрыть по умолчанию, явно записать в PENDING и вынести владельцу.
+- **Прокси-обвязка агента мешает:** перед вызовом обнулить `HTTP(S)_PROXY`/`ALL_PROXY` и поставить `NO_PROXY=*`, иначе `fetch` падает на прокси. Пустой список — это «очереди нет», а не «канал сломан».
+- Состояние раздела и закрытые промты — [`docs/pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md`](docs/pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md); машино-зависимые пути и грабли — в своей части [`docs/machines/`](docs/machines/README.md) (`karman.md`).
+
 **Принцип token economy:** `SESSION_HANDOFF` + `CODEBASE_MAP` + `docs/machines/<hostname>.md` — обязательны на старте. `PENDING_FOLLOWUPS` / `COMPLETED` / `GOTCHAS` / `PROJECT_STATE` читаются **по требованию задачи**, не безусловно (ADR-0003). История релизов — `git log` + тело PR; тонкая навигация по ней — `COMPLETED.md`.
 
 ## Cross-project knowledge base
