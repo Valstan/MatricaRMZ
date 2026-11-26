@@ -303,13 +303,14 @@ export function WorkSheetTypeEditorDialog(props: {
 
           {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {selected ? (
               <Button variant="ghost" onClick={archive} disabled={busy}>
                 В архив
               </Button>
             ) : null}
-            <div style={{ flex: 1 }} />
+            {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                «Закрыть»/«Сохранить вид работ» — в одной группе, не у правого края. */}
             <Button variant="ghost" onClick={props.onClose} disabled={busy}>
               Закрыть
             </Button>

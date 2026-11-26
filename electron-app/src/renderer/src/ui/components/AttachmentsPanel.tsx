@@ -542,9 +542,10 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
         background: dragOver ? '#eff6ff' : undefined,
       }}
     >
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <strong>{props.title ?? 'Вложения'}</strong>
-        <span style={{ flex: 1 }} />
+        {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141): распорка
+            уводила кнопки загрузки к правому краю панели. Ряд переносится. */}
         {busy && (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: busy.startsWith('Ошибка') || busy.startsWith('Неуспешно') ? '#b91c1c' : '#64748b', fontSize: 12 }}>
             {/* Крутилка на время операции с файлом: «...» в конце = процесс ещё идёт. */}
@@ -661,7 +662,8 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           }}
         >
           <strong style={{ fontSize: 13 }}>Выбрано файлов: {selectedIds.length}</strong>
-          <span style={{ flex: 1 }} />
+          {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+              «Печать…»/«Копировать…»/«Отправить…» стоят сразу за счётчиком, не у края. */}
           {!isAndroid && (
             <>
               <Button variant="ghost" onClick={() => setPrintDialogOpen(true)}>

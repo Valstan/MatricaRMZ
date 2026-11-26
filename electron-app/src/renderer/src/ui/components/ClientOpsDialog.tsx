@@ -147,7 +147,8 @@ export function ClientOpsDialog(props: {
                       Инструкция для администратора
                     </Button>
                   ) : null}
-                  <div style={{ flex: 1 }} />
+                  {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                      «Закрыть» — сразу за кнопками запуска, не у правого края окна. */}
                   <Button variant="ghost" onClick={props.onClose}>
                     Закрыть
                   </Button>

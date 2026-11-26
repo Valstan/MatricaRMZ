@@ -2925,7 +2925,9 @@ export function RepairChecklistPanel(props: {
           </Button>
         )}
         <strong>{panelTitle}</strong>
-        <span style={{ flex: 1 }} />
+        {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141): пустая
+            распорка уводила «Свернуть»/«Экспорт» к правому краю — на планшете они
+            уезжали за край карточки. Ряд переносится (`flexWrap` выше). */}
         <Button variant="ghost" onClick={() => setCollapsed((v) => !v)}>
           {collapsed ? 'Развернуть' : 'Свернуть'}
         </Button>

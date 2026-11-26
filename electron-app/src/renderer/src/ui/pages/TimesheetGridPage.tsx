@@ -859,9 +859,10 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
       {picker && (
         <div onClick={() => setPicker(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 16, width: 460, maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <strong>Добавить сотрудников</strong>
-              <span style={{ flex: 1 }} />
+              {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                  «Закрыть» — сразу за заголовком, не у правого края окна подбора. */}
               <Button variant="ghost" onClick={() => setPicker(false)}>Закрыть</Button>
             </div>
             {ts.workshopId && (

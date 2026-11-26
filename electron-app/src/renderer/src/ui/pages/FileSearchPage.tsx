@@ -795,7 +795,8 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
                   }}
                 >
                   <strong style={{ fontSize: 13 }}>Отмечено картинок: {picked.size}</strong>
-                  <span style={{ flex: 1 }} />
+                  {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                      «Отправить на печать» — сразу за счётчиком, не у правого края. */}
                   <Button variant="primary" onClick={() => void printPicked()} disabled={busy || picked.size === 0}>
                     Отправить на печать
                   </Button>

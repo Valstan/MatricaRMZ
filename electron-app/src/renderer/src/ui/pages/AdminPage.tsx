@@ -1007,7 +1007,8 @@ export function MasterdataPage(props: {
           <div style={{ borderRight: '1px solid var(--border, #e5e7eb)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border, #e5e7eb)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <strong style={{ fontSize: 14 }}>Разделы</strong>
-              <span style={{ flex: 1 }} />
+              {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                  «Расширенный режим» — сразу за заголовком, не у правого края панели. */}
               {props.canEditMasterData && (
                 <Button
                   variant="ghost"
@@ -1212,7 +1213,8 @@ export function MasterdataPage(props: {
                     <div style={{ color: '#64748b', fontSize: 12 }}>
                       {selectedType?.name ? `Справочник: ${selectedType.name}` : ''}
                     </div>
-                    <span style={{ flex: 1 }} />
+                    {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                        «Сохранить» — сразу за подписью карточки, не у правого края. */}
                     {props.canEditMasterData ? (
                       <>
                         {dirtyAttrCodes.size > 0 || brandCardDirty ? (
@@ -1291,9 +1293,10 @@ export function MasterdataPage(props: {
                       </div>
 
                       <div style={{ marginTop: 14, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
-                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                           <strong>Связи</strong>
-                          <span style={{ flex: 1 }} />
+                          {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                              «Обновить» — сразу за заголовком, не у правого края. */}
                           <Button variant="ghost" onClick={() => { if (selectedEntityId) void refreshIncomingLinks(selectedEntityId); }}>Обновить</Button>
                         </div>
                         <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
@@ -1363,9 +1366,10 @@ export function MasterdataPage(props: {
       {typeDeleteDialog.open && (
         <div onClick={() => { if (!typeDeleteDialog.loading) closeTypeDeleteDialog(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 9998 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 720, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 24px 60px rgba(0,0,0,0.35)', padding: 16 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить раздел справочника</div>
-              <span style={{ flex: 1 }} />
+              {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                  «Закрыть» — рядом с названием окна, не у правого края. */}
               <Button variant="ghost" onClick={closeTypeDeleteDialog} disabled={typeDeleteDialog.loading}>Закрыть</Button>
             </div>
             <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>Раздел: <span style={{ fontWeight: 800, color: '#111827' }}>{typeDeleteDialog.typeName || '—'}</span></div>
@@ -1418,9 +1422,10 @@ export function MasterdataPage(props: {
       {deleteDialog.open && (
         <div onClick={() => { if (!deleteDialog.loading) closeDeleteDialog(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 9999 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 760, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 16, border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 24px 60px rgba(0,0,0,0.35)', padding: 16 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить запись</div>
-              <span style={{ flex: 1 }} />
+              {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                  «Закрыть» — рядом с названием окна, не у правого края. */}
               <Button variant="ghost" onClick={closeDeleteDialog} disabled={deleteDialog.loading}>Закрыть</Button>
             </div>
             <div style={{ marginTop: 8, color: '#6b7280', fontSize: 12 }}>
@@ -1488,9 +1493,10 @@ export function MasterdataPage(props: {
       {showDefsPanel && (
         <div onClick={() => setShowDefsPanel(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 9996 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 920, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 24px 60px rgba(0,0,0,0.35)', padding: 16 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>{selectedType ? `Свойства справочника: ${selectedType.name}` : 'Свойства справочника'}</div>
-              <span style={{ flex: 1 }} />
+              {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                  «Закрыть» — рядом с названием окна, не у правого края. */}
               <Button variant="ghost" onClick={() => setShowDefsPanel(false)}>Закрыть</Button>
             </div>
             <div style={{ marginTop: 12 }}>
@@ -1554,9 +1560,10 @@ export function MasterdataPage(props: {
       {defDeleteDialog.open && (
         <div onClick={() => { if (!defDeleteDialog.loading) closeDefDeleteDialog(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 9997 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 720, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 24px 60px rgba(0,0,0,0.35)', padding: 16 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>Удалить свойство</div>
-              <span style={{ flex: 1 }} />
+              {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                  «Закрыть» — рядом с названием окна, не у правого края. */}
               <Button variant="ghost" onClick={closeDefDeleteDialog} disabled={defDeleteDialog.loading}>Закрыть</Button>
             </div>
             <div style={{ marginTop: 10, color: '#6b7280', fontSize: 12 }}>Свойство: <span style={{ fontWeight: 800, color: '#111827' }}>{defDeleteDialog.defName}</span></div>

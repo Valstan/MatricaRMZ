@@ -161,12 +161,14 @@ export function ProductionProgramPrintPreview(props: {
             display: 'flex',
             alignItems: 'center',
             gap: 12,
+            flexWrap: 'wrap',
             padding: '10px 14px',
             borderBottom: '1px solid var(--border)',
           }}
         >
           <strong style={{ fontSize: 14 }}>Печатная форма — предпросмотр</strong>
-          <span style={{ flex: 1 }} />
+          {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+              «Печать»/«Закрыть» — рядом с названием, не у правого края окна. */}
           <Button
             variant="primary"
             data-pp-print-preview-print

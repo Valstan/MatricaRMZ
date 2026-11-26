@@ -1609,9 +1609,10 @@ export function SupplyRequestDetailsPage(props: {
                     {expandedLine === idx && (
                       <tr>
                         <td colSpan={props.canEdit ? 9 : 8} style={{ padding: 10, background: 'var(--surface-2)' }}>
-                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
                             <div style={{ fontWeight: 700 }}>Фактические поставки</div>
-                            <div style={{ flex: 1 }} />
+                            {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                                «Добавить поставку» — сразу за заголовком, не у правого края. */}
                             {props.canEdit && (
                               <Button
                                 onClick={() => {
@@ -1726,8 +1727,9 @@ export function SupplyRequestDetailsPage(props: {
         </div>
 
         {props.canEdit && (
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
-            <div style={{ flex: 1 }} />
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
+            {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                «Добавить строку» — сразу за таблицей, не у правого края. */}
             <Button
               onClick={() => {
                 const nextItem: SupplyRequestItem = {

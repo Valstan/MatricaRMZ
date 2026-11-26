@@ -149,9 +149,10 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
       }}
     >
       <div style={{ width: 'min(900px, 96vw)', maxHeight: '90vh', overflow: 'auto', background: 'var(--surface)', borderRadius: 14, padding: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ fontWeight: 800, fontSize: 16 }}>Дубли сотрудников</div>
-          <div style={{ flex: 1 }} />
+          {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+              «Обновить» — сразу за заголовком, не у правого края окна. */}
           <Button variant="ghost" onClick={() => void analyze()} disabled={loading}>
             Обновить
           </Button>

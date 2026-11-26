@@ -1507,7 +1507,8 @@ function ReportPresetTablePage(props: Parameters<typeof ReportPresetPage>[0]) {
                   ) : (
                     <div style={{ color: 'var(--muted)', fontSize: 12 }}>Нажмите «Сформировать прогноз», чтобы построить отчёт.</div>
                   )}
-                  <div style={{ flex: 1 }} />
+                  {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                      «Сбросить все настройки» — сразу за строкой статуса, не у правого края. */}
                   <button type="button" onClick={resetAllFilters} disabled={busy} style={{ ...filterResetBtnStyle, padding: '3px 10px', fontSize: 12 }}>
                     Сбросить все настройки
                   </button>
