@@ -53,6 +53,7 @@
 ---
 
 ## 🟡 Техдолг и отложенное
+- [🟡 Вид «ГОЗ / гражданка»: проставить его пачкой — на проде вида нет ни у одного заказчика 🗓 since:2026-11-26](pending/prostat-vid-pachkoy-zakazchikam-i-dogovoram.md)
 - [🟡 Печать картинок: проверить диалог печати Chromium на живой машине парка 🗓 since:2026-11-26](pending/pechat-kartinok-dialog-pechati-na-parke.md)
 
 - [🟡 Класс «застрявшая очередь»: правки готовы, ждём выката и полевой приёмки 🗓 since:2026-11-26](pending/trevoga-ochered-zastryla-otchet-po-ustarevshey-probe.md)

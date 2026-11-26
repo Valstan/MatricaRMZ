@@ -1,4 +1,6 @@
 import { HUMAN_LABEL_DASH } from './humanLabels.js';
+import type { ContractKind } from './contract.js';
+import { engineKindFacetDescriptor } from './engineKindList.js';
 import type { FacetDescriptor } from './listFacets.js';
 
 /**
@@ -372,10 +374,19 @@ export const WORK_SHEET_ROW_FACET_IDS = ['type', 'engineBrand', 'workshop', 'per
  */
 export function workSheetFacets(
   columns: readonly WorkSheetColumn[],
+  opts?: { kindOf?: (row: WorkSheetRow) => ContractKind | null | undefined },
 ): FacetDescriptor<WorkSheetRow>[] {
   const val = (value: string, label = value) => (value ? { value, label } : null);
   const facets: FacetDescriptor<WorkSheetRow>[] = [
     { kind: 'values', id: 'type', label: 'Вид работ', valueOf: (r) => val(r.typeCode, r.typeName || r.typeCode) },
+    // Вид двигателя (ГОЗ / гражданский) — полноценный признак и в списке этапов работ
+    // (промт КАРМАНА #163). Строка этапа вида не несёт: вид берётся из каталога двигателей,
+    // где он уже посчитан по общему правилу `resolveEngineKind`. Ступень — из общего
+    // конструктора, чтобы подпись, ряд значений и «вид не задан» совпадали с остальными
+    // списками.
+    ...(opts?.kindOf
+      ? [engineKindFacetDescriptor<WorkSheetRow>({ kindOf: opts.kindOf }) as FacetDescriptor<WorkSheetRow>]
+      : []),
     { kind: 'values', id: 'engineBrand', label: 'Марка', valueOf: (r) => val(text(r.engineBrand)) },
     // Признак живёт на карточке двигателя, но спрашивают его в списке этапов: «покажи всё,
     // что делали по рекламационным». Значения — как в списке двигателей, чтобы отборы

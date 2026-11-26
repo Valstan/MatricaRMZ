@@ -51,6 +51,7 @@ import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { FacetFilter } from '../components/FacetFilter.js';
 import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
+import { KindQuickFilter } from '../components/KindQuickFilter.js';
 import {
   applyCounterpartyFacets,
   COUNTERPARTY_FACETS,
@@ -62,6 +63,7 @@ import {
   describeFacetSelectionForRows,
   effectiveContractDueAt,
   engineKindLabel,
+  engineKindRank,
   parseCounterpartyKind,
   parseContractSections,
   type ContractKind,
@@ -96,7 +98,7 @@ type Row = {
    */
   engineKind?: ContractKind | null;
 };
-type SortKey = 'displayName' | 'inn' | 'updatedAt' | 'contractCount' | 'contractAmount';
+type SortKey = 'displayName' | 'inn' | 'updatedAt' | 'contractCount' | 'contractAmount' | 'kind';
 
 function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
   if (!Array.isArray(raw)) return [];
@@ -337,6 +339,10 @@ export function CounterpartiesPage(props: {
       if (key === 'updatedAt') return Number(row.updatedAt ?? 0);
       if (key === 'contractCount') return Number(row.contractCount ?? 0);
       if (key === 'contractAmount') return Number(row.contractAmount ?? 0);
+      // Вид сортируется по ЗАДАННОМУ порядку (ГОЗ → гражданский → вид не задан), а не по
+      // алфавиту подписи: «Гражд.» по алфавиту встал бы раньше «ГОЗ», и порядок вида в
+      // разных списках разъезжался бы. Правило — одно на программу (`engineKindRank`).
+      if (key === 'kind') return engineKindRank(row.engineKind);
       return String(row.displayName ?? '').toLowerCase();
     },
     (row) => row.id,
@@ -425,8 +431,9 @@ export function CounterpartiesPage(props: {
       { id: 'email', label: 'E-mail', kind: 'text', render: (row) => row.email || '—' },
       // Вид заказчика (префикс) — по нему идёт отбор подсказок в карточке договора
       // (промт КАРМАНА #147), поэтому оператор должен видеть его и здесь. Колонка по
-      // умолчанию скрыта (как реквизиты): включается в «Колонках списка».
-      { id: 'engineKind', label: 'Вид', kind: 'name', render: (row) => engineKindLabel(row.engineKind) },
+      // умолчанию скрыта (как реквизиты): включается в «Колонках списка». Сортировка по
+      // виду — по заданному порядку (промт КАРМАНА #163).
+      { id: 'engineKind', label: 'Вид', sortKey: 'kind', kind: 'name', render: (row) => engineKindLabel(row.engineKind) },
       { id: 'contractCount', label: 'Договоров', sortKey: 'contractCount', kind: 'num', render: (row) => (row.contractCount ? String(row.contractCount) : '—') },
       { id: 'contractAmount', label: 'Сумма по договорам', sortKey: 'contractAmount', kind: 'num', render: (row) => (row.contractAmount ? `${(row.contractAmount / 1_000_000).toFixed(2)} млн` : '—') },
       { id: 'updatedAt', label: 'Дата изменения', tabletLabel: 'Изм.', sortKey: 'updatedAt', kind: 'date', render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
@@ -438,14 +445,15 @@ export function CounterpartiesPage(props: {
   const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);
   // Реквизиты из строгой карточки контрагента: по умолчанию скрыты (список не шире прежнего),
   // включаются в «Колонках списка» — как колонка «Привязка» у двигателей. Вид заказчика
-  // (префикс) — туда же: он нужен оператору, чтобы понять, кого предложит договор.
+  // (префикс) из списка скрытых убран (промт КАРМАНА #163): вид — полноценный признак, и
+  // оператор должен видеть его без «Колонок списка». У кого раскладка уже сохранена, колонка
+  // остаётся как была — выбор оператора главнее умолчания.
   const columnLayout = useColumnLayout('list:counterparties:columns', allColumnIds, [
     'shortName',
     'kpp',
     'address',
     'phone',
     'email',
-    'engineKind',
   ]);
   const visibleColumns = useMemo(
     () =>
@@ -595,6 +603,17 @@ export function CounterpartiesPage(props: {
             промт КАРМАНА #151). */}
         <ToolbarPin>
           <FacetPanelToggle usageKey="list:counterparties" />
+        </ToolbarPin>
+        {/* Быстрый доступ к отбору по виду (промт КАРМАНА #163): панель фильтров свёрнута
+            за кнопку, и до ступени «Вид» в ней ещё надо дотянуться. Кнопка пишет в то же
+            состояние отбора, что и панель ступеней, — одна правка, два входа. */}
+        <ToolbarPin>
+          <KindQuickFilter
+            facets={COUNTERPARTY_FACETS as readonly FacetDescriptor<Row>[]}
+            rows={filtered}
+            selection={facets as FacetSelection}
+            onChangeSelection={(next) => patchState({ facets: next as CounterpartyFacetSelection })}
+          />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => { toggleSearchMode(); patchState({ pageIndex: 0 }); }} />

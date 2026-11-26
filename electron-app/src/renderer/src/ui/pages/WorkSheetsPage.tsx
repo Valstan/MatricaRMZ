@@ -7,8 +7,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   HUMAN_LABEL_DASH,
   HUMAN_LABEL_NO_NUMBER,
+  CONTRACT_KIND_LABELS,
   applyFacets,
   describeFacetSelectionForRows,
+  engineKindById,
+  engineKindGroupKey,
+  engineKindRank,
+  engineKindShortLabel,
   engineScrapById,
   engineScrapFlagsById,
   engineScrapRowBackgroundPrint,
@@ -17,6 +22,7 @@ import {
   workSheetFacets,
   workSheetFieldsSummary,
   unionWorkSheetColumns,
+  type ContractKind,
   type EngineListItem,
   type FacetDescriptor,
   type FacetSelection,
@@ -40,6 +46,7 @@ import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from
 
 import { FacetFilter } from '../components/FacetFilter.js';
 import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
+import { KindQuickFilter } from '../components/KindQuickFilter.js';
 import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
 
 
@@ -181,7 +188,15 @@ type ListUiState = {
   groupBy: WorkSheetListGroupBy;
 };
 
-type WorkSheetListGroupBy = 'type' | 'contract' | 'workshop' | 'customer' | 'customer_type' | 'none';
+type WorkSheetListGroupBy =
+  | 'type'
+  | 'contract'
+  | 'workshop'
+  | 'customer'
+  | 'customer_type'
+  | 'kind'
+  | 'customer_kind'
+  | 'none';
 
 const WORK_SHEET_LIST_GROUP_BY_LABELS: Record<WorkSheetListGroupBy, string> = {
   type: 'По виду работ',
@@ -189,6 +204,11 @@ const WORK_SHEET_LIST_GROUP_BY_LABELS: Record<WorkSheetListGroupBy, string> = {
   workshop: 'По цеху',
   customer: 'По заказчику',
   customer_type: 'Заказчик → вид работ',
+  // Вид двигателя (ГОЗ / гражданка) — раздел группировки (промт КАРМАНА #163): владелец
+  // просил «разделение на военные и гражданские». Вид садится НИЖЕ заказчика — заказчика он
+  // не вытесняет.
+  kind: 'По виду',
+  customer_kind: 'Заказчик → вид',
   none: 'Без группировки',
 };
 
@@ -491,6 +511,15 @@ export function WorkSheetsPage(props: {
 
   const workshopFromDirectory = useCallback((id: string) => workshops.find((w) => w.id === id)?.label ?? '', [workshops]);
 
+  // Вид двигателя для строки этапа: берём из каталога двигателей, где он уже посчитан по
+  // общему правилу (`resolveEngineKind`). Считать вид второй раз здесь нельзя — тогда у
+  // наряда и у двигателя вид разошёлся бы (промт КАРМАНА #163).
+  const kindByEngineId = useMemo(() => engineKindById(props.engines), [props.engines]);
+  const kindOfRow = useCallback(
+    (r: WorkSheetRow): ContractKind | null => kindByEngineId.get(String(r.engineId ?? '')) ?? null,
+    [kindByEngineId],
+  );
+
 
 
 
@@ -663,6 +692,26 @@ export function WorkSheetsPage(props: {
 
       { id: 'workshop', label: 'Цех', kind: 'name', render: (r) => workshopLabel(r, workshopFromDirectory), sortValue: (r) => workshopLabel(r, workshopFromDirectory) },
 
+      {
+        // Вид двигателя (ГОЗ / гражданка) — полноценный признак и в нарядах: отобрать
+        // «военку» и «гражданку» по этапам работ нужно так же, как по двигателям
+        // (промт КАРМАНА #163). На экране подпись короткая («Гражд.»), в печати — полная.
+        id: 'kind',
+        label: 'Вид',
+        tabletLabel: 'Вид',
+        kind: 'name',
+        sortValue: (r) => engineKindRank(kindOfRow(r)),
+        printValue: (r) => {
+          const kind = kindOfRow(r);
+          return kind ? CONTRACT_KIND_LABELS[kind] : '—';
+        },
+        render: (r) => {
+          const kind = kindOfRow(r);
+          if (!kind) return <span className="ui-muted">—</span>;
+          return <span title={CONTRACT_KIND_LABELS[kind]}>{engineKindShortLabel(kind)}</span>;
+        },
+      },
+
 
       // Поля вида работ — одной сводной колонкой: у каждого вида свой набор, и разворачивать
 
@@ -676,7 +725,7 @@ export function WorkSheetsPage(props: {
       { id: 'performedBy', label: 'Кто', kind: 'name', render: (r) => r.performedBy, sortValue: (r) => r.performedBy },
       { id: 'note', label: 'Примечание', kind: 'text', render: (r) => r.note },
     ],
-    [workshopFromDirectory, renderEngineCell],
+    [workshopFromDirectory, renderEngineCell, kindOfRow],
   );
 
 
@@ -708,7 +757,10 @@ export function WorkSheetsPage(props: {
   // с 12.10.2026 — отбор по истории только в списке двигателей.
   const stageTemplates = useRepairStageTemplateRefs();
   const fieldColumns = useMemo(() => unionWorkSheetColumns(types), [types]);
-  const facets = useMemo(() => workSheetFacets(fieldColumns) as FacetDescriptor<WorkSheetRow>[], [fieldColumns]);
+  const facets = useMemo(
+    () => workSheetFacets(fieldColumns, { kindOf: kindOfRow }) as FacetDescriptor<WorkSheetRow>[],
+    [fieldColumns, kindOfRow],
+  );
 
 
 
@@ -784,6 +836,9 @@ export function WorkSheetsPage(props: {
     const byContract = byLabel((r) => r.contractNumber, (r) => r.contractShortLabel || r.contractNumber, 'Без договора');
     const byWorkshop = byLabel((r) => r.workshopId, (r) => workshopLabel(r, workshopFromDirectory), 'Без цеха');
     const byCustomer = byLabel((r) => r.customerName, (r) => r.customerName, 'Без заказчика');
+    // Группа «Вид» — тем же ключом, что и сортировка по виду: ГОЗ → гражданский → вид не
+    // задан, и в каждой группе видно число строк (промт КАРМАНА #163).
+    const byKind: GroupLevel<WorkSheetRow> = { keyOf: (r) => engineKindGroupKey(kindOfRow(r)) };
     switch (ui.groupBy) {
       case 'type':
         return [byType];
@@ -795,10 +850,14 @@ export function WorkSheetsPage(props: {
         return [byCustomer];
       case 'customer_type':
         return [byCustomer, byType];
+      case 'kind':
+        return [byKind];
+      case 'customer_kind':
+        return [byCustomer, byKind];
       default:
         return [];
     }
-  }, [ui.groupBy, workshopFromDirectory]);
+  }, [ui.groupBy, workshopFromDirectory, kindOfRow]);
   const groupedItems = useMemo(() => flattenGrouped(sorted, groupLevels), [sorted, groupLevels]);
 
   // Подпись группы для печати: путь заголовков над строкой, как на экране.
@@ -940,6 +999,16 @@ export function WorkSheetsPage(props: {
             промт КАРМАНА #151). */}
         <ToolbarPin>
           <FacetPanelToggle usageKey="list:workSheets:ui" />
+        </ToolbarPin>
+        {/* Быстрый доступ к отбору по виду (промт КАРМАНА #163): панель фильтров свёрнута
+            за кнопку, и до ступени «Вид» в ней ещё надо дотянуться. */}
+        <ToolbarPin>
+          <KindQuickFilter
+            facets={facets}
+            rows={deep.filtered}
+            selection={ui.facets as FacetSelection}
+            onChangeSelection={(next) => patchState({ facets: next })}
+          />
         </ToolbarPin>
         <ToolbarPin>
           <EngineQrScanButton onEngineNumber={(n) => patchState({ query: n })} />

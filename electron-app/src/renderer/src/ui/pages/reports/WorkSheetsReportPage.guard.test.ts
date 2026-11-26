@@ -38,7 +38,9 @@ describe('отчёт-список «Этапы работ»', () => {
     expect(PAGE).toContain('window.matrica.workSheets.rows.list({ sinceMs: null })');
     expect(PAGE).toContain("useLiveDataRefresh(refreshRows, { domains: ['workSheets'] })");
     expect(PAGE, 'поля видов работ — по справочнику, объединением').toContain('unionWorkSheetColumns(res.rows)');
-    expect(PAGE).toContain('workSheetFacets(fieldColumns)');
+    // С 26.11.2026 (промт КАРМАНА #163) к ступеням добавлена ступень «Вид»: вид двигателя
+    // берётся из каталога (второй счёт вида не заводим), ступень строит общий конструктор.
+    expect(PAGE).toContain('workSheetFacets(fieldColumns, { kindOf: kindOfRow })');
     // Движковой ступени «проходил этап» здесь нет с 12.10.2026 (дубль «Вид работ»):
     // страница больше не тянет справочники этапов ради фильтров.
     expect(PAGE).not.toContain('const stageTemplates = useRepairStageTemplateRefs();');

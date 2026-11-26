@@ -22,6 +22,7 @@ export * from './domain/engineActSnapshot.js';
 export * from './domain/contractInternalNumber.js';
 export * from './domain/engineCustomer.js';
 export * from './domain/engineKind.js';
+export * from './domain/engineKindList.js';
 export * from './domain/listFacets.js';
 export * from './domain/objectCapabilities.js';
 export * from './domain/facetUsage.js';

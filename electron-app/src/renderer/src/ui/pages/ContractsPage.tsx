@@ -26,6 +26,8 @@ import {
   CONTRACT_FACETS,
   CONTRACT_PAYMENTS_ATTR_CODE,
   HUMAN_LABEL_DASH,
+  CONTRACT_KIND_LABELS,
+  DEFAULT_CONTRACT_KIND,
   aggregateContractExecutionProgress,
   applyContractFacets,
   burningEnginesCount,
@@ -33,6 +35,8 @@ import {
   describeFacetSelectionForRows,
   effectiveContractDueAt,
   effectiveRepairDays,
+  engineKindRank,
+  engineKindShortLabel,
   isEngineDoneForCountdown,
   parseContractPayments,
   sanitizeContractFacetSelection,
@@ -50,6 +54,7 @@ import {
 
 import { FacetFilter } from '../components/FacetFilter.js';
 import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
+import { KindQuickFilter } from '../components/KindQuickFilter.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { searchModeEmptyText } from '../components/SearchModeHint.js';
 import { useSearchMode } from '../hooks/useSearchMode.js';
@@ -121,7 +126,8 @@ type SortKey =
   | 'enginesAtFactory'
   | 'partsPlanned'
   | 'partsCompleted'
-  | 'burningEngines';
+  | 'burningEngines'
+  | 'kind';
 type ContractsListUiState = {
   query: string;
   sortKey: SortKey;
@@ -627,6 +633,10 @@ export function ContractsPage(props: {
       if (key === 'partsPlanned') return Number(row.partsPlanned ?? 0);
       if (key === 'partsCompleted') return Number(row.partsCompleted ?? 0);
       if (key === 'burningEngines') return Number(row.burningEngines ?? 0);
+      // Вид — по ЗАДАННОМУ порядку (ГОЗ → гражданский), тем же правилом, что и ступень
+      // фильтра: вид договора по умолчанию ГОЗ, и «вид не задан» у договора не бывает
+      // (промт КАРМАНА #163).
+      if (key === 'kind') return engineKindRank(row.kind ?? DEFAULT_CONTRACT_KIND);
       return Number(row.updatedAt ?? 0);
     },
     (row) => row.id,
@@ -684,6 +694,24 @@ export function ContractsPage(props: {
         sortKey: 'counterparty',
         kind: 'name',
         render: (row) => row.counterparty || '—',
+      },
+      {
+        // Вид договора — полноценный признак (промт КАРМАНА #163): он виден в списке, по
+        // нему сортируют, он же стоит ступенью фильтра. На экране подпись короткая
+        // («Гражд.»): колонка узкая, и длинное «Гражданский» переносилось бы на вторую
+        // строку. Полная подпись — в подсказке и в печати (в бумаге места хватает).
+        id: 'kind',
+        label: 'Вид',
+        tabletLabel: 'Вид',
+        sortable: true,
+        sortKey: 'kind',
+        kind: 'name',
+        printValue: (row) => (row.kind ? CONTRACT_KIND_LABELS[row.kind as ContractKind] : '—'),
+        render: (row) => (
+          <span title={row.kind ? CONTRACT_KIND_LABELS[row.kind as ContractKind] : 'Вид не задан'}>
+            {row.kind ? engineKindShortLabel(row.kind as ContractKind) : '—'}
+          </span>
+        ),
       },
       {
         id: 'dateMs',
@@ -1123,6 +1151,17 @@ export function ContractsPage(props: {
             промт КАРМАНА #151). */}
         <ToolbarPin>
           <FacetPanelToggle usageKey="list:contracts" />
+        </ToolbarPin>
+        {/* Быстрый доступ к отбору по виду (промт КАРМАНА #163): панель фильтров свёрнута
+            за кнопку, и до ступени «Вид контракта» в ней ещё надо дотянуться. Кнопка пишет
+            в то же состояние отбора, что и панель ступеней. */}
+        <ToolbarPin>
+          <KindQuickFilter
+            facets={CONTRACT_FACETS as readonly FacetDescriptor<Row>[]}
+            rows={searched}
+            selection={facets as FacetSelection}
+            onChangeSelection={(next) => patchState({ facets: next as ContractFacetSelection })}
+          />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />

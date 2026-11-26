@@ -3,8 +3,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   HUMAN_LABEL_DASH,
   HUMAN_LABEL_NO_NUMBER,
+  CONTRACT_KIND_LABELS,
   applyFacets,
   describeFacetSelectionForRows,
+  engineKindById,
+  engineKindGroupKey,
+  engineKindRank,
+  engineKindShortLabel,
   engineScrapById,
   engineScrapFlagsById,
   engineScrapRowBackgroundPrint,
@@ -13,6 +18,7 @@ import {
   formatWorkSheetValue,
   workSheetFacets,
   workSheetFieldsSummary,
+  type ContractKind,
   type FacetDescriptor,
   type FacetSelection,
   type GroupLevel,
@@ -27,6 +33,7 @@ import { ColumnToggleButton } from '../../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../../components/ColumnResizeHandle.js';
 import { FacetFilter } from '../../components/FacetFilter.js';
 import { FacetPanelToggle } from '../../components/FacetPanelToggle.js';
+import { KindQuickFilter } from '../../components/KindQuickFilter.js';
 import { ToolbarSearchField } from '../../components/ToolbarSearchField.js';
 import { ListCount } from '../../components/ListCount.js';
 import { ListExportButtons } from '../../components/ListExportButtons.js';
@@ -71,7 +78,17 @@ type Column = ColumnDescriptor & {
   printValue?: (r: WorkSheetRow) => string;
 };
 
-type GroupBy = 'type' | 'contract' | 'workshop' | 'customer' | 'customer_type' | 'repeat' | 'repeatReason' | 'none';
+type GroupBy =
+  | 'type'
+  | 'contract'
+  | 'workshop'
+  | 'customer'
+  | 'customer_type'
+  | 'kind'
+  | 'customer_kind'
+  | 'repeat'
+  | 'repeatReason'
+  | 'none';
 
 const GROUP_BY_LABELS: Record<GroupBy, string> = {
   type: 'По виду работ',
@@ -79,6 +96,10 @@ const GROUP_BY_LABELS: Record<GroupBy, string> = {
   workshop: 'По цеху',
   customer: 'По заказчику',
   customer_type: 'Заказчик → вид работ',
+  // Вид двигателя (ГОЗ / гражданка) — раздел группировки (промт КАРМАНА #163): вид
+  // садится НИЖЕ заказчика, заказчика он не вытесняет.
+  kind: 'По виду',
+  customer_kind: 'Заказчик → вид',
   repeat: 'По возвратам',
   repeatReason: 'По причине возврата',
   none: 'Без группировки',
@@ -157,6 +178,15 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
     [workshopNameById],
   );
 
+  // Вид двигателя для строки этапа: берём из каталога двигателей, где он уже посчитан по
+  // общему правилу (resolveEngineKind). Считать вид второй раз здесь нельзя — тогда у
+  // этапа работ и у двигателя вид разошёлся бы (промт КАРМАНА #163).
+  const kindByEngineId = useMemo(() => engineKindById(props.engines), [props.engines]);
+  const kindOfRow = useCallback(
+    (r: WorkSheetRow): ContractKind | null => kindByEngineId.get(String(r.engineId ?? '')) ?? null,
+    [kindByEngineId],
+  );
+
   const columns = useMemo<Column[]>(
     () => [
       { id: 'at', label: 'Дата', kind: 'date', render: (r) => formatMoscowDate(new Date(r.at)), sortValue: (r) => r.at, alwaysVisible: true },
@@ -211,6 +241,24 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
         printValue: (r) => r.contractShortLabel,
       },
       { id: 'workshop', label: 'Цех', kind: 'name', render: (r) => workshopLabel(r), sortValue: (r) => workshopLabel(r) },
+      {
+        // Вид двигателя (ГОЗ / гражданка) — полноценный признак и в отчёте «Этапы работ»:
+        // отобрать «военку» и «гражданку» по этапам нужно так же, как по двигателям
+        // (промт КАРМАНА #163). На экране подпись короткая, в печати — полная.
+        id: 'kind',
+        label: 'Вид',
+        kind: 'name',
+        sortValue: (r) => engineKindRank(kindOfRow(r)),
+        printValue: (r) => {
+          const kind = kindOfRow(r);
+          return kind ? CONTRACT_KIND_LABELS[kind] : '—';
+        },
+        render: (r) => {
+          const kind = kindOfRow(r);
+          if (!kind) return <span className="ui-muted">—</span>;
+          return <span title={CONTRACT_KIND_LABELS[kind]}>{engineKindShortLabel(kind)}</span>;
+        },
+      },
       { id: 'fields', label: 'Поля', kind: 'text', render: (r) => workSheetFieldsSummary(r.fields) },
       ...fieldColumns.map<Column>((c) => ({
         id: fieldColumnId(c.code),
@@ -228,7 +276,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
       { id: 'performedBy', label: 'Кто', kind: 'name', render: (r) => r.performedBy, sortValue: (r) => r.performedBy },
       { id: 'note', label: 'Примечание', kind: 'text', render: (r) => r.note },
     ],
-    [workshopLabel, fieldColumns],
+    [workshopLabel, fieldColumns, kindOfRow],
   );
 
   const hiddenByDefault = useMemo(() => ['internal', ...fieldColumns.map((c) => fieldColumnId(c.code))], [fieldColumns]);
@@ -245,7 +293,10 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
 
   // Ступени — общие плюс по одной на каждое поле вида работ (по справочнику).
   // Движковой ступени «проходил этап» здесь нет с 12.10.2026 (дубль «Вид работ»).
-  const facets = useMemo(() => workSheetFacets(fieldColumns) as FacetDescriptor<WorkSheetRow>[], [fieldColumns]);
+  const facets = useMemo(
+    () => workSheetFacets(fieldColumns, { kindOf: kindOfRow }) as FacetDescriptor<WorkSheetRow>[],
+    [fieldColumns, kindOfRow],
+  );
 
   const { similar: searchSimilar, toggle: toggleSearchMode, reset: resetSearchMode } = useSearchMode({ query: ui.query });
   const deep = useListDeepFilter(
@@ -279,6 +330,9 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
     const byContract = byLabel((r) => r.contractNumber, (r) => r.contractShortLabel || r.contractNumber, 'Без договора');
     const byWorkshop = byLabel((r) => r.workshopId, workshopLabel, 'Без цеха');
     const byCustomer = byLabel((r) => r.customerName, (r) => r.customerName, 'Без заказчика');
+    // Группа «Вид» — тем же ключом, что и сортировка по виду: ГОЗ → гражданский → вид не
+    // задан, и в каждой группе видно число строк (промт КАРМАНА #163).
+    const byKind: GroupLevel<WorkSheetRow> = { keyOf: (r) => engineKindGroupKey(kindOfRow(r)) };
     // Статистика возвратов живёт здесь, а не отдельным отчётом: группа показывает счётчик,
     // а «Причина возврата» раскладывает его по причинам. Не возврат — отдельная группа,
     // чтобы «Без причины» не смешивала обычные проходы с возвратами без объяснения.
@@ -305,6 +359,10 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
         return [byCustomer];
       case 'customer_type':
         return [byCustomer, byType];
+      case 'kind':
+        return [byKind];
+      case 'customer_kind':
+        return [byCustomer, byKind];
       case 'repeat':
         return [byRepeat];
       case 'repeatReason':
@@ -312,7 +370,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
       default:
         return [];
     }
-  }, [ui.groupBy, workshopLabel]);
+  }, [ui.groupBy, workshopLabel, kindOfRow]);
   const items = useMemo(() => flattenGrouped(sorted, levels), [sorted, levels]);
 
   // Строки списка БЕЗ заголовков групп: заголовок группы не строка — его не выделяем
@@ -436,6 +494,16 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
             промт КАРМАНА #151). */}
         <ToolbarPin>
           <FacetPanelToggle usageKey="report:workSheets:ui" />
+        </ToolbarPin>
+        {/* Быстрый доступ к отбору по виду (промт КАРМАНА #163): панель фильтров свёрнута
+            за кнопку, и до ступени «Вид» в ней ещё надо дотянуться. */}
+        <ToolbarPin>
+          <KindQuickFilter
+            facets={facets}
+            rows={deep.filtered}
+            selection={ui.facets}
+            onChangeSelection={(next) => patchState({ facets: next })}
+          />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />

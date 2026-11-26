@@ -18,6 +18,9 @@ import {
   reclamationMonthGroup,
   stripStageDateWhenWhereNow,
   CONTRACT_KIND_LABELS,
+  engineKindGroupKey,
+  engineKindRank,
+  engineKindShortLabel,
   type EngineFacetSelection,
   type EngineListItem,
   type FacetDescriptor,
@@ -31,6 +34,7 @@ import { ColumnToggleButton } from '../../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../../components/ColumnResizeHandle.js';
 import { FacetFilter } from '../../components/FacetFilter.js';
 import { FacetPanelToggle } from '../../components/FacetPanelToggle.js';
+import { KindQuickFilter } from '../../components/KindQuickFilter.js';
 import { ToolbarSearchField } from '../../components/ToolbarSearchField.js';
 import { ListCount } from '../../components/ListCount.js';
 import { ListExportButtons } from '../../components/ListExportButtons.js';
@@ -75,7 +79,7 @@ type Column = ColumnDescriptor & {
 
 type Row = EngineListItem & { stage: ReturnType<typeof engineFactoryStage>; state: string; daysOnSite: number | null };
 
-type GroupBy = 'contract' | 'brand' | 'customer' | 'customer_contract' | 'reclamation' | 'none';
+type GroupBy = 'contract' | 'brand' | 'customer' | 'customer_contract' | 'customer_kind' | 'kind' | 'reclamation' | 'none';
 
 const GROUP_BY_LABELS: Record<GroupBy, string> = {
   none: 'Без группировки',
@@ -83,6 +87,10 @@ const GROUP_BY_LABELS: Record<GroupBy, string> = {
   brand: 'По марке',
   customer: 'По заказчику',
   customer_contract: 'Заказчик → договор',
+  // Вид двигателя (ГОЗ / гражданка) — раздел группировки (промт КАРМАНА #163). Вид садится
+  // НИЖЕ заказчика: заказчика он не вытесняет.
+  customer_kind: 'Заказчик → вид',
+  kind: 'По виду',
   reclamation: 'По месяцу рекламации',
 };
 
@@ -147,7 +155,16 @@ export function EnginesReportPage(props: ListReportPageProps) {
       { id: 'contract', label: 'Договор', kind: 'name', render: (e) => text(e.contractName), sortValue: (e) => text(e.contractName) },
       // Вид двигателя — из того же правила, что и в списке (общее правило `resolveEngineKind`):
       // значение приходит в строке готовым, второй источник правды тут не заводим.
-      { id: 'kind', label: 'Вид', kind: 'name', render: (e) => (e.kind ? CONTRACT_KIND_LABELS[e.kind] : HUMAN_LABEL_DASH), sortValue: (e) => (e.kind ? CONTRACT_KIND_LABELS[e.kind] : '') },
+      // Сортировка — по ЗАДАННОМУ порядку вида (ГОЗ → гражданский → вид не задан), а не по
+      // алфавиту подписи: правило одно на программу (промт КАРМАНА #163).
+      {
+        id: 'kind',
+        label: 'Вид',
+        kind: 'name',
+        render: (e) => (e.kind ? <span title={CONTRACT_KIND_LABELS[e.kind]}>{engineKindShortLabel(e.kind)}</span> : HUMAN_LABEL_DASH),
+        sortValue: (e) => engineKindRank(e.kind),
+        printValue: (e) => (e.kind ? CONTRACT_KIND_LABELS[e.kind] : HUMAN_LABEL_DASH),
+      },
       { id: 'customer', label: 'Заказчик', kind: 'name', render: (e) => text(e.customerName), sortValue: (e) => text(e.customerName) },
       {
         id: 'reclamation',
@@ -242,6 +259,9 @@ export function EnginesReportPage(props: ListReportPageProps) {
     const byContract = byName('contractId', 'contractName', 'Без договора');
     const byBrand = byName('engineBrandId', 'engineBrand', 'Без марки');
     const byCustomer = byName('customerId', 'customerName', 'Без заказчика');
+    // Группа «Вид» — тем же ключом, что и сортировка по виду: ГОЗ → гражданский → вид не
+    // задан, и в каждой группе видно число строк (промт КАРМАНА #163).
+    const byKind: GroupLevel<Row> = { keyOf: (r) => engineKindGroupKey(r.kind) };
     switch (ui.groupBy) {
       case 'contract':
         return [byContract];
@@ -251,6 +271,10 @@ export function EnginesReportPage(props: ListReportPageProps) {
         return [byCustomer];
       case 'customer_contract':
         return [byCustomer, byContract];
+      case 'customer_kind':
+        return [byCustomer, byKind];
+      case 'kind':
+        return [byKind];
       case 'reclamation':
         return [{ keyOf: (r) => reclamationMonthGroup(r.reclamationAcceptedDate) }];
       default:
@@ -372,6 +396,16 @@ export function EnginesReportPage(props: ListReportPageProps) {
             промт КАРМАНА #151). */}
         <ToolbarPin>
           <FacetPanelToggle usageKey="report:engines:ui" />
+        </ToolbarPin>
+        {/* Быстрый доступ к отбору по виду (промт КАРМАНА #163): панель фильтров свёрнута
+            за кнопку, и до ступени «Вид» в ней ещё надо дотянуться. */}
+        <ToolbarPin>
+          <KindQuickFilter
+            facets={facets}
+            rows={deep.filtered}
+            selection={activeFacets}
+            onChangeSelection={onChangeFacets}
+          />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />
