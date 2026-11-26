@@ -334,6 +334,8 @@ const SettingsPage = lazyPage('./pages/SettingsPage.tsx', 'SettingsPage');
 const NotesPage = lazyPage('./pages/NotesPage.tsx', 'NotesPage');
 const HistoryPage = lazyPage('./pages/HistoryPage.tsx', 'HistoryPage');
 const SuperadminAuditPage = lazyPage('./pages/SuperadminAuditPage.tsx', 'SuperadminAuditPage');
+// «Удалённое за 3 дня» (промт КАРМАНА #169) — рядом с журналом действий.
+const DeletedObjectsPage = lazyPage('./pages/DeletedObjectsPage.tsx', 'DeletedObjectsPage');
 
 /**
  * Строка новинки в окне приветствия: `**зачин**` — жирным, символы `*` не видны,
@@ -749,6 +751,7 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   custom_reports: 'Мои отчёты',
   report_templates: 'Готовые отчёты',
   audit: 'Журнал',
+  deleted: 'Удалённое',
   admin: 'Админ',
   auth: 'Вход',
   notes: 'Заметки',
@@ -3128,6 +3131,10 @@ export function App() {
   // есть всегда — иначе он мог бы случайно снять его сам с себя и потерять журнал.
   const canViewAudit =
     String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' || !!authStatus.permissions?.['audit.view'];
+  // «Удалённое за 3 дня» (промт КАРМАНА #169): восстановление меняет данные ⇒ право
+  // `deleted.restore` (по умолчанию суперадмин, остальным — поимённо).
+  const canViewDeleted =
+    String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' || !!authStatus.permissions?.['deleted.restore'];
   // Асинхронный AI-чат (очередь + облачная рутина) не зависит от серверного
   // AI_ENABLED (флаг старого синхронного Anthropic-контура) — только chat.use.
   const canAiAgent = authStatus.loggedIn && canChat;
@@ -3224,6 +3231,7 @@ export function App() {
     ...(caps.canManageWorkshops || caps.canViewMasterData ? (['workshops', 'workshop_stats'] as const) : []),
     ...(caps.canViewWarehouseLocations || caps.canManageWarehouseLocations ? (['warehouses_admin'] as const) : []),
     ...(canViewAudit ? (['audit'] as const) : []),
+    ...(canViewDeleted ? (['deleted'] as const) : []),
     ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['access_sections'] as const) : []),
   ];
   const sectionGatedTabsFull = sectionMembership
@@ -7010,6 +7018,8 @@ export function App() {
         )}
 
         {t === 'audit' && canViewAudit && <SuperadminAuditPage />}
+
+        {t === 'deleted' && canViewDeleted && <DeletedObjectsPage />}
 
         {t === 'admin' && <div style={{ color: 'var(--muted)' }}>Раздел перемещён в карточку сотрудника.</div>}
 

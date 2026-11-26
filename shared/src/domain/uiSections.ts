@@ -88,6 +88,8 @@ export type TabId =
   | 'warehouse_locations'
   | 'admin'
   | 'audit'
+  // «Удалённое за 3 дня» (промт КАРМАНА #169): удалённые объекты с восстановлением.
+  | 'deleted'
   // `opencode_nodes` — вырезанный раздел (модуль удалён 19.10.2026), ключ остаётся ради
   // старых строк истории визитов: без него оператор увидел бы «opencode_nodes» вместо названия.
   // В меню раздела нет — он убран из DEFAULT_GROUP_TABS.
@@ -209,6 +211,7 @@ const menuTabSet = new Set<MenuTabId>([
   'custom_reports',
   'report_templates',
   'audit',
+  'deleted',
   // empty_cards/drafts отсутствовали в реестре renderer'а — их визиты оставались бы
   // непереведёнными ключами в статистике, хотя это обычные пункты меню «Контроль».
   'empty_cards',
@@ -319,6 +322,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   custom_reports: 'Мои отчёты',
   report_templates: 'Готовые отчёты',
   audit: 'Журнал',
+  deleted: 'Удалённое',
   empty_cards: 'Пустые карточки',
   drafts: 'Черновики',
   admin: 'Админ',
@@ -340,7 +344,7 @@ export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   workwear: ['ppe_cards', 'ppe_norms', 'ppe_groups', 'ppe_collective', 'ppe_import', 'ppe_stock', 'ppe_reports', 'ppe_vacations'],
   business: ['contracts', 'counterparties'],
   people: ['employees', 'children', 'organization', 'timesheets', 'access_sections'],
-  control: ['reports', 'custom_reports', 'report_templates', 'print_forms', 'print_documents', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
+  control: ['reports', 'custom_reports', 'report_templates', 'print_forms', 'print_documents', 'changes', 'audit', 'deleted', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
 };
 
 export function groupForTab(tab: MenuTabId): MenuGroupId {

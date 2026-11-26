@@ -64,7 +64,7 @@
 - [🟢 Кнопка «где искать»: остальные списки 🗓 since:2026-11-26](pending/gde-iskat-spiski.md)
 
 - [✅ Кит перетаскивания: живой прогон второго пути (карточки) доведён 🗓 since:2026-11-24](pending/kit-peretaskivaniya-zhivoy-progon-vtorogo-pute.md)
-- [🟡 Списки вне кита: 39 таблиц-страниц ещё не переведены 🗓 since:2026-11-25](pending/list-kit-remaining-pages.md)
+- [🟡 Списки вне кита: 40 таблиц-страниц ещё не переведены 🗓 since:2026-11-25](pending/list-kit-remaining-pages.md)
 
 - [🟡 Дубли общих модулей: объединить лестницы «где двигатель сейчас» и общий escapeHtml — решения владельца 🗓 since:2026-11-25](pending/dubl-obshchih-modulev-lestnicy-i-escapehtml.md)
 
@@ -195,6 +195,7 @@
 
 ## 🟢 Крупные фичи / решения владельца
 
+- [🟡 «Удалённое за 3 дня»: решения владельца (промт #169) 🗓 since:2026-11-26](pending/udalennoe-za-tri-dnya-resheniya-vladeltsa.md)
 - [🟡 Отбор заказчиков по виду договора (промт #147): фильтр сделан, ждут приёмки и решения «равен/совместим» 🗓 since:2026-11-26](pending/otbor-zakazchikov-po-vidu-dogovora.md)
 - [Списки по одним правилам (промт #67): кит, верхний уровень, карточки, отчёты, диалоги, ПП, список СИЗ и 4 справочника — сделаны; реестр списков заведён, ждут остальные 44 страницы 🗓 since:2026-11-23](pending/unified-list-rules-cards-and-reports.md)
 - [🟡 Подписи печатных форм: приёмка на живой печати ПП и перенос на наряд (нужен ли) 🗓 since:2026-11-23](pending/print-signature-slots-acceptance.md)

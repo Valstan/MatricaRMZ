@@ -22,6 +22,8 @@ type AuditRow = {
   clientId: string | null;
   tableName: string | null;
   entityId: string | null;
+  /** Объект строки удалён — ссылку не рисуем, в строке сказано словами (промт #169). */
+  objectDeleted?: boolean;
 };
 
 type AdminUserDirectoryItem = {
@@ -390,7 +392,9 @@ export function SuperadminAuditPage() {
           </thead>
           <tbody>
             {filteredRows.map((r, i) => {
-              const link = getDeepLinkPayload(r);
+              // У удалённого объекта ссылки нет: кнопка «Открыть» была бы мёртвой, и в
+              // строке это сказано словами («объект удалён»), а не догадкой по курсору.
+              const link = r.objectDeleted ? null : getDeepLinkPayload(r);
               return (
                 <tr key={r.id}>
                   <RowNumberCell n={i + 1} style={{ padding: 8, borderBottom: '1px solid var(--border)' }} />
@@ -416,7 +420,12 @@ export function SuperadminAuditPage() {
                             {r.documentLabel}
                           </a>
                         ) : (
-                          r.documentLabel
+                          <span
+                            style={{ color: 'var(--muted)' }}
+                            title={r.objectDeleted ? 'Объект удалён — открыть его нельзя' : 'Ссылка на объект недоступна'}
+                          >
+                            {r.documentLabel}
+                          </span>
                         )}
                       </>
                     ) : (

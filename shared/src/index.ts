@@ -63,6 +63,8 @@ export * from './domain/engineTimeline.js';
 export * from './domain/engineHistoryFeed.js';
 export * from './domain/actStages.js';
 export * from './domain/humanLabels.js';
+export * from './domain/auditObject.js';
+export * from './domain/deletedObjects.js';
 export * from './domain/nomenclatureCode.js';
 export * from './domain/partStatusEvent.js';
 export * from './domain/repairFundInstance.js';

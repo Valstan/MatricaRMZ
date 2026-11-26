@@ -89,6 +89,9 @@ export const LIST_KIT_PAGES: ListKitPageEntry[] = [
   { file: './pages/ChangesPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/ChildrenPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/DraftsPage.tsx', kind: 'list-page', status: 'pending' },
+  // «Удалённое за 3 дня» (промт КАРМАНА #169): новая страница-список, в объёме D-248 ③,
+  // но ещё не переведена на кит — перевод идёт партиями (см. docs/pending/list-kit-remaining-pages.md).
+  { file: './pages/DeletedObjectsPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/EmptyCardsCleanupPage.tsx', kind: 'list-page', status: 'pending' },
   { file: './pages/EngineAssemblyBomDetailsPage.tsx', kind: 'card', status: 'pending' },
   { file: './pages/EngineAssemblyBomPage.tsx', kind: 'list-page', status: 'pending' },

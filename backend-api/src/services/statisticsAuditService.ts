@@ -2,9 +2,10 @@ import { and, asc, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../database/db.js';
-import { auditLog, clientSettings, statisticsActiveTime, statisticsAuditDaily, statisticsAuditEvents } from '../database/schema.js';
+import { auditLog, clientSettings, entities, statisticsActiveTime, statisticsAuditDaily, statisticsAuditEvents } from '../database/schema.js';
 import { listEmployeesAuth } from './employeeAuthService.js';
 import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
+import { resolveAuditObjectInfo, resolveDeletedObjectIds } from './auditObjectService.js';
 import { logError, logInfo } from '../utils/logger.js';
 
 type ActionType = 'create' | 'update' | 'delete' | 'session' | 'other';
@@ -184,9 +185,25 @@ async function ingestAuditBatch(batchSize: number, overlapMs: number): Promise<n
     .orderBy(asc(auditLog.createdAt))
     .limit(batchSize);
   if (rows.length === 0) return 0;
+  // Раздел и имя объекта — по общему правилу (`shared/src/domain/auditObject.ts`):
+  // сервер знает тип сущности и умеет назвать объект, поэтому строка журнала называет
+  // конкретный объект, а не «открыл объект, категория прочее» (промт КАРМАНА #169).
+  const objectInfo = await resolveAuditObjectInfo(
+    rows.map((row) => ({
+      id: String(row.id),
+      action: String(row.action ?? ''),
+      entityId: row.entityId == null ? null : String(row.entityId),
+      tableName: row.tableName == null ? null : String(row.tableName),
+      payload: parsePayload(row.payloadJson),
+    })),
+  );
   const mapped = rows.map((row) => {
     const payload = parsePayload(row.payloadJson);
-    const section = sectionOf(row.action);
+    const extra = objectInfo.get(String(row.id));
+    // Раздел по коду действия — основа; общее правило дополняет его (тип объекта,
+    // ключ вкладки). Если раздел так и не найден — остаётся «Прочее» (колонка NOT NULL).
+    const section = extra?.section || sectionOf(row.action);
+    const documentLabel = extra?.objectName || docLabel(payload, section);
     return {
       sourceAuditId: row.id,
       createdAt: Number(row.createdAt),
@@ -195,7 +212,7 @@ async function ingestAuditBatch(batchSize: number, overlapMs: number): Promise<n
       actionType: classifyActionType(row.action),
       section,
       actionText: actionText(row.action, payload),
-      documentLabel: docLabel(payload, section),
+      documentLabel,
       clientId: payload?.clientId ? String(payload.clientId) : null,
       tableName: row.tableName ? String(row.tableName) : null,
       processedAt: nowMs(),
@@ -592,12 +609,23 @@ export async function listAuditStatistics(args: {
       clientId: statisticsAuditEvents.clientId,
       tableName: statisticsAuditEvents.tableName,
       entityId: auditLog.entityId,
+      // Удалён ли объект строки: мягкое удаление оставило метку на сущности. Ссылку на
+      // удалённый объект рисовать нельзя — в строке это сказано словами (промт #169).
+      objectDeletedAt: entities.deletedAt,
     })
     .from(statisticsAuditEvents)
     .leftJoin(auditLog, eq(auditLog.id, statisticsAuditEvents.sourceAuditId))
+    .leftJoin(entities, eq(entities.id, auditLog.entityId))
     .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(desc(statisticsAuditEvents.createdAt))
     .limit(args.limit);
+  // Джойн выше видит удаление только у EAV-сущностей (`entities`). Заявки, договоры,
+  // контрагенты, детали, инструменты, сотрудники, документы склада и файлы лежат в
+  // строгих таблицах со своим `deletedAt` — для них метку смотрим отдельно, иначе у
+  // удалённого объекта осталась бы живая ссылка (промт КАРМАНА #169).
+  const strictDeleted = await resolveDeletedObjectIds(
+    rows.map((row) => ({ entityId: row.entityId ?? null, tableName: row.tableName ?? null })),
+  );
   return rows.map((row) => ({
     id: row.sourceAuditId,
     createdAt: Number(row.createdAt),
@@ -610,6 +638,7 @@ export async function listAuditStatistics(args: {
     clientId: row.clientId ?? null,
     tableName: row.tableName ?? null,
     entityId: row.entityId ?? null,
+    objectDeleted: row.objectDeletedAt != null || strictDeleted.has(String(row.entityId ?? '')),
   }));
 }
 
