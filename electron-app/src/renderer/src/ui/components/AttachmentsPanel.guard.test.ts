@@ -17,6 +17,7 @@ function src(rel: string): string {
 const PANEL = src('./AttachmentsPanel.tsx');
 const APP = src('../App.tsx');
 const CONTEXT = src('./DesktopFilesContext.tsx');
+const INTENT = src('./DesktopAttachIntent.ts');
 const PRELOAD = src('../../../../preload/index.ts');
 const IPC = src('../../../../main/ipc/register/files.ts');
 
@@ -108,5 +109,31 @@ describe('повторное взятие не плодит дублей', () =>
 
   it('уже приложенный файл в списке выбора недоступен', () => {
     expect(PANEL).toContain('уже приложен');
+  });
+});
+
+describe('прикрепление выделенного с Верстака (промт КАРМАНА #144)', () => {
+  it('панель забирает намерение по своему scope — чужая карточка его не примет', () => {
+    // У карточки свой `scope` (род, id, категория). Без сверки записка уехала бы в первую же
+    // открытую карточку и приложила файлы не туда.
+    expect(PANEL).toContain('useDesktopAttachIntent(props.scope)');
+    expect(INTENT).toContain('intent.ownerType !== scope.ownerType');
+    expect(INTENT).toContain('intent.category !== scope.category');
+  });
+
+  it('файлы приходят уже отмеченными — оператору не надо отмечать их заново', () => {
+    expect(PANEL).toContain('setDesktopPicked(new Set(attachIntent.fileIds))');
+    expect(PANEL).toContain('setDesktopPickerOpen(true)');
+  });
+
+  it('записка одноразовая: забравший её снимает', () => {
+    expect(PANEL).toContain('takeDesktopAttachIntent()');
+    expect(INTENT).toContain('export function takeDesktopAttachIntent');
+  });
+
+  it('доступ к файлу всё равно проверяет сервер — записка его не обходит', () => {
+    // Записка говорит «какие файлы», но не «можно ли их приложить»: проверка остаётся в
+    // files.meta, иначе «прикрепить с Верстака» стало бы способом выдать себе чужой файл.
+    expect(PANEL).toContain('window.matrica.files.meta({ fileId: f.fileId })');
   });
 });

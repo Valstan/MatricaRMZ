@@ -9,11 +9,14 @@ import {
   createEmptyDesktopUsage,
   desktopAddFolder,
   desktopAddShortcut,
+  desktopAttachTarget,
+  desktopAttachTargetKinds,
   desktopDeleteFolder,
   desktopEmptyTrash,
   desktopFileFromLink,
   desktopFileIcon,
   desktopFileLink,
+  desktopFileOriginText,
   desktopFolderShortcuts,
   desktopLayoutGrid,
   desktopLiveFileShortcuts,
@@ -26,6 +29,7 @@ import {
   desktopPutShortcut,
   desktopRenameShortcut,
   desktopRestoreFromTrash,
+  desktopSelectedFileShortcuts,
   desktopSetPositions,
   desktopShortcutLinkKey,
   desktopSurfaceShortcuts,
@@ -344,7 +348,7 @@ describe('файловый ярлык', () => {
   it('ссылка собирается и разбирается кругом', () => {
     const link = desktopFileLink({ id: 'f-1', name: 'Акт.pdf', mime: 'application/pdf' });
     expect(link).toEqual({ kind: 'file', fileId: 'f-1', name: 'Акт.pdf', mime: 'application/pdf' });
-    expect(desktopFileFromLink(link)).toEqual({ fileId: 'f-1', name: 'Акт.pdf', mime: 'application/pdf' });
+    expect(desktopFileFromLink(link)).toEqual({ fileId: 'f-1', name: 'Акт.pdf', mime: 'application/pdf', from: null });
   });
 
   it('mime необязателен и не превращается в undefined-поле', () => {
@@ -389,7 +393,14 @@ describe('файловый ярлык', () => {
 
     const files = desktopLiveFileShortcuts(d);
     expect(files.map((f) => f.fileId)).toEqual(['file-a', 'file-b']);
-    expect(files[0]).toEqual({ shortcutId: 'a', fileId: 'file-a', name: 'Акт.pdf', mime: null, label: 'Акт.pdf' });
+    expect(files[0]).toEqual({
+      shortcutId: 'a',
+      fileId: 'file-a',
+      name: 'Акт.pdf',
+      mime: null,
+      label: 'Акт.pdf',
+      from: null,
+    });
   });
 
   it('переименованный ярлык отдаёт и подпись с Верстака, и настоящее имя файла', () => {
@@ -408,6 +419,88 @@ describe('файловый ярлык', () => {
     expect(desktopFileIcon('файл.неведомо')).toBe('📎');
     expect(desktopFileIcon('без-расширения')).toBe('📎');
     expect(desktopFileIcon('.gitignore')).toBe('📎');
+  });
+});
+
+describe('присланный файл виден как присланный', () => {
+  it('пометка «от кого и когда» едет в ссылке ярлыка и переживает санитайзер', () => {
+    // Пометка живёт ВНУТРИ `link`: новое поле ярлыка санитайзер не знает и вычеркнул бы
+    // при первом же сохранении профиля.
+    const link = desktopFileLink({ id: 'f-9', name: 'Акт.pdf' }, { name: 'ivanova', at: NOW });
+    const raw = {
+      shortcuts: [{ id: 's9', label: 'Акт.pdf', icon: '📕', folderId: null, deletedAt: null, createdAt: NOW, link }],
+      folders: [],
+      layout: {},
+    };
+    expect(sanitizeDesktopSection(raw)?.shortcuts[0]?.link).toEqual(link);
+    expect(desktopFileFromLink(link)?.from).toEqual({ name: 'ivanova', at: NOW });
+  });
+
+  it('своих файлов пометки нет — null, а не пустая строка', () => {
+    const link = desktopFileLink({ id: 'f-10', name: 'свой.pdf' });
+    expect('from' in link).toBe(false);
+    expect(desktopFileFromLink(link)?.from).toBeNull();
+  });
+
+  it('пометка читается словами, а не датой в углу', () => {
+    const text = desktopFileOriginText({ name: 'ivanova', at: NOW });
+    expect(text).toContain('ivanova');
+    expect(text).toContain('пришёл от');
+  });
+
+  it('без отправителя текста нет — плитка не врёт', () => {
+    expect(desktopFileOriginText(null)).toBe('');
+    expect(desktopFileOriginText({ name: '', at: NOW })).toBe('');
+  });
+});
+
+describe('действия над выделенными файлами', () => {
+  function desktopWithFiles(): ReturnType<typeof createEmptyDesktop> {
+    let d = createEmptyDesktop();
+    d = desktopAddShortcut(d, { id: 'a', label: 'Акт.pdf', icon: '📕', link: desktopFileLink({ id: 'file-a', name: 'Акт.pdf' }) }, NOW);
+    d = desktopAddShortcut(d, { id: 'b', label: 'Ведомость.xlsx', icon: '📗', link: desktopFileLink({ id: 'file-b', name: 'Ведомость.xlsx' }) }, NOW);
+    d = desktopAddShortcut(d, { id: 'tab', label: 'Двигатели', icon: '⚙️', link: { kind: 'app_link', tab: 'engines' } }, NOW);
+    d = desktopMoveToTrash(d, 'c', NOW + 1);
+    return d;
+  }
+
+  it('в выборе только файлы: ярлык на раздел действием файла не станет', () => {
+    const d = desktopWithFiles();
+    const files = desktopSelectedFileShortcuts(d, ['a', 'tab']);
+    expect(files.map((f) => f.fileId)).toEqual(['file-a']);
+  });
+
+  it('пустой выбор — пустой список, а не все файлы подряд', () => {
+    const d = desktopWithFiles();
+    expect(desktopSelectedFileShortcuts(d, [])).toEqual([]);
+  });
+
+  it('корзинный ярлык в действие не попадает', () => {
+    const d = desktopMoveToTrash(desktopWithFiles(), 'a', NOW + 2);
+    expect(desktopSelectedFileShortcuts(d, ['a'])).toEqual([]);
+  });
+});
+
+describe('карточки, принимающие файлы с Верстака', () => {
+  it('двигатель знает свой род и категорию вложений', () => {
+    expect(desktopAttachTarget('engine', 'e-1')).toEqual({
+      ownerType: 'engine',
+      category: 'attachments',
+      linkField: 'engineId',
+      tab: 'engine',
+      id: 'e-1',
+    });
+  });
+
+  it('карточка, которой файлы не принимает, в списке целей не значится', () => {
+    // Наряд и складской документ вложений с Верстака не принимают — предлагать их нельзя.
+    expect(desktopAttachTarget('work_order', 'w-1')).toBeNull();
+    expect(desktopAttachTarget('stock_document', 's-1')).toBeNull();
+    expect(desktopAttachTargetKinds()).not.toContain('work_order');
+  });
+
+  it('без id цели нет — открывать нечего', () => {
+    expect(desktopAttachTarget('engine', '  ')).toBeNull();
   });
 });
 
