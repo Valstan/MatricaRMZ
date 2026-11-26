@@ -15,6 +15,6 @@
 
 **Второй вопрос (тот же файл):** потолок на чтение одного файла (30 секунд) — оставить как есть или поднять? Сейчас он оставлен: «нечитаемый» файл не должен висеть вечно, а отмена его обрывает.
 
-**Где смотреть:** план [`../plans/search-progress-and-cancel-2026-11.md`](../plans/search-progress-and-cancel-2026-11.md), код — `electron-app/src/main/services/fileSearchFolderService.ts` (`FOLDER_READ_TIMEOUT_MS`) и `electron-app/src/main/services/fileSearchService.ts` (`READ_TIMEOUT_MS`).
+**Где смотреть:** план [`../plans/_archive/search-progress-and-cancel-2026-11.md`](../plans/_archive/search-progress-and-cancel-2026-11.md) (в архиве — кодовая часть нитки закрыта), код — `electron-app/src/main/services/fileSearchFolderService.ts` (`FOLDER_READ_TIMEOUT_MS`) и `electron-app/src/main/services/fileSearchService.ts` (`READ_TIMEOUT_MS`).
 
 **Что уже сделано по умолчанию:** общий потолок обхода снят, прогресс и «Отмена» есть, честная отмена работает. Правка этих двух чисел — одна строка в каждом файле.
