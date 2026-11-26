@@ -60,6 +60,8 @@ export const TABLET_DOMAIN_EXCEPTIONS: readonly TabletDomainException[] = [
       'files:progress:list',
       'files:registerDropped',
       'files:revealForShare',
+      // Сборка копий для почты/чата/ИИваныча — пути на диске (промт КАРМАНА #160).
+      'files:stageForShare',
       'files:upload',
     ],
     reason:
