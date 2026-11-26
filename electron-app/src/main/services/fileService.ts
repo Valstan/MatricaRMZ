@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, promises as fsp } from 'node:fs';
 import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import JSZip from 'jszip';
 
@@ -15,6 +14,7 @@ import {
   type FileRef,
 } from '@matricarmz/shared';
 import { getSession } from './authService.js';
+import { mimeForPath, printPhotos, renderPhotosWindow } from './photoPrint.js';
 import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 import { httpAuthed } from './httpClient.js';
 import { httpFailureLine } from './httpFailureText.js';
@@ -641,15 +641,8 @@ export async function filesPreviewGet(
 }
 
 // ---- Photo gallery actions (engine card, Theme E) ----
-
-function mimeForPath(localPath: string): string {
-  const ext = (localPath.split('.').pop() || '').toLowerCase();
-  if (ext === 'png') return 'image/png';
-  if (ext === 'webp') return 'image/webp';
-  if (ext === 'gif') return 'image/gif';
-  if (ext === 'bmp') return 'image/bmp';
-  return 'image/jpeg';
-}
+//
+// Тип файла по расширению (`mimeForPath`) — в модуле печати `photoPrint.ts`.
 
 function uniqueTargetPath(dir: string, fileName: string): string {
   let target = join(dir, fileName);
@@ -717,57 +710,8 @@ async function downloadOriginals(
   }
 }
 
-function escapeHtmlMain(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function buildPhotosHtml(imgPaths: string[], opts?: { listHtml?: string; skippedNames?: string[] }): string {
-  const listPage = opts?.listHtml
-    ? `<div class="page page-list"><h2>Файлы</h2>${opts.listHtml}${
-        opts.skippedNames && opts.skippedNames.length > 0
-          ? `<p class="muted">Не печатаются как изображение (открывайте из своего приложения): ${opts.skippedNames.map(escapeHtmlMain).join(', ')}</p>`
-          : ''
-      }</div>`
-    : opts?.skippedNames && opts.skippedNames.length > 0
-      ? `<div class="page page-list"><p class="muted">Эти файлы не печатаются как изображение (открывайте из своего приложения): ${opts.skippedNames.map(escapeHtmlMain).join(', ')}</p></div>`
-      : '';
-  const pages = imgPaths
-    .map((p) => `<div class="page"><img src="${pathToFileURL(p).href}" /></div>`)
-    .join('\n');
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-@page { size: A4; margin: 10mm; }
-html, body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
-.page { width: 190mm; height: 277mm; display: flex; align-items: center; justify-content: center; page-break-after: always; }
-.page-list { display: block; height: auto; min-height: 0; font-size: 13px; }
-.page-list h2 { font-size: 16px; margin: 0 0 8px; }
-.page-list ul { margin: 0; padding-left: 18px; }
-.page-list li { margin: 2px 0; }
-.muted { color: #64748b; }
-.page:last-child { page-break-after: auto; }
-img { max-width: 100%; max-height: 100%; object-fit: contain; }
-</style></head><body>${listPage}${pages}</body></html>`;
-}
-
-async function renderPhotosWindow(
-  imgPaths: string[],
-  opts?: { offscreen?: boolean; listHtml?: string; skippedNames?: string[] },
-): Promise<BrowserWindow> {
-  const dir = await fsp.mkdtemp(join(tmpdir(), 'matrica-photos-'));
-  const htmlPath = join(dir, 'photos.html');
-  const buildOpts: { listHtml?: string; skippedNames?: string[] } = {};
-  if (opts?.listHtml) buildOpts.listHtml = opts.listHtml;
-  if (opts?.skippedNames) buildOpts.skippedNames = opts.skippedNames;
-  await fsp.writeFile(htmlPath, buildPhotosHtml(imgPaths, buildOpts), 'utf8');
-  // ⚠️ Печать из offscreen-окна падает «Invalid printer settings» (Chromium не
-  // умеет print из offscreen-рендера). Для печати окно скрытое, но НЕ offscreen;
-  // offscreen оставлен только пути printToPDF (там он работает и не мигает окном).
-  const win = new BrowserWindow({
-    show: false,
-    webPreferences: { offscreen: opts?.offscreen !== false },
-  });
-  await win.loadFile(htmlPath);
-  return win;
-}
+// HTML печати, окно печати и общий шаг печати картинок живут в модуле
+// `photoPrint.ts` — это ОДНА реализация на всех (промт КАРМАНА #159).
 
 export async function filesOriginalGet(
   db: BetterSQLite3Database,
@@ -1070,6 +1014,13 @@ export async function photosAssemblePdf(
   }
 }
 
+/**
+ * Печать СЕРВЕРНЫХ вложений карточки (двигателя, наряда).
+ *
+ * Источник свой — по id вложения скачиваются на диск; общий шаг печати —
+ * общий (`printPhotos`, модуль `photoPrint.ts`). Раньше здесь была вторая
+ * копия печати, из-за которой правка печати не доезжала до «Поиска по файлам».
+ */
 export async function photosPrint(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
@@ -1077,78 +1028,32 @@ export async function photosPrint(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const dl = await downloadOriginals(db, apiBaseUrl, args.fileIds, args.downloadDir, args.transferId);
   if (!dl.ok) return dl;
-  // Печатаем изображениями только то, что изображением является; остальные
-  // файлы (PDF, docx, …) перечисляем на первой странице — раньше они уезжали
-  // битыми <img> и печатались пустыми листами.
-  const images = dl.files.filter((f) => mimeForPath(f.localPath).startsWith('image/'));
-  const skipped = dl.files.filter((f) => !mimeForPath(f.localPath).startsWith('image/'));
-  const opts: { offscreen: boolean; listHtml?: string; skippedNames?: string[] } = { offscreen: false };
+  const opts: { mode?: 'dialog' | 'os'; listHtml?: string } = { mode: 'dialog' };
   if (args.listHtml) opts.listHtml = args.listHtml;
-  if (skipped.length > 0) opts.skippedNames = skipped.map((f) => basename(f.localPath));
-  if (images.length === 0 && !opts.listHtml && !opts.skippedNames) {
-    return { ok: false, error: 'Нет файлов для печати' };
-  }
-  const win = await renderPhotosWindow(images.map((f) => f.localPath), opts);
-  try {
-    await new Promise<void>((resolve, reject) => {
-      // Без silent: системный диалог печати — оператор выбирает принтер сам.
-      win.webContents.print({ printBackground: true }, (ok, errorType) => {
-        if (!ok) return reject(new Error(errorType || 'print failed'));
-        resolve();
-      });
-    });
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  } finally {
-    win.destroy();
-  }
+  const res = await printPhotos(
+    dl.files.map((f) => f.localPath),
+    opts,
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true };
 }
 
 /**
  * Печать картинок, которые лежат на диске оператора (папки с фото двигателей).
  *
- * Тот же путь печати, что у `photosPrint`: окно скрытое, но НЕ offscreen
- * (offscreen-печать падает «Invalid printer settings» — грабли зафиксированы
- * в `renderPhotosWindow`), и системный диалог печати без `silent` — оператор
- * сам выбирает принтер, масштаб и ориентацию перед печатью.
- *
- * Отличие — источник: не серверные вложения по id, а локальные пути. Список
- * путей приходит из модуля «Поиск по файлам» и печатается как есть.
+ * Отличие от `photosPrint` — только источник: не серверные вложения по id, а
+ * локальные пути (список приходит из модуля «Поиск по файлам»). Сам шаг печати
+ * общий — `printPhotos` (модуль `photoPrint.ts`).
  */
 export async function photosPrintLocalPaths(
   localPaths: string[],
   opts?: { listHtml?: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const images: string[] = [];
-  const skipped: string[] = [];
-  for (const raw of localPaths) {
-    const p = String(raw ?? '').trim();
-    if (!p) continue;
-    if (mimeForPath(p).startsWith('image/')) images.push(p);
-    else skipped.push(basename(p));
-  }
-  const buildOpts: { offscreen: boolean; listHtml?: string; skippedNames?: string[] } = { offscreen: false };
-  if (opts?.listHtml) buildOpts.listHtml = opts.listHtml;
-  if (skipped.length > 0) buildOpts.skippedNames = skipped;
-  if (images.length === 0 && !buildOpts.listHtml && !buildOpts.skippedNames) {
-    return { ok: false, error: 'Нет файлов для печати' };
-  }
-  const win = await renderPhotosWindow(images, buildOpts);
-  try {
-    await new Promise<void>((resolve, reject) => {
-      // Без silent: системный диалог печати — оператор выбирает принтер сам.
-      win.webContents.print({ printBackground: true }, (ok, errorType) => {
-        if (!ok) return reject(new Error(errorType || 'print failed'));
-        resolve();
-      });
-    });
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  } finally {
-    win.destroy();
-  }
+  const printOpts: { mode?: 'dialog' | 'os'; listHtml?: string } = { mode: 'dialog' };
+  if (opts?.listHtml) printOpts.listHtml = opts.listHtml;
+  const res = await printPhotos(localPaths, printOpts);
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true };
 }
 
 /**

@@ -412,7 +412,9 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
         setStatus(`Не отправилось на печать: ${res.error}`);
         return;
       }
-      setStatus(`Отправлено на печать: ${picked.size}.`);
+      // `note` — печать ушла не туда, куда просил оператор (например, диалог печати
+      // на машине не работает и печать ушла в системный мастер): молчать нельзя.
+      setStatus(res.note ?? `Отправлено на печать: ${picked.size}.`);
     } finally {
       setBusy(false);
     }
@@ -423,7 +425,9 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
    * то, что владелец назвал «Microsoft Picture Manager»: в системном окне
    * оператор правит размер и раскладку и сам жмёт «Печать».
    *
-   * Один файл — одно системное окно, поэтому картинок лучше отбирать немного.
+   * Набор файлов открывается ОДНИМ окном, если снимки лежат в одной папке;
+   * если папки разные — по одному окну на файл (ограничение глагола «Печать»
+   * у одного файла).
    */
   const printPickedViaOs = useCallback(async () => {
     if (picked.size === 0) {
@@ -437,10 +441,14 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
         setStatus(`${res.error}`);
         return;
       }
+      if (res.note) {
+        setStatus(res.note);
+        return;
+      }
       setStatus(
         res.failed
-          ? `Открыто окон мастера печати: ${res.opened}. Не открылось: ${res.failed}.`
-          : `Открыто окон мастера печати: ${res.opened}. Правите размер и печатаете в них.`,
+          ? `Открыт мастер печати на ${res.opened ?? 0} фото(и). Не напечатано как картинка: ${res.failed}.`
+          : `Открыт мастер печати на ${res.opened ?? 0} фото(и). Правите размер и раскладку в его окне.`,
       );
     } finally {
       setBusy(false);
@@ -473,7 +481,11 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
       try {
         if (id === 'print') {
           const res = await window.matrica.fileSearch.printImages({ ids });
-          setStatus(res.ok ? `Отправлено на печать: ${ids.length}.` : `Не отправилось на печать: ${res.error}`);
+          setStatus(
+            res.ok
+              ? (res.note ?? `Отправлено на печать: ${ids.length}.`)
+              : `Не отправилось на печать: ${res.error}`,
+          );
           return;
         }
         if (id === 'printWizard') {

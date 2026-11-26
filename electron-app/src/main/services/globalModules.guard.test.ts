@@ -47,6 +47,7 @@ const KNOWN_COPIES: Array<{ id: string; marker: RegExp; files: string[] }> = [
       'electron-app/src/renderer/src/ui/components/RepairChecklistPanel.tsx',
       'electron-app/src/renderer/src/ui/pages/SupplyRequestDetailsPage.tsx',
       'electron-app/src/main/services/fileService.ts',
+      'electron-app/src/main/services/photoPrint.ts',
       'electron-app/src/main/services/toolsService.ts',
       'web-admin/src/ui/EngineDetailsPage.tsx',
       'web-admin/src/ui/components/RepairChecklistPanel.tsx',
@@ -182,17 +183,24 @@ describe('реестр глобальных модулей', () => {
 
 describe('«никакой своей копии» — новых копий общих модулей не плодим', () => {
   for (const zone of KNOWN_COPIES) {
-    it(`${zone.id}: копии — ровно те, что разобраны в реестре`, () => {
-      const found = findCopyFiles(zone.marker);
-      const known = [...zone.files].sort();
-      const newCopies = found.filter((file) => !known.includes(file));
-      expect(
-        newCopies,
-        `появилась своя копия «${zone.id}»: ${newCopies.join(', ')} — бери общий модуль или разбери дубль и впиши его в реестр`,
-      ).toEqual([]);
-      const vanished = known.filter((file) => !found.includes(file));
-      expect(vanished, `копия «${zone.id}» пропала — обнови реестр: ${vanished.join(', ')}`).toEqual([]);
-    });
+    // Поиск копий читает ВСЕ исходники четырёх пакетов — на загруженной машине
+    // (полный прогон пакета) скан не укладывается в дефолтные 5 с и роняет гейт
+    // по таймауту, а не по сути. Потолок ждём тут, а не в CI-конфиге.
+    it(
+      `${zone.id}: копии — ровно те, что разобраны в реестре`,
+      () => {
+        const found = findCopyFiles(zone.marker);
+        const known = [...zone.files].sort();
+        const newCopies = found.filter((file) => !known.includes(file));
+        expect(
+          newCopies,
+          `появилась своя копия «${zone.id}»: ${newCopies.join(', ')} — бери общий модуль или разбери дубль и впиши его в реестр`,
+        ).toEqual([]);
+        const vanished = known.filter((file) => !found.includes(file));
+        expect(vanished, `копия «${zone.id}» пропала — обнови реестр: ${vanished.join(', ')}`).toEqual([]);
+      },
+      30_000,
+    );
   }
 
   it('каждая известная копия названа в реестре (реестр ↔ аудит)', () => {

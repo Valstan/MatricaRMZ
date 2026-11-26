@@ -31,9 +31,9 @@ import {
   searchFolderSources,
 } from '../../services/fileSearchFolderService.js';
 import { readLocalImagePreview } from '../../services/localImagePreview.js';
-import { osPrintWizardAvailable, printImagesViaOsWizard } from '../../services/localImagePrint.js';
-import { photosAssemblePdfLocalPaths, photosPrintLocalPaths } from '../../services/fileService.js';
-import { openPhotoPrintWizard } from '../../services/photoPrintWizard.js';
+import { osPrintWizardAvailable } from '../../services/localImagePrint.js';
+import { photosAssemblePdfLocalPaths } from '../../services/fileService.js';
+import { printPhotos } from '../../services/photoPrint.js';
 import { removeStagedFolder, stageLocalFiles } from '../../services/localFileStaging.js';
 import { resolveReferenceLabels } from '../../services/fileSearchReferenceService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
@@ -424,18 +424,19 @@ export function registerFileSearchIpc(ctx: IpcContext) {
    * что main сам нашёл в папках оператора.
    *
    * Два режима (промт КАРМАНА #102):
-   *  - `dialog` — системный диалог печати Chromium, все картинки сразу;
+   *  - `dialog` — системный диалог печати, все картинки сразу;
    *  - `os` — СИСТЕМНЫЙ мастер печати фотографий (то, что владелец назвал
    *    «Microsoft Picture Manager»): оператор в системном окне правит размер
-   *    и раскладку и жмёт «Печать». Один файл — одно окно.
+   *    и раскладку и жмёт «Печать».
    *
-   * Если системный мастер не открылся — внятное сообщение и предложение
-   * запасного пути «Печать», а не тишина.
+   * Печать идёт через ОБЩИЙ шаг печати картинок (`photoPrint.ts`) — тот же,
+   * что у печати вложений из карточки (промт КАРМАНА #159). Отказ называет
+   * причину: принтера нет — значит «принтер не найден», а не «отправлено».
    */
   ipcMain.handle(
     'fileSearch:printImages',
     async (_e, args: { ids?: string[]; mode?: 'dialog' | 'os' }): Promise<
-      { ok: true; opened?: number; failed?: number } | Err
+      { ok: true; opened?: number; failed?: number; note?: string } | Err
     > => {
       try {
         const ids = Array.isArray(args?.ids) ? args.ids.slice(0, MAX_FOLDER_MATCHES) : [];
@@ -445,12 +446,14 @@ export function registerFileSearchIpc(ctx: IpcContext) {
           if (resolved) paths.push(resolved.path);
         }
         if (paths.length === 0) return { ok: false, error: 'Не выбрано ни одной картинки' };
-        if (args?.mode === 'os') {
-          const result = await printImagesViaOsWizard(paths);
-          if (!result.ok) return { ok: false, error: result.error };
-          return { ok: true, opened: result.opened, failed: result.failed };
-        }
-        return await photosPrintLocalPaths(paths);
+        const res = await printPhotos(paths, { mode: args?.mode === 'os' ? 'os' : 'dialog' });
+        if (!res.ok) return { ok: false, error: res.error };
+        return {
+          ok: true,
+          opened: res.images,
+          failed: res.skipped.length,
+          ...(res.note ? { note: res.note } : {}),
+        };
       } catch (e) {
         return { ok: false, error: String(e) };
       }
@@ -545,19 +548,22 @@ export function registerFileSearchIpc(ctx: IpcContext) {
         const staged = await stageLocalFiles(paths, 'Фото для печати');
         if (!staged.ok) return { ok: false, error: staged.error };
         const copies = staged.files.map((f) => f.path);
-        const wizard = await openPhotoPrintWizard(copies, { workDir: staged.folder });
+        // Тот же общий шаг печати, что у кнопок над отмеченными картинками.
+        const res = await printPhotos(copies, { mode: 'os' });
         // Фокус в окно программы: мастер закрыт — оператор вернулся к нам.
         const win = BrowserWindow.getAllWindows()[0];
         if (win && !win.isDestroyed()) {
           if (win.isMinimized()) win.restore();
           win.focus();
         }
-        if (!wizard.ok) {
+        if (!res.ok) {
+          // Принтера нет — папку с копиями открывать незачем: печатать всё равно нечем.
+          if (res.reason === 'no-printers') return { ok: false, error: res.error };
           // Мастер не открылся — показываем папку с копиями, оператор вызовет мастер сам.
           await shell.openPath(staged.folder).catch(() => undefined);
           return {
             ok: false,
-            error: `${wizard.error}. Открыта папка с копиями снимков — вызовите мастер печати вручную (Ctrl+P).`,
+            error: `${res.error}. Открыта папка с копиями снимков — вызовите мастер печати вручную (Ctrl+P).`,
             folder: staged.folder,
           };
         }

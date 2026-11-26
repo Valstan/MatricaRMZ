@@ -21,6 +21,17 @@ import { spawn } from 'node:child_process';
 /** Максимум картинок за один вызов: каждый открывает своё системное окно. */
 export const MAX_OS_PRINT_FILES = 50;
 
+/**
+ * Сколько живёт процесс, открывший мастер печати.
+ *
+ * ⚠️ Окно мастера печати живёт, пока живёт процесс, который его открыл: если
+ * тот сразу выходит, окно закрывается вместе с ним (проверено на PC79
+ * 26.11.2026 — `Start-Process -Verb print` из одноразовой команды: окно
+ * «Печать изображений» появилось и пропало, едва команда завершилась).
+ * Поэтому процесс-открыватель должен пережить мастер.
+ */
+const WIZARD_KEEP_ALIVE_SECONDS = 600;
+
 /** Экранирование пути для строки PowerShell в одинарных кавычках. */
 function psSingleQuoted(path: string): string {
   return `'${String(path ?? '').replace(/'/g, "''")}'`;
@@ -41,9 +52,15 @@ export function printImageViaOsWizard(path: string): Promise<boolean> {
   // `-ErrorAction Stop` + `exit 1`: иначе Start-Process на отсутствующий глагол
   // отдаёт некритичную ошибку и скрипт вышел бы с кодом 0 — мы бы решили, что
   // печать открылась, а оператор не увидел бы ничего.
+  //
+  // `Write-Output 'started'` — сигнал «глагол сработал»: по нему вызывающий
+  // сразу отвечает оператору, не дожидаясь закрытия мастера.
   const script =
+    `$ErrorActionPreference = 'Stop'\n` +
     `try { Start-Process -FilePath ${psSingleQuoted(clean)} -Verb print -ErrorAction Stop } ` +
-    `catch { exit 1 }`;
+    `catch { exit 1 }\n` +
+    `Write-Output 'started'\n` +
+    `Start-Sleep -Seconds ${WIZARD_KEEP_ALIVE_SECONDS}`;
 
   return new Promise<boolean>((resolve) => {
     try {
@@ -53,18 +70,24 @@ export function printImageViaOsWizard(path: string): Promise<boolean> {
         // НЕ detached и НЕ windowsHide: по грабле из `clientOpsService.ts` оба
         // флага убивают графическое окно. Консоль PowerShell прячет сам
         // `-WindowStyle Hidden`.
-        { stdio: 'ignore', windowsHide: false },
+        { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: false },
       );
       let settled = false;
+      let out = '';
       const finish = (ok: boolean) => {
         if (settled) return;
         settled = true;
         resolve(ok);
       };
+      child.stdout?.on('data', (chunk) => {
+        out += String(chunk);
+        // Мастер открыт — отвечаем сразу; процесс продолжает жить и держать окно.
+        if (out.includes('started')) finish(true);
+      });
       child.on('error', () => finish(false));
-      child.on('exit', (code) => finish(code === 0));
+      child.on('exit', (code) => finish(out.includes('started') ? true : code === 0));
       // Страховка: если процесс «завис» — не держим оператора в ожидании.
-      setTimeout(() => finish(false), 15000).unref?.();
+      setTimeout(() => finish(out.includes('started')), 15000).unref?.();
     } catch {
       resolve(false);
     }
