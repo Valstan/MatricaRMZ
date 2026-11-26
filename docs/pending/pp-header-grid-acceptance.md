@@ -93,7 +93,7 @@
 `shared/src/domain/productionProgram.ts`); номер внутри договора — по-прежнему с единицы в каждом
 договоре; экран берёт номер по позиции, а не из карты по идентификатору (карта слепа к строке без
 идентификатора и к двум строкам с одинаковым); ключ группы на экране — доменный (общий с печатью).
-Сторож: `shared/src/domain/productionProgram.numbering.test.ts` и блок в
+Правка — **PR #2107**. Сторож: `shared/src/domain/productionProgram.numbering.test.ts` и блок в
 `electron-app/src/renderer/src/ui/utils/productionProgramExport.test.ts` — падают на пропуске/повторе
 сквозного и на сбое внутреннего номера (проверено временной правкой).
 
