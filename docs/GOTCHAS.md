@@ -16,7 +16,7 @@
 |---|---|
 | [M1](gotchas/M1.md) | `ssh matricarmz` — `Connection timed out` / banner-таймаут (а `ping` отвечает) |
 | [M2](gotchas/M2.md) | `corepack pnpm -F electron-app test` падает `NODE_MODULE_VERSION 145 vs 137`; Electron не грузит базу («Could not locate the bindings file») |
-| [M3](gotchas/M3.md) | `pnpm -r typecheck` даёт ложный `TS2305` на `@matricarmz/shared` |
+| [M3](gotchas/M3.md) | `pnpm -r typecheck` — ложные `TS2305/TS2339` на `@matricarmz/shared` |
 | [M4](gotchas/M4.md) | `dev:seed-fixtures` даёт ложный `exit 1` (на `console.warn`-stderr) |
 | [M5](gotchas/M5.md) | `gh release download` с мульти-`--pattern` не качает `.blockmap` |
 | [M6](gotchas/M6.md) | Серверный maintenance-скрипт пишет в БД, но изменения не доезжают клиентам инкрементально |
