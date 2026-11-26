@@ -164,7 +164,12 @@ describe('этапы работ — экран', () => {
   it('список ОДИН: вкладок нет, вид работ — колонка и ступень', () => {
     expect(PAGE, 'вкладки сняты').not.toContain('<CardTabs');
     expect(PAGE, 'вид работ — колонка списка').toContain("id: 'type', label: 'Вид работ'");
-    expect(PAGE, 'ступени колонок вида работ подключены — как в отчёте (P9 19.10.2026)').toContain('workSheetFacets(fieldColumns)');
+    // Ступени колонок вида работ подключены — как в отчёте (P9 19.10.2026). С 26.11.2026
+    // (промт КАРМАНА #163) к ним добавлена ступень «Вид»: она строится тем же общим
+    // конструктором, а вид двигателя берётся из каталога (второй счёт вида не заводим).
+    expect(PAGE, 'ступени колонок вида работ подключены — как в отчёте (P9 19.10.2026)').toContain(
+      'workSheetFacets(fieldColumns, { kindOf: kindOfRow })',
+    );
     expect(PAGE, 'колонки видов работ берутся из справочника, а не выдуманы').toContain('unionWorkSheetColumns(types)');
     expect(PAGE, 'движковые ступени — те же смыслы, что в списке двигателей').toContain('const stageTemplates = useRepairStageTemplateRefs();');
     expect(PAGE, 'раскладка колонок одна на список, а не на вид').toContain("useColumnLayout('list:workSheets:columns'");

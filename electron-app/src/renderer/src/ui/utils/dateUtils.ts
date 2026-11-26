@@ -90,6 +90,16 @@ export function moscowDayKey(value: number | Date): string {
   return parts;
 }
 
+// «ГГГГ-ММ-ДД» из поля ввода даты → мс. Полдень, а не полночь: клиент может стоять
+// в другом часовом поясе, и дата не должна уехать на сутки назад.
+export function parseIsoDateToMs(value: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? '').trim());
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  const ts = new Date(Number(y), Number(mo) - 1, Number(d), 12, 0, 0, 0).getTime();
+  return Number.isFinite(ts) ? ts : null;
+}
+
 // Подпись разделителя дня в ленте чата: «Сегодня» / «Вчера» / «15 августа 2026».
 export function formatChatDaySeparator(value: number | Date, now: number | Date = Date.now()): string {
   const dayKey = moscowDayKey(value);

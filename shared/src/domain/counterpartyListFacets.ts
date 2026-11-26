@@ -13,8 +13,8 @@ import {
   type FacetOption,
   type FacetSelection,
 } from './listFacets.js';
-import { CONTRACT_KIND_LABELS, type ContractKind } from './contract.js';
-import { ENGINE_KIND_NONE_VALUE, engineKindFacetLabel, engineKindFacetValue } from './engineKind.js';
+import { type ContractKind } from './contract.js';
+import { engineKindFacetDescriptor } from './engineKindList.js';
 
 /**
  * Ступени списка заказчиков поверх общего движка (`listFacets.ts`) — по образцу
@@ -130,26 +130,15 @@ export const COUNTERPARTY_FACETS: readonly CounterpartyFacetDescriptor[] = [
     },
   },
   {
-    kind: 'values',
-    id: 'kind',
     // Вид заказчика (префикс) — ГОЗ или гражданский (промт КАРМАНА #147). Раньше вида не
     // было ни ступенью, ни колонкой: оператор не видел, почему заказчик предложен в договоре
     // или не предложен. Источник — строгая таблица `erp_counterparties.engine_kind`, тот же,
     // что у общего правила вида двигателя.
-    label: 'Вид',
-    valueOf: (r) => ({
-      value: engineKindFacetValue(r.engineKind),
-      label: engineKindFacetLabel(r.engineKind),
-    }),
-    // Ряд полный: вида «ГОЗ» на живых данных нет ни у кого, и ступень, собранная по
-    // строкам, тогда просто исчезла бы из фильтра. «Вид не задан» — отдельное значение:
-    // заказчики без вида должны отбираться отдельно, а не выпадать из отбора молча.
-    options: [
-      { value: 'military', label: CONTRACT_KIND_LABELS.military },
-      { value: 'civil', label: CONTRACT_KIND_LABELS.civil },
-      { value: ENGINE_KIND_NONE_VALUE, label: 'Вид не задан' },
-    ],
-  },
+    //
+    // Ступень — из общего конструктора `engineKindFacetDescriptor`: подпись, ряд значений и
+    // «вид не задан» должны быть одинаковыми во всех списках (промт КАРМАНА #163).
+    ...engineKindFacetDescriptor<CounterpartyFacetRow>({ kindOf: (r) => r.engineKind }),
+  } as CounterpartyFacetDescriptor,
   {
     kind: 'values',
     id: 'files',
