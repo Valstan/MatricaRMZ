@@ -31,6 +31,10 @@ export function useFileUploadFlow() {
     stem: string;
     extWithDot: string;
     warning: string;
+    /** Выделить предложенное имя целиком (скан: оператор печатает новое имя сразу). */
+    autoSelect: boolean;
+    /** Откуда взялось предложенное имя — показывается над полем. */
+    lead: string;
     resolve: (fileName: string | null) => void;
   } | null>(null);
   // Живой прогресс загрузки: main присылает состояние передачи по её идентификатору.
@@ -59,14 +63,44 @@ export function useFileUploadFlow() {
     }
   }
 
-  async function promptFileName(path: string): Promise<string | null> {
+  /**
+   * Спросить имя файла и вернуть его целиком (с расширением) либо null, если
+   * оператор отказался.
+   *
+   * `defaultName` — имя, которое показываем сразу: для файла с диска это его
+   * собственное имя, для скана — предложенное программой («карточка + скан +
+   * время»). `autoSelect` выделяет предложенное имя целиком, чтобы оператор
+   * печатал новое, не выделяя мышью.
+   */
+  async function promptName(
+    defaultName: string,
+    opts?: { autoSelect?: boolean; lead?: string },
+  ): Promise<string | null> {
     return await new Promise<string | null>((resolve) => {
-      const original = String(path || '').replaceAll('\\', '/').split('/').pop() || 'file';
-      const { stem, extWithDot } = splitNameAndExt(original);
-      setRenameModal({ stem, extWithDot, warning: '', resolve });
+      const { stem, extWithDot } = splitNameAndExt(String(defaultName || '').trim() || 'file');
+      setRenameModal({
+        stem,
+        extWithDot,
+        warning: '',
+        autoSelect: opts?.autoSelect === true,
+        lead: opts?.lead ?? '',
+        resolve,
+      });
     });
   }
 
+  async function promptFileName(path: string): Promise<string | null> {
+    const original = String(path || '').replaceAll('\\', '/').split('/').pop() || 'file';
+    return await promptName(original);
+  }
+
+  /**
+   * Собрать задачи загрузки: для каждого файла спросить имя.
+   *
+   * Имя у файла с диска своё — выделять его не надо. Скан сюда не ходит: у него
+   * имя предлагает программа, и спрашивается оно отдельно (`promptName`), после
+   * того как кадр уже снят.
+   */
   async function buildTasks(paths: string[]): Promise<UploadTask[] | null> {
     const unique = Array.from(new Set(paths.map((p) => String(p || '').trim()).filter(Boolean)));
     const uploads: UploadTask[] = [];
@@ -123,6 +157,8 @@ export function useFileUploadFlow() {
       stem={renameModal?.stem ?? ''}
       extWithDot={renameModal?.extWithDot ?? ''}
       warning={renameModal?.warning ?? ''}
+      lead={renameModal?.lead ?? ''}
+      autoSelect={renameModal?.autoSelect === true}
       onStemChange={(value) => {
         const sanitized = sanitizeFileNameStem(value);
         setRenameModal((prev) =>
@@ -160,6 +196,8 @@ export function useFileUploadFlow() {
     progress,
     setProgress,
     buildTasks,
+    /** Спросить имя файла отдельно — для скана, где имя предлагает программа. */
+    promptName,
     runUploads,
     renameDialog,
     /** Жив ли ещё аппарат загрузки (для стража: прогресс не должен быть выдуманным). */

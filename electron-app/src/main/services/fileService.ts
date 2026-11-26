@@ -955,6 +955,38 @@ function stageForShare(
 }
 
 /**
+ * Имя папки объекта на диске.
+ *
+ * Отдельная функция, а не `safeFilename`: тот обрезает имя по слешу («Двигатель
+ * 41/26» → «26»), потому что он рассчитан на ИМЯ ФАЙЛА, где путь надо выкинуть.
+ * Для папки это значит, что двигатели «41/26» и «12/26» получили бы одну папку
+ * «26» — файлы разных объектов лежали бы рядом, и скан одного двигателя попал бы
+ * в папку другого. Здесь слеши и прочие недопустимые символы заменяются на дефис,
+ * а само название сохраняется целиком.
+ */
+export function objectFolderName(label: string): string {
+  const cleaned = String(label ?? '')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80)
+    .replace(/[.\s]+$/, '')
+    .trim();
+  return cleaned || 'Карточка';
+}
+
+/**
+ * «Папка файлов» карточки: рядом с кэшем, `<downloadDir>/Объекты/<имя карточки>`.
+ *
+ * Одно место на всех: и кнопка «Папка файлов», и сканер кладут файл в одну и ту же
+ * папку. Разъезд был бы виден оператору — «Папка файлов» открыла бы другую папку,
+ * чем та, куда лег скан.
+ */
+export function objectFilesFolder(downloadDir: string, label: string): string {
+  return join(downloadDir, 'Объекты', objectFolderName(label));
+}
+
+/**
  * «Папка файлов» карточки: рядом с кэшем, `<downloadDir>/Объекты/<имя карточки>`, и сразу
  * открыть её в проводнике. Чужие файлы из других карточек туда не попадают.
  */
@@ -963,7 +995,7 @@ export async function filesOpenObjectDir(
   apiBaseUrl: string,
   args: { fileIds: string[]; downloadDir: string; label: string },
 ): Promise<{ ok: true; folder: string } | { ok: false; error: string }> {
-  const folder = join(args.downloadDir, 'Объекты', safeFilename(args.label || 'Карточка'));
+  const folder = objectFilesFolder(args.downloadDir, args.label);
   const st = await stageInto(db, apiBaseUrl, args.fileIds, args.downloadDir, folder);
   if (!st.ok) return st;
   await shell.openPath(st.folder);

@@ -50,6 +50,12 @@ const matricaApi = {
         return { ok: false as const, error: e instanceof Error ? e.message : String(e ?? 'Не удалось отсканировать') };
       }
     },
+    // Сканер документов: канал живёт в main (WIA — Windows), на планшете мост
+    // отвечает отказом с названной причиной (см. android-app/src/core/tabletDomains.ts).
+    document: async (args: { label?: string }) => ipcRenderer.invoke('scan:document', args),
+    place: async (args: { path: string; fileName: string; label?: string }) =>
+      ipcRenderer.invoke('scan:place', args),
+    discard: async (args: { path: string }) => ipcRenderer.invoke('scan:discard', args),
   },
   activity: {
     report: (args: { activeDate: string; activeMs: number }) => ipcRenderer.send('activity:report', args),

@@ -40,6 +40,7 @@ import { registerPartsIpc } from './register/parts.js';
 import { registerReportsIpc } from './register/reports.js';
 import { registerSectionFavoritesIpc } from './register/sectionFavorites.js';
 import { registerScrapCriterionIpc } from './register/scrapCriterion.js';
+import { registerScannerIpc } from './register/scanner.js';
 import { registerSettingsIpc } from './register/settings.js';
 import { registerUiScreensIpc } from './register/uiScreens.js';
 import { registerSupplyRequestsIpc } from './register/supplyRequests.js';
@@ -236,6 +237,7 @@ export function registerIpc(
   registerScrapCriterionIpc(ctx);
   registerUpdateIpc(ctx);
   registerFilesIpc(ctx);
+  registerScannerIpc(ctx);
   registerFileSearchIpc(ctx);
   registerExportsIpc(ctx);
   registerMailIpc(ctx);

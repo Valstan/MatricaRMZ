@@ -54,6 +54,7 @@
 
 ## 🟡 Техдолг и отложенное
 
+- [🟡 Сканер документов: решения владельца (промт #148) 🗓 since:2026-11-26](pending/skaner-otkrytye-resheniya.md)
 - [🟡 Управляющие кнопки вправо: остаток обхода — подвалы модалок (промт #141) 🗓 since:2026-11-25](pending/knopki-vpravo-obhod-renderer.md)
 - [🟡 Совет специалистов: три решения владельца (состав, обязательность, место протоколов) 🗓 since:2026-11-25](pending/sovet-specialistov-tri-resheniya-vladeltsa.md)
 - [🟢 Кнопка «где искать»: остальные списки 🗓 since:2026-11-26](pending/gde-iskat-spiski.md)
@@ -78,7 +79,7 @@
 - [🟡 Размерный ряд СИЗ для РМЗ: базовый может не подойти 🗓 since:2026-11-03](pending/razmernyy-ryad-siz-dlya-rmz-utochnit.md)
 - [🟡 Утиль по детали: выключить страховку по подстроке «картер» 🗓 since:2026-11-02](pending/util-po-detali-strakhovka-po-podstroke-karter.md)
 - [🟡 Массовое изменение в приёме: произвольные свойства карточки 🗓 since:2026-11-02](pending/massovoe-izmenenie-proizvolnye-svojstva-kartochki.md)
-- [🟡 Выкат прошёл, а скрипт говорит «nginx не ответил» и выходит с кодом 1 — одиночная проверка без повтора 🗓 since:2026-10-29](pending/vykat-proshel-a-skript-govorit-nginx-ne-otvetil.md)
+- [🟡 Выкат прошёл, а скрипт говорит «nginx не ответил» и выходит с кодом 1 🗓 since:2026-10-29](pending/vykat-proshel-a-skript-govorit-nginx-ne-otvetil.md)
 - [🟡 Pull может затереть локальную правку карточки: сервер не говорит, какую строку отклонил по LWW 🗓 since:2026-10-20](pending/pull-mozhet-zateret-lokalnuyu-pravku-kartochki-server.md)
 - [Диск прод-бокса заполняют фото с камеры; шифрованный бэкап молча падал 20 ночей 🗓 since:2026-09-03](pending/disk-prod-boksa-zapolnyayut-foto-s-kamery-shifrovannyy.md)
 - [🟢 Опрос Telegram-бота конфликтует сам с собой: 409 закрыты, проход загнан внутрь тика 🗓 since:2026-09-06](pending/opros-telegram-bota-konfliktuet-sam-s-soboy-409-zakryty.md)
@@ -87,7 +88,7 @@
 - [🟡 Yandex Disk API лихорадит: зеркало 3.75.0 без blockmap 🗓 since:2026-10-13](pending/yandex-disk-api-likhoradit-zerkalo-3-75-0-bez-blockmap.md)
 - [🟡 Торрент-раздача не имеет потребителя: аппарат работает сам на себя — решение владельца 🗓 since:2026-09-06](pending/torrent-razdacha-ne-imeet-potrebitelya-apparat-rabotaet.md)
 - [🟡 Два разошедшихся прод-env: сервисы и ops-скрипты читают разные файлы 🗓 since:2026-09-03](pending/dva-razoshedshikhsya-prod-env-servisy-i-ops-skripty.md)
-- [🔴 Закрытые наряды показывались мимо вкладки «Наряды» — закрыто 2026-09-03 🗓 since:2026-09-03](pending/zakrytye-naryady-pokazyvalis-mimo-vkladki-naryady.md)
+- [🔴 Закрытые наряды показывались мимо вкладки «Наряды» 🗓 since:2026-09-03](pending/zakrytye-naryady-pokazyvalis-mimo-vkladki-naryady.md)
 - [🟡 Перекосы источников — первый прогон пункта 14 (2026-09-03) 🗓 since:2026-09-03](pending/perekosy-istochnikov-pervyy-progon-punkta-14-2026-09-03.md)
 - [🟡 Приватный ключ бэкапов существует в одном экземпляре 🗓 since:2026-09-22](pending/privatnyy-klyuch-bekapov-sushchestvuet-v-odnom.md)
 - [🟡 На проде висит ключ доступа упразднённой машины PC40 🗓 since:2026-09-22](pending/na-prode-visit-klyuch-dostupa-uprazdnennoy-mashiny-pc40.md)
