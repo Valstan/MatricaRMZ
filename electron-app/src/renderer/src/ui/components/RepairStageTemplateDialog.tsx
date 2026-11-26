@@ -317,7 +317,7 @@ export function RepairStageTemplateDialog(props: {
             <input type="checkbox" checked={draft.sideBranch} onChange={(e) => setDraft((d) => ({ ...d, sideBranch: e.target.checked }))} />
             Вне порядка (утиль, брак)
           </label>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Button onClick={() => void save()} data-stage-template-save>
               Сохранить
             </Button>
@@ -343,7 +343,8 @@ export function RepairStageTemplateDialog(props: {
                 Удалить
               </Button>
             )}
-            <div style={{ flex: 1 }} />
+            {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                «Закрыть» — в одной группе с кнопками шаблона, не у правого края. */}
             <Button variant="ghost" onClick={() => props.onClose()}>
               Закрыть
             </Button>

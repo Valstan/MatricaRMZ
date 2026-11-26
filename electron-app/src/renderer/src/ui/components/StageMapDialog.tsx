@@ -43,9 +43,10 @@ export function StageMapDialog(props: {
         onClick={(e) => e.stopPropagation()}
         style={{ background: 'var(--surface)', borderRadius: 10, padding: 16, width: 'min(980px, 96vw)', maxHeight: '90vh', overflow: 'auto', display: 'grid', gap: 12, alignContent: 'start' }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>Карта этапов</div>
-          <div style={{ flex: 1 }} />
+          {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+              «Закрыть» — рядом с названием, не у правого края окна. */}
           <Button variant="ghost" onClick={props.onClose}>
             Закрыть
           </Button>

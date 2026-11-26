@@ -791,6 +791,7 @@ export function ChatPanel(props: {
             display: 'flex',
             alignItems: 'center',
             gap: 8,
+            flexWrap: 'wrap',
             minHeight: 44,
           }}
         >
@@ -798,7 +799,8 @@ export function ChatPanel(props: {
             {conversationTitle}
           </div>
           {isPrivate ? <span style={{ fontSize: 12, color: theme.colors.muted }}>личная переписка</span> : null}
-          <span style={{ flex: 1 }} />
+          {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+              «Сохранить все» — сразу за заголовком переписки, не у правого края. */}
           {fileMessages.length > 0 && !adminMode ? (
             <Button variant="ghost" onClick={() => void saveAllFiles()} title="Сохранить все файлы этой переписки в папку">
               Сохранить все ({fileMessages.length})
@@ -1156,7 +1158,7 @@ export function ChatPanel(props: {
                   );
                 })}
             </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
               <Button variant="primary" data-chat-room-save onClick={() => void saveRoom()}>
                 Сохранить
               </Button>
@@ -1165,7 +1167,8 @@ export function ChatPanel(props: {
                   Удалить комнату
                 </Button>
               ) : null}
-              <div style={{ flex: 1 }} />
+              {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                  «Отмена» — в одной группе с «Сохранить», не у правого края подвала. */}
               <Button variant="ghost" onClick={() => setRoomDialog({ open: false, id: null, title: '', memberIds: [] })}>
                 Отмена
               </Button>

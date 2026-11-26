@@ -294,12 +294,14 @@ export function ListPrintDialog<T>(props: {
           display: 'flex',
           alignItems: 'center',
           gap: 10,
+          flexWrap: 'wrap',
           padding: '14px 16px',
           borderBottom: '1px solid rgba(15,23,42,0.12)',
         }}
       >
         <div style={{ fontWeight: 700, fontSize: 16 }}>Печать: {props.title.toLowerCase()}</div>
-        <div style={{ flex: 1 }} />
+        {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+            «Закрыть» — рядом с названием, не у правого края окна печати. */}
         <Button variant="ghost" onClick={props.onClose}>
           Закрыть
         </Button>

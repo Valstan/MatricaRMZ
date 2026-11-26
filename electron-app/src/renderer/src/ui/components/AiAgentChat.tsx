@@ -412,7 +412,9 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
             </span>
             <span style={{ fontSize: 11, fontWeight: 600 }}>{AI_CHAT_STATUS_LABELS[item.status]}</span>
             {editable && !isEditing && (
-              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+              /* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                 `marginLeft: 'auto'` уводил правку и удаление вопроса к правому краю. */
+              <span style={{ display: 'flex', gap: 6 }}>
                 <button
                   onClick={() => {
                     setEditingId(item.id);

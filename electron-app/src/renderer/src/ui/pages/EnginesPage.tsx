@@ -377,7 +377,7 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
         onClick={(e) => e.stopPropagation()}
         style={{ background: 'var(--card-bg, #fff)', color: 'var(--text)', borderRadius: 12, width: 'min(900px, 96vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(0,0,0,0.3)' }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid rgba(15,23,42,0.12)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '14px 16px', borderBottom: '1px solid rgba(15,23,42,0.12)' }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>Поиск дублей двигателей</div>
           {/* Режим разбора (владелец 18.11.2026): «По номеру» — реальные дубли,
               «Похожие» — сильно похожие пары. Раньше режимов не было, и «похожие»
@@ -399,7 +399,8 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
               </Button>
             ))}
           </div>
-          <div style={{ flex: 1 }} />
+          {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+              «Обновить»/«Закрыть» — сразу за переключателем режима, не у правого края. */}
           <Button variant="ghost" onClick={() => void analyze()} disabled={loading}>
             Обновить
           </Button>
@@ -449,7 +450,7 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
                 {g.engines.map((e) => {
                   const isSurvivor = survivorByGroup[gi] === e.id;
                   return (
-                    <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 6px', borderRadius: 6, background: isSurvivor ? 'rgba(37,99,235,0.08)' : 'transparent' }}>
+                    <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '4px 6px', borderRadius: 6, background: isSurvivor ? 'rgba(37,99,235,0.08)' : 'transparent' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }} title="Оставить как основной">
                         <input type="radio" name={`surv-${gi}`} checked={isSurvivor} onChange={() => setSurvivor(gi, e.id)} /> основной
                       </label>
@@ -472,7 +473,8 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
                         актов: {e.opsCount}
                         {e.createdAt ? ` · ${formatMoscowDate(e.createdAt)}` : ''}
                       </span>
-                      <div style={{ flex: 1 }} />
+                      {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                          «Открыть» — сразу за номером, не у правого края строки. */}
                       <button type="button" onClick={() => props.onOpenEngine(e.id)} style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 12, textDecoration: 'underline' }}>
                         Открыть
                       </button>

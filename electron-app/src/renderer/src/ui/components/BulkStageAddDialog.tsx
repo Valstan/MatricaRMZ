@@ -420,11 +420,12 @@ export function BulkStageAddDialog(props: {
 
         {status ? <div className="ui-muted">{status}</div> : null}
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Button onClick={() => void save()} disabled={busy || !stageCode || selectedEngineIds.length === 0} data-bulk-stage-save>
             {busy ? 'Сохранение…' : `Сохранить этап для выбранных${selectedEngineIds.length > 0 ? ` (${selectedEngineIds.length})` : ''}`}
           </Button>
-          <div style={{ flex: 1 }} />
+          {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+              «Закрыть» — рядом с «Сохранить», не у правого края подвала окна. */}
           <Button variant="ghost" onClick={() => props.onClose()} disabled={busy}>
             Закрыть
           </Button>

@@ -325,7 +325,8 @@ export function WorkOrderRoutePanel(props: {
                 + {WORK_ORDER_ROUTE_STEP_LABELS[kind]}
               </Button>
             ))}
-            <span style={{ flex: 1 }} />
+            {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
+                распорка уводила «Собрать маршрут» к правому краю панели наряда. */}
             <Button
               variant="outline"
               size="sm"
