@@ -30,6 +30,7 @@ import {
   formatEngineReservationUntil,
   engineScrapRowBackgroundPrint,
   engineScrapRowStyle,
+  searchFieldOptionsForRows,
   type FacetSelection,
 } from '@matricarmz/shared';
 import type { EngineFacetId, EngineFacetSelection, EngineListItem, GroupLevel } from '@matricarmz/shared';
@@ -53,6 +54,7 @@ import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { SearchMatchBadge } from '../components/SearchMatchBadge.js';
 import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
+import { useSearchField } from '../hooks/useSearchField.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
@@ -599,6 +601,14 @@ export function EnginesPage(props: {
     [selectedStageCode, stageDateRange],
   );
   const { similar: searchSimilar, toggle: toggleSearchMode, reset: resetSearchMode } = useSearchMode({ query });
+  // Выбор поля — «где искать» (промт КАРМАНА #138): сужает выдачу до совпадений ПО
+  // ВЫБРАННОМУ полю (номер двигателя, внутренний номер, номер контракта…). Отдельный
+  // переключатель от режима поиска: одно не ломает другое.
+  const { choice: fieldChoice, fieldId, select: selectField } = useSearchField({ kind: 'engine', query });
+  // Поля, которые предлагает кнопка «где искать» (промт КАРМАНА #138): из общего
+  // реестра, но только те, что в строке двигателя ЕСТЬ — иначе кнопка обещала бы
+  // пустую выдачу, а оператор решил бы, что поиск сломан.
+  const engineFieldOptions = React.useMemo(() => searchFieldOptionsForRows('engine', props.engines), [props.engines]);
   const width = useWindowWidth();
   const { isMultiColumn } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
@@ -610,6 +620,9 @@ export function EnginesPage(props: {
     mode: searchModeOf(searchSimilar),
     // Вид сущности — чтобы поиск знал, в каком поле строки он совпал (промт #137).
     kind: 'engine',
+    // Выбранное поле — сужение выдачи (промт #138). Тир-2 при этом выключен:
+    // поиск внутри карточек поля совпадения не называет.
+    ...(fieldId ? { fieldId } : {}),
   });
   const similarMode = deepFilter.similarMode;
   // Все отборы, кроме поиска, живут теперь в ступенях: рекламация, акт комплектности и даты
@@ -1365,6 +1378,9 @@ export function EnginesPage(props: {
             value={query}
             onChange={(v) => patchState({ query: v, page: 0 })}
             placeholder="Поиск по всем данным двигателя (и внутри карточек)…"
+            fieldOptions={engineFieldOptions}
+            fieldChoice={fieldChoice}
+            onSelectField={selectField}
           />
         </ToolbarPin>
         {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,

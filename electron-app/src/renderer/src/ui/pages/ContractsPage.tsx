@@ -44,6 +44,8 @@ import {
   type ProgressLinkedItem,
   parseContractExecutionParts,
   parseContractSections,
+  searchFieldOptionsForRows,
+  type SearchFieldOption,
 } from '@matricarmz/shared';
 
 import { FacetFilter } from '../components/FacetFilter.js';
@@ -65,7 +67,8 @@ import {
   resolveMenuRows,
 } from '../utils/listContextActions.js';
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
-import { matchesQueryInRecord } from '../utils/search.js';
+import { useSearchField } from '../hooks/useSearchField.js';
+import { matchesQueryInRecord, matchesQueryInSearchField } from '../utils/search.js';
 import { safeJsonObject } from '../utils/safeJson.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
@@ -282,6 +285,17 @@ function getProgressBarStyle(row: Row): { style: React.CSSProperties; textColor:
     textColor: isOverdue ? '#dc2626' : '#111827',
     hoverable: true,
   };
+}
+
+/**
+ * Поля, которые предлагает кнопка «где искать» в списке контрактов (промт КАРМАНА #138).
+ *
+ * Из общего реестра (`shared/src/domain/searchFields.ts`), но только те, что в строке
+ * контракта ЕСТЬ: строка списка и строка справочника — разные формы, и поле, которого
+ * в строке нет, обещало бы пустую выдачу.
+ */
+function contractFieldOptionsOf(rows: unknown[]): SearchFieldOption[] {
+  return searchFieldOptionsForRows('contract', rows);
 }
 
 export function ContractsPage(props: {
@@ -565,12 +579,20 @@ export function ContractsPage(props: {
   // Верхний поиск: поля строки + внутрь карточки (EAV).
   const { similar: searchSimilar, toggle: toggleSearchMode, reset: resetSearchMode } = useSearchMode({ query });
   const searchMode = searchModeOf(searchSimilar);
+  // Выбор поля — «где искать» (промт КАРМАНА #138): сужает выдачу до совпадений ПО
+  // ВЫБРАННОМУ полю. Отдельный переключатель от режима поиска.
+  const { choice: fieldChoice, fieldId, select: selectField } = useSearchField({ kind: 'contract', query });
+  const contractFieldOptions = useMemo(() => contractFieldOptionsOf(rows), [rows]);
   const getRowId = useCallback((row: { id: string }) => String(row.id), []);
-  const deepIds = useCardContentIds(rows, getRowId, query);
+  // Поиск внутри карточки поля совпадения не называет — при выбранном поле он выключен.
+  const deepIds = useCardContentIds(rows, getRowId, query, !fieldId);
   // Поиск отбирает первым, ступени — вторым: варианты ступеней считаются по найденному.
   const searched = useMemo(
-    () => rows.filter((row) => matchesQueryInRecord(query, row, undefined, searchMode) || (deepIds?.has(String(row.id)) ?? false)),
-    [rows, query, deepIds, searchMode],
+    () =>
+      fieldId
+        ? rows.filter((row) => matchesQueryInSearchField(query, row, 'contract', fieldId, searchMode))
+        : rows.filter((row) => matchesQueryInRecord(query, row, undefined, searchMode) || (deepIds?.has(String(row.id)) ?? false)),
+    [rows, query, deepIds, searchMode, fieldId],
   );
 
   // Старых полей дат заключения в тулбаре больше нет (владелец 08.09.2026): отбор по дате
@@ -1088,7 +1110,14 @@ export function ContractsPage(props: {
         )}
         {/* Поиск и то, что им управляет, в меню не уезжают: без них список неуправляем. */}
         <ToolbarPin>
-          <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по всем данным контракта…" />
+          <ToolbarSearchField
+            value={query}
+            onChange={(v) => patchState({ query: v })}
+            placeholder="Поиск по всем данным контракта…"
+            fieldOptions={contractFieldOptions}
+            fieldChoice={fieldChoice}
+            onSelectField={selectField}
+          />
         </ToolbarPin>
         {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,
             промт КАРМАНА #151). */}

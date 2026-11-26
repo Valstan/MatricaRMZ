@@ -1,9 +1,12 @@
 import {
   LOOKUP_FILTER_MIN_SCORE,
+  filterRowsBySearchField,
   matchPreparedSearchFields,
+  matchSearchFieldValue,
   prepareLookupOptions,
   prepareSearchFields,
   rankPreparedLookupOptions,
+  searchFieldValueOf,
   searchPreparedLookupOptionsTiered,
   type GlobalSearchKind,
   type PreparedLookupOption,
@@ -84,6 +87,30 @@ export function collectRecordText(value: unknown): string {
   return out.join(' ');
 }
 
+/**
+ * Совпадение запроса со значением ОДНОГО поля строки — сужение выдачи по полю
+ * (промт КАРМАНА #138).
+ *
+ * Тот же матчер и тот же режим, что у обычного поиска: выбор поля отвечает на вопрос
+ * «где искать», а не «как строго» — иначе выбор поля ломал бы режим «точный / ≈ Похожие».
+ * Тир-3 (опечатки) здесь выключен: он живёт на уровне НАБОРА, а не одной строки.
+ *
+ * Строка, у которой поля нет, не проходит: «совпадений по этому полю нет».
+ */
+export function matchesQueryInSearchField(
+  query: string,
+  row: unknown,
+  kind: GlobalSearchKind | undefined,
+  fieldId: string,
+  mode: SearchMode = 'exact',
+): boolean {
+  const q = String(query ?? '').trim();
+  if (!q) return true;
+  const value = searchFieldValueOf(row, kind, fieldId);
+  if (!value) return false;
+  return matchSearchFieldValue(value, q, mode, { fuzzyFallback: false }).matched;
+}
+
 export type TieredRecordFilterResult<T> = {
   records: T[];
   /** True when nothing matched exactly and `records` holds typo-tolerant fallback — render with a «похожие» notice. */
@@ -142,11 +169,17 @@ export function prepareRecordSearch<T>(
  * матчер полей — тот же тир-1 и тот же режим, поэтому объяснение не может
  * противоречить самой выдаче. Поля считаются ТОЛЬКО для нашедшихся строк —
  * горячий путь поиска не меняется.
+ *
+ * `opts.fieldId` — СУЖЕНИЕ ПО ПОЛЮ (промт КАРМАНА #138): в выдаче остаются только
+ * строки, у которых значение ВЫБРАННОГО поля совпало с запросом; остальные вхождения
+ * не показываются вовсе (владелец 25.11.2026). Порядок — как в обычном поиске:
+ * сначала строки, найденные тир-1, потом остальные (в порядке строк).
  */
 export function filterPreparedRecords<T>(
   search: PreparedRecordSearch<T>,
   query: string,
   mode: SearchMode = 'exact',
+  opts?: { fieldId?: string },
 ): TieredRecordFilterResult<T> {
   if (!String(query ?? '').trim()) return { records: search.records, similarMode: false, fieldMatches: new Map() };
   const tiered = searchPreparedLookupOptionsTiered(search.prepared, query, { minScore: LOOKUP_FILTER_MIN_SCORE, mode });
@@ -159,6 +192,18 @@ export function filterPreparedRecords<T>(
       const hits = matchPreparedSearchFields(fields, query, mode);
       if (hits.length) fieldMatches.set(option.id, hits);
     }
+  }
+  // Сужено по полю: решает не «совпало ли что-то в записи», а «совпало ли ВЫБРАННОЕ ПОЛЕ».
+  const fieldId = opts?.fieldId;
+  if (fieldId && search.fieldRows) {
+    const narrowed = filterRowsBySearchField(search.records, search.fieldRows, query, mode, fieldId);
+    const rank = new Map<number, number>();
+    matched.forEach((option, index) => rank.set(option.index, index));
+    const records = narrowed.indexes
+      .map((rowIndex) => ({ record: search.records[rowIndex]!, rank: rank.get(rowIndex) ?? Number.MAX_SAFE_INTEGER }))
+      .sort((a, b) => a.rank - b.rank)
+      .map((entry) => entry.record);
+    return { records, similarMode: narrowed.similarMode, fieldMatches };
   }
   return {
     records: matched.map((o) => o.record),

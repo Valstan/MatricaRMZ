@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { filterPreparedRecords, matchesQueryInRecord, prepareRecordSearch } from './search.js';
+import {
+  filterPreparedRecords,
+  matchesQueryInRecord,
+  matchesQueryInSearchField,
+  prepareRecordSearch,
+} from './search.js';
 
 describe('matchesQueryInRecord (#035 Ф2 tiered)', () => {
   it('matches everything for an empty / whitespace query', () => {
@@ -92,5 +97,48 @@ describe('поле совпадения (промт #137)', () => {
     const result = filterPreparedRecords(prepared, '');
     expect(result.records).toHaveLength(2);
     expect(result.fieldMatches.size).toBe(0);
+  });
+});
+
+// Промт КАРМАНА #138 (25.11.2026): кнопка «где искать» + сужение выдачи по полю.
+describe('сужение выдачи по полю (промт #138)', () => {
+  const rows = [
+    { id: '1', engineNumber: 'А-100', contractName: 'Договор 77' },
+    { id: '2', engineNumber: 'А-200', contractName: 'Договор 88' },
+    { id: '3', engineNumber: 'А-300' },
+  ];
+  const prepared = () => prepareRecordSearch(rows, (r) => r.id, (r) => r.engineNumber, { kind: 'engine' });
+
+  it('при выбранном поле остаются только совпадения ПО НЕМУ — остальные исключаются', () => {
+    // Владелец: «будут выдаваться только совпадение по номерам двигателей, остальные
+    // вхождения он показывать не будет».
+    const byNumber = filterPreparedRecords(prepared(), 'А-', 'exact', { fieldId: 'engine_number' });
+    expect(byNumber.records.map((r) => r.id)).toEqual(['1', '2', '3']);
+    const byContract = filterPreparedRecords(prepared(), 'Договор', 'exact', { fieldId: 'contract' });
+    expect(byContract.records.map((r) => r.id)).toEqual(['1', '2']);
+    // Совпадение по договору при выбранном «номере двигателя» в выдачу не попадает.
+    const contractOnly = filterPreparedRecords(prepared(), 'Договор', 'exact', { fieldId: 'engine_number' });
+    expect(contractOnly.records).toHaveLength(0);
+  });
+
+  it('без выбранного поля выдача прежняя — сужение включается только выбором', () => {
+    const all = filterPreparedRecords(prepared(), 'Договор', 'exact');
+    expect(all.records.map((r) => r.id)).toEqual(['1', '2']);
+  });
+
+  it('выбор поля не ломает режим «точный / ≈ Похожие»', () => {
+    const typo = [{ id: '1', engineNumber: 'Дизель В-59' }];
+    const prep = prepareRecordSearch(typo, (r) => r.id, (r) => r.engineNumber, { kind: 'engine' });
+    expect(filterPreparedRecords(prep, 'дизелб', 'exact', { fieldId: 'engine_number' }).records).toHaveLength(0);
+    const similar = filterPreparedRecords(prep, 'дизелб', 'similar', { fieldId: 'engine_number' });
+    expect(similar.records).toHaveLength(1);
+    expect(similar.similarMode).toBe(true);
+  });
+
+  it('поштучная проверка по полю — тот же матчер, что и у списка', () => {
+    expect(matchesQueryInSearchField('Договор 77', rows[0]!, 'engine', 'contract')).toBe(true);
+    expect(matchesQueryInSearchField('Договор 77', rows[0]!, 'engine', 'engine_number')).toBe(false);
+    // Поля в строке нет — совпадений по нему нет.
+    expect(matchesQueryInSearchField('Договор', rows[2]!, 'engine', 'contract')).toBe(false);
   });
 });

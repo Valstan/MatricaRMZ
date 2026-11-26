@@ -51,13 +51,18 @@ export function useCardContentIds<T>(
  * tier matches: tier-1 — sync tiered match over every loaded row field (shared
  * matcher, RU/EN layout correction, relevance order); tier-2 — async lookup
  * inside card content (EAV) for entity-backed lists. Empty query → identity.
+ *
+ * `opts.fieldId` — СУЖЕНИЕ ПО ПОЛЮ (промт КАРМАНА #138): остаются только строки,
+ * у которых значение ВЫБРАННОГО поля совпало с запросом. Тир-2 при этом ВЫКЛЮЧЕН:
+ * поиск внутри карточек ищет по всем значениям атрибутов сразу, поля совпадения он
+ * не называет — а выдача, суженная до поля, не должна содержать вхождений вне его.
  */
 export function useListDeepFilter<T>(
   rows: T[],
   getId: (r: T) => string,
   getLabel: (r: T) => string,
   query: string,
-  opts?: { entityBacked?: boolean; mode?: SearchMode; kind?: GlobalSearchKind },
+  opts?: { entityBacked?: boolean; mode?: SearchMode; kind?: GlobalSearchKind; fieldId?: string },
 ) {
   const entityBacked = opts?.entityBacked !== false;
   // Просьба владельца 08.09.2026: списки ищут точное совпадение, пока оператор сам не
@@ -65,7 +70,8 @@ export function useListDeepFilter<T>(
   // вхождение подстроки, то есть уже точен; «похожие» добавляет только тир-1.
   const mode: SearchMode = opts?.mode ?? 'exact';
   const kind = opts?.kind;
-  const deepIds = useCardContentIds(rows, getId, query, entityBacked);
+  const fieldId = opts?.fieldId;
+  const deepIds = useCardContentIds(rows, getId, query, entityBacked && !fieldId);
 
   const prepared = useMemo(
     () => prepareRecordSearch(rows, getId, getLabel, kind ? { kind } : {}),
@@ -76,7 +82,11 @@ export function useListDeepFilter<T>(
 
   const { filtered, similarMode, fieldMatches } = useMemo(() => {
     if (!q) return { filtered: rows, similarMode: false, fieldMatches: new Map<string, SearchFieldMatch[]>() };
-    const tier1 = filterPreparedRecords(prepared, q, mode);
+    const tier1 = filterPreparedRecords(prepared, q, mode, fieldId ? { fieldId } : undefined);
+    // Сужено по полю — тир-2 не подмешиваем: поле совпадения он не называет.
+    if (fieldId) {
+      return { filtered: tier1.records, similarMode: tier1.similarMode, fieldMatches: tier1.fieldMatches };
+    }
     if (!deepIds || deepIds.size === 0) {
       return { filtered: tier1.records, similarMode: tier1.similarMode, fieldMatches: tier1.fieldMatches };
     }
@@ -89,7 +99,7 @@ export function useListDeepFilter<T>(
       // искали по содержимому, а не по полю строки.
       fieldMatches: tier1.fieldMatches,
     };
-  }, [q, rows, prepared, deepIds, getId, mode]);
+  }, [q, rows, prepared, deepIds, getId, mode, fieldId]);
 
   return { filtered, similarMode, total: rows.length, matched: q ? filtered.length : rows.length, fieldMatches };
 }

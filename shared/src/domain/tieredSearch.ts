@@ -350,6 +350,36 @@ export function searchLookupOptionsTiered<T extends LookupOptionLike>(options: T
   return searchPreparedLookupOptionsTiered(prepareLookupOptions(options), query);
 }
 
+/**
+ * Совпадение запроса с ОДНИМ значением — тем же матчером, в том же режиме.
+ *
+ * Зачем отдельная функция: «сузить поиск по полю» — это ровно «искать по значению
+ * этого поля». Матчер должен быть ТОТ ЖЕ, иначе выбор поля меняет строгость поиска
+ * (владелец 25.11.2026, промт КАРМАНА #138: выбор поля и режим «точный / ≈ Похожие» —
+ * независимые переключатели, одно не должно ломать другое).
+ *
+ * `fuzzyFallback` — тир-3 (опечатки). В режиме «точный» он и так выключен. Для
+ * поштучной проверки строки его лучше выключать явно: тир-3 в проекте живёт на уровне
+ * НАБОРА («есть с чем сравнивать»), а не на уровне одной строки.
+ */
+export function matchPreparedLookupOption<T extends LookupOptionLike>(
+  prepared: PreparedLookupOption<T>,
+  query: string,
+  opts: { minScore?: number; mode?: SearchMode; fuzzyFallback?: boolean } = {},
+): { matched: boolean; similar: boolean } {
+  const q = String(query ?? '').trim();
+  if (!q) return { matched: false, similar: false };
+  const minScore = opts.minScore ?? LOOKUP_FILTER_MIN_SCORE;
+  // `exactOptionalPropertyTypes` — undefined в опцию не передаём (сборка падает).
+  const rankOpts = { minScore, ...(opts.mode ? { mode: opts.mode } : {}) };
+  const primary = rankPreparedLookupOptions([prepared], q, rankOpts);
+  if (primary.length > 0) return { matched: true, similar: false };
+  if (opts.fuzzyFallback === false) return { matched: false, similar: false };
+  const tiered = searchPreparedLookupOptionsTiered([prepared], q, rankOpts);
+  if (tiered.similar.length > 0) return { matched: true, similar: true };
+  return { matched: false, similar: false };
+}
+
 // --- Row-set filtering (list endpoints / list pages) --------------------------
 
 export type TieredRowsFilterResult<T> = {

@@ -4,14 +4,18 @@ import { createPortal } from 'react-dom';
 import {
   globalSearchKindLabel,
   groupRowsBySearchField,
+  searchFieldOptionsForRows,
   type GlobalSearchHit,
   type GlobalSearchKind,
   type SearchFieldMatch,
+  type SearchFieldOption,
 } from '@matricarmz/shared';
 
 import { SearchModeToggle, searchModeOf } from './SearchModeToggle.js';
 import { SEARCH_MODE_HINT } from './SearchModeHint.js';
+import { SEARCH_FIELD_NARROWED_NOTE, SearchFieldPicker } from './SearchFieldPicker.js';
 import { useSearchMode } from '../hooks/useSearchMode.js';
+import { type SearchFieldChoice } from '../hooks/useSearchField.js';
 import { EngineQrScanButton } from './EngineQrScanButton.js';
 import { useGlobalSearchScope } from '../context/globalSearchScope.js';
 import { L2_SOURCES, loadAllL2, pickL2Label, type L2Row } from '../services/globalSearchSources.js';
@@ -97,6 +101,10 @@ export function GlobalSearchOverlay(props: {
   // Режим совпадения — не путать с уровнем поиска `mode`: точное или ещё и похожее.
   const { similar: searchSimilar, toggle: toggleSearchMode } = useSearchMode({ query });
   const searchMode = searchModeOf(searchSimilar);
+  // Выбор поля — «где искать» (промт КАРМАНА #138): сужает выдачу до одного поля.
+  // Это НЕ уровень поиска: уровень отвечает «откуда смотреть», поле — «по какому полю».
+  const [fieldChoice, setFieldChoice] = useState<SearchFieldChoice | null>(null);
+  const narrowed = fieldChoice != null;
   const [l2Loaded, setL2Loaded] = useState<Partial<Record<GlobalSearchKind, L2Row[]>>>({});
   const [serverHits, setServerHits] = useState<GlobalSearchHit[]>([]);
   const [serverLoading, setServerLoading] = useState(false);
@@ -114,6 +122,7 @@ export function GlobalSearchOverlay(props: {
     if (!open) return;
     setQuery('');
     setMode('auto');
+    setFieldChoice(null);
     setActiveIndex(0);
     setServerHits([]);
     setDeepIds(new Set());
@@ -133,7 +142,7 @@ export function GlobalSearchOverlay(props: {
 
   // Debounced, abortable L3 server search.
   useEffect(() => {
-    if (!open || !(mode === 'auto' || mode === 'server')) {
+    if (!open || !(mode === 'auto' || mode === 'server') || narrowed) {
       setServerHits([]);
       setServerLoading(false);
       return;
@@ -160,12 +169,12 @@ export function GlobalSearchOverlay(props: {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, mode, query]);
+  }, [open, mode, query, narrowed]);
 
   // Debounced L2.5 deep search inside card content (live EAV values in local SQLite)
   // across the already-loaded directory rows — «ищет и в карточках, и в базе».
   useEffect(() => {
-    if (!open || !(mode === 'auto' || mode === 'directories')) {
+    if (!open || !(mode === 'auto' || mode === 'directories') || narrowed) {
       setDeepIds(new Set());
       return;
     }
@@ -195,12 +204,12 @@ export function GlobalSearchOverlay(props: {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, mode, query, l2Loaded]);
+  }, [open, mode, query, l2Loaded, narrowed]);
 
   // Двигатели по «№ на детали» (stamped_number из operations.metaJson — не EAV, поэтому
   // deep card-content его не видит; отдельный main-поиск по локальному SQLite).
   useEffect(() => {
-    if (!open || mode === 'page') {
+    if (!open || mode === 'page' || narrowed) {
       setStampHits([]);
       return;
     }
@@ -222,12 +231,12 @@ export function GlobalSearchOverlay(props: {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, mode, query]);
+  }, [open, mode, query, narrowed]);
 
   // Этапы работ: строки живут в локальной реплике `operations`, а не в EAV и не на сервере,
   // поэтому ни deep card-content, ни серверный /search их не видят — свой main-поиск.
   useEffect(() => {
-    if (!open || mode === 'page') {
+    if (!open || mode === 'page' || narrowed) {
       setSheetHits([]);
       return;
     }
@@ -250,7 +259,7 @@ export function GlobalSearchOverlay(props: {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, mode, query]);
+  }, [open, mode, query, narrowed]);
 
   const l2Prepared = useMemo(() => {
     const out: Partial<Record<GlobalSearchKind, PreparedRecordSearch<L2Row>>> = {};
@@ -281,6 +290,27 @@ export function GlobalSearchOverlay(props: {
     [],
   );
 
+  /**
+   * Поля, которые предлагает кнопка «где искать» (промт КАРМАНА #138).
+   *
+   * Поиск сам знает, где он находится: текущая страница (L1-скоуп) и справочники (L2).
+   * Из общего реестра берём только те поля, что в строках этой сущности ЕСТЬ: строка
+   * справочника и строка списка — разные формы, и поле, которого в строке нет, обещало
+   * бы пустую выдачу («совпадений нет» — это другое, об этом сказано в меню).
+   */
+  const fieldOptions = useMemo<SearchFieldOption[]>(() => {
+    const out: SearchFieldOption[] = [];
+    const seen = new Set<string>();
+    const push = (kind: GlobalSearchKind, rows: unknown[]) => {
+      if (seen.has(kind)) return;
+      seen.add(kind);
+      out.push(...searchFieldOptionsForRows(kind, rows));
+    };
+    if (scope?.kind) push(scope.kind, scope.rows);
+    for (const src of L2_SOURCES) push(src.kind, l2Loaded[src.kind] ?? []);
+    return out;
+  }, [scope, l2Loaded]);
+
   const { hits, hitFieldMatches } = useMemo<{ hits: GlobalSearchHit[]; hitFieldMatches: Map<string, SearchFieldMatch[]> }>(() => {
     const q = query.trim();
     const fieldMatches = new Map<string, SearchFieldMatch[]>();
@@ -289,22 +319,30 @@ export function GlobalSearchOverlay(props: {
     const showL2 = mode === 'auto' || mode === 'directories';
     const showL3 = mode === 'auto' || mode === 'server';
     const out: GlobalSearchHit[] = [];
+    // Выбранное поле: сужаем до сущности этого поля и до совпадений ПО НЕМУ.
+    const chosenKind = fieldChoice?.kind ?? null;
+    const chosenField = fieldChoice?.fieldId ?? null;
+    const narrowOpts = chosenField ? { fieldId: chosenField } : undefined;
 
     if (showL1 && scope && l1Prepared) {
-      const tier = filterPreparedRecords(l1Prepared, q, searchMode);
-      for (const r of tier.records.slice(0, PER_GROUP)) {
-        const id = scope.getId(r);
-        if (!id) continue;
-        const fields = tier.fieldMatches.get(id);
-        if (fields?.length) fieldMatches.set(`${scope.kind}|${id}`, fields);
-        out.push({ kind: scope.kind, id, label: scope.getLabel(r) || id });
+      // Чужую сущность при выбранном поле показывать нельзя: поле ей не принадлежит.
+      if (!chosenKind || scope.kind === chosenKind) {
+        const tier = filterPreparedRecords(l1Prepared, q, searchMode, narrowOpts);
+        for (const r of tier.records.slice(0, PER_GROUP)) {
+          const id = scope.getId(r);
+          if (!id) continue;
+          const fields = tier.fieldMatches.get(id);
+          if (fields?.length) fieldMatches.set(`${scope.kind}|${id}`, fields);
+          out.push({ kind: scope.kind, id, label: scope.getLabel(r) || id });
+        }
       }
     }
     if (showL2) {
       for (const src of L2_SOURCES) {
+        if (chosenKind && src.kind !== chosenKind) continue;
         const prep = l2Prepared[src.kind];
         if (!prep) continue;
-        const tier = filterPreparedRecords(prep, q, searchMode);
+        const tier = filterPreparedRecords(prep, q, searchMode, narrowOpts);
         for (const r of tier.records.slice(0, PER_GROUP)) {
           const id = String(r.id ?? '');
           if (!id) continue;
@@ -315,9 +353,9 @@ export function GlobalSearchOverlay(props: {
         }
       }
     }
-    if (showL3) out.push(...serverHits);
-    // Режим «Эта страница» показывает только строки активного списка — свой поиск туда не лезет.
-    if (mode !== 'page') out.push(...sheetHits);
+    // Серверный слой и этапы поля не знают — при выбранном поле они выключены.
+    if (showL3 && !chosenKind) out.push(...serverHits);
+    if (mode !== 'page' && !chosenKind) out.push(...sheetHits);
 
     const seen = new Set<string>();
     return {
@@ -329,11 +367,12 @@ export function GlobalSearchOverlay(props: {
       }),
       hitFieldMatches: fieldMatches,
     };
-  }, [query, mode, searchMode, scope, l1Prepared, l2Prepared, serverHits, sheetHits]);
+  }, [query, mode, searchMode, scope, l1Prepared, l2Prepared, serverHits, sheetHits, fieldChoice]);
 
   // Deep-only hits: ids matched inside card content that tier-1/2/3 did not surface.
+  // При выбранном поле глубокий слой выключен: поле совпадения он не называет.
   const deepHits = useMemo<GlobalSearchHit[]>(() => {
-    if (deepIds.size === 0) return [];
+    if (deepIds.size === 0 || fieldChoice) return [];
     const already = new Set(hits.map((h) => h.id));
     const out: GlobalSearchHit[] = [];
     for (const kind of DEEP_KINDS) {
@@ -345,18 +384,20 @@ export function GlobalSearchOverlay(props: {
       }
     }
     return out;
-  }, [deepIds, hits, l2Loaded]);
+  }, [deepIds, hits, l2Loaded, fieldChoice]);
 
   const uiRows = useMemo<UiSearchEntry[]>(() => {
     const q = query.trim();
-    if (!q || !(mode === 'auto' || mode === 'page')) return [];
+    // Кнопки и разделы — не поле: при выбранном поле они в выдачу не попадают
+    // (владелец: «остальные вхождения он показывать не будет»).
+    if (!q || !(mode === 'auto' || mode === 'page') || fieldChoice) return [];
     return filterPreparedRecords(uiPrepared, q, searchMode).records.slice(0, PER_GROUP);
-  }, [query, mode, searchMode, uiPrepared]);
+  }, [query, mode, searchMode, uiPrepared, fieldChoice]);
 
   // Двигатели по «№ на детали»: dedup против уже показанных двигателей; метку берём из L2
   // (актуальный номер двигателя), номер детали — как code справа.
   const stampRows = useMemo<RowItem[]>(() => {
-    if (stampHits.length === 0) return [];
+    if (stampHits.length === 0 || fieldChoice) return [];
     const already = new Set<string>([...hits, ...deepHits].map((h) => `${h.kind}|${h.id}`));
     const engineById = new Map<string, L2Row>(
       (l2Loaded.engine ?? []).map((r) => [String((r as L2Row).id ?? ''), r as L2Row]),
@@ -376,7 +417,7 @@ export function GlobalSearchOverlay(props: {
       if (out.length >= PER_GROUP * 2) break;
     }
     return out;
-  }, [stampHits, hits, deepHits, l2Loaded]);
+  }, [stampHits, hits, deepHits, l2Loaded, fieldChoice]);
 
   const groups = useMemo<PaletteGroup[]>(() => {
     const ordered: PaletteGroup[] = [];
@@ -621,6 +662,11 @@ export function GlobalSearchOverlay(props: {
                 }}
               />
             </div>
+            {/* Кнопка «где искать» (промт КАРМАНА #138): поиск сам знает, в какой сущности
+                он стоит, и по кнопке можно сузить выдачу до одного поля. */}
+            {fieldOptions.length > 0 ? (
+              <SearchFieldPicker options={fieldOptions} choice={fieldChoice} onSelect={setFieldChoice} />
+            ) : null}
             <EngineQrScanButton
               onEngineNumber={(n) => {
                 setQuery(n);
@@ -628,6 +674,13 @@ export function GlobalSearchOverlay(props: {
               }}
             />
           </div>
+          {/* Выдача сужена — сказано прямо: часть вхождений не показывается, и без этой
+              строки это читается как поломка поиска. */}
+          {fieldChoice ? (
+            <div data-search-field-note style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)' }}>
+              {SEARCH_FIELD_NARROWED_NOTE}
+            </div>
+          ) : null}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
             {LEVELS.map((lvl) => {
               const activeLevel = lvl.mode === mode;
