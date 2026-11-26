@@ -26,6 +26,12 @@ export type AuditActionRow = {
   section?: string | null;
   documentLabel?: string | null;
   actionType?: string | null;
+  /**
+   * Объект строки удалён (мягкое удаление). Тогда в строке это сказано словами, а ссылку
+   * на объект клиент не рисует — мёртвая кнопка «Открыть» вводила бы в заблуждение
+   * (промт КАРМАНА #169).
+   */
+  objectDeleted?: boolean | null;
 };
 
 const EXACT_ACTION_BY_CODE: Record<string, string> = {
@@ -58,6 +64,10 @@ const EXACT_ACTION_BY_CODE: Record<string, string> = {
   // админа код не всплывал: там раньше срабатывала ветка раздела.
   // `ui.card_open` сюда СОЗНАТЕЛЬНО не добавлен: хвостовая ветка знает и вид карточки, и
   // раздел («Открыл карточку двигателя «Д-100» в «Двигатели»»), а общая подпись их потеряла бы.
+  // След окончательного удаления: без подписи строка упала бы в «Выполнил действие»,
+  // а журнал действий — место, где потерянная запись обязана остаться видимой
+  // (промт КАРМАНА #169, критерий «удалил окончательно — след в журнале»).
+  'deleted.purge': 'Удалил окончательно',
   'ui.visit': 'Открыл раздел',
   'ui.report_open': 'Открыл отчёт',
   'ui.report_build': 'Построил отчёт',
@@ -142,7 +152,7 @@ const GENERIC_BY_TYPE = {
   ]),
 };
 
-export function describeAuditAction(row: AuditActionRow): string {
+function describeAuditActionText(row: AuditActionRow): string {
   const action = String(row.action ?? '')
     .trim()
     .toLowerCase();
@@ -215,4 +225,18 @@ export function describeAuditAction(row: AuditActionRow): string {
   // КОДУ. Поэтому подставлять его нельзя: получится «Выполнил действие: work_order.number_change».
   // Прочерк тут тоже не годится — это единственный смысл ячейки, потому общий текст.
   return 'Выполнил действие';
+}
+
+/**
+ * Подпись строки журнала. Обёртка над текстом: если объект удалён — строка говорит об этом
+ * словами («объект удалён»), а ссылку на объект клиент в этом случае не рисует.
+ *
+ * Фраза «Выполнил действие» в хвосте — это ЗАПАСНАЯ подпись для нераспознанного кода, а не
+ * норма: живой журнал не должен её порождать, потому что сервер теперь называет раздел и
+ * объект у каждой строки (промт КАРМАНА #169). Прошлое не переигрывается: старые строки
+ * читаются как раньше.
+ */
+export function describeAuditAction(row: AuditActionRow): string {
+  const text = describeAuditActionText(row);
+  return row.objectDeleted ? `${text} — объект удалён` : text;
 }

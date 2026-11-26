@@ -185,7 +185,7 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
     titleRu: 'Администрирование',
     // «Изменения» (changes) и «Черновики» (drafts) сознательно ВНЕ разделов: ими
     // пользуются все роли сегодня — гейтить их значило бы менять поведение в день засева.
-    menuTabs: ['audit', 'admin'],
+    menuTabs: ['audit', 'deleted', 'admin'],
     restrictedAssign: true,
   },
   {

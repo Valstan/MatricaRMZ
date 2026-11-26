@@ -50,6 +50,7 @@ import {
 } from '../../services/adminUsersService.js';
 import { adminResyncAllMasterdata, adminResyncEntityType } from '../../services/adminMasterdataRemoteService.js';
 import { adminAuditDailySummary, adminAuditDocument, adminAuditList } from '../../services/adminAuditService.js';
+import { adminDeletedDescribe, adminDeletedList, adminDeletedPurge, adminDeletedRestore } from '../../services/deletedObjectsService.js';
 import { checkEmployeeCardKeyRemote } from '../../services/employeeService.js';
 import { saveEmployeeCardGated } from '../../services/employeeCardWrite.js';
 
@@ -358,6 +359,32 @@ export function registerAdminIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
     await requirePermOrThrow(ctx, 'admin.users.manage');
     return adminAuditDailySummary(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  // «Удалённое за 3 дня» (промт КАРМАНА #169). Восстановление и окончательное удаление
+  // меняют данные ⇒ право `deleted.restore` (по умолчанию суперадмин, остальным — поимённо).
+  ipcMain.handle('admin:deleted:list', async (_e, args?: { days?: number }) => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    await requirePermOrThrow(ctx, 'deleted.restore');
+    return adminDeletedList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('admin:deleted:describe', async (_e, args: { kind: string; id: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    await requirePermOrThrow(ctx, 'deleted.restore');
+    return adminDeletedDescribe(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('admin:deleted:restore', async (_e, args: { kind: string; id: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    await requirePermOrThrow(ctx, 'deleted.restore');
+    return adminDeletedRestore(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('admin:deleted:purge', async (_e, args: { kind: string; id: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    await requirePermOrThrow(ctx, 'deleted.restore');
+    return adminDeletedPurge(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 }
 

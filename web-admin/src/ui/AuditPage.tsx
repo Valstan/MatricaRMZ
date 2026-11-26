@@ -22,6 +22,12 @@ type AuditRow = {
   clientId: string | null;
   tableName: string | null;
   entityId: string | null;
+  /**
+   * Объект строки удалён (мягкое удаление). У удалённого объекта ссылки нет, а в строке
+   * сказано словами («объект удалён») — тем же общим правилом, что и в клиенте
+   * (промт КАРМАНА #169: журналы клиента и веб-админки показывают одно и то же).
+   */
+  objectDeleted: boolean;
 };
 type DailyRow = {
   login: string;
@@ -162,6 +168,9 @@ export function AuditPage() {
   };
 
   const getOpenEntityTarget = useCallback((row: AuditRow): { typeCode: string; entityId: string } | null => {
+    // У удалённого объекта ссылка не рисуется: открывать нечего, а в строке это
+    // сказано словами («объект удалён»).
+    if (row.objectDeleted) return null;
     const entityId = String(row.entityId ?? '').trim();
     if (!entityId) return null;
     const action = String(row.action ?? '').trim().toLowerCase();

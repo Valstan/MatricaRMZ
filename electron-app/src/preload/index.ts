@@ -448,6 +448,13 @@ const matricaApi = {
       dailySummary: async (args?: { date?: string; cutoffHour?: number }) => ipcRenderer.invoke('admin:audit:dailySummary', args),
       document: async (args: { entityId: string; limit?: number }) => ipcRenderer.invoke('admin:audit:document', args),
     },
+    /** «Удалённое за 3 дня»: список, восстановление, окончательное удаление. */
+    deleted: {
+      list: async (args?: { days?: number }) => ipcRenderer.invoke('admin:deleted:list', args),
+      describe: async (args: { kind: string; id: string }) => ipcRenderer.invoke('admin:deleted:describe', args),
+      restore: async (args: { kind: string; id: string }) => ipcRenderer.invoke('admin:deleted:restore', args),
+      purge: async (args: { kind: string; id: string }) => ipcRenderer.invoke('admin:deleted:purge', args),
+    },
   },
   access: {
     sectionsSelf: async () => ipcRenderer.invoke('access:sections:self'),

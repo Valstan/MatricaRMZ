@@ -11,6 +11,7 @@ import { authRouter } from './routes/auth.js';
 import { syncRouter } from './routes/sync.js';
 import { adminUsersRouter } from './routes/adminUsers.js';
 import { adminAuditRouter } from './routes/adminAudit.js';
+import { deletedObjectsRouter } from './routes/deletedObjects.js';
 import { adminMasterdataRouter } from './routes/adminMasterdata.js';
 import { chatRouter } from './routes/chat.js';
 import { exchangeBotRouter } from './routes/exchangeBot.js';
@@ -170,6 +171,7 @@ export function createApp() {
   app.use('/admin', adminUsersRouter);
   app.use('/admin', adminClientsRouter);
   app.use('/admin/audit', adminAuditRouter);
+  app.use('/admin/deleted', deletedObjectsRouter);
   app.use('/admin/masterdata', adminMasterdataRouter);
   app.use('/changes', changesRouter);
   app.use('/files', filesRouter);

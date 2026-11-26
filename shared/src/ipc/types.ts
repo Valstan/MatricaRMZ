@@ -2139,6 +2139,8 @@ export type MatricaApi = {
               clientId: string | null;
               tableName: string | null;
               entityId: string | null;
+              /** Объект строки удалён — ссылку не рисуем (промт КАРМАНА #169). */
+              objectDeleted: boolean;
             }>;
           }
         | { ok: false; error: string }
@@ -2159,6 +2161,8 @@ export type MatricaApi = {
               clientId: string | null;
               tableName: string | null;
               entityId: string | null;
+              /** Объект строки удалён — ссылку не рисуем (промт КАРМАНА #169). */
+              objectDeleted: boolean;
             }>;
           }
         | { ok: false; error: string }
@@ -2182,6 +2186,37 @@ export type MatricaApi = {
           }
         | { ok: false; error: string }
       >;
+    };
+    /** «Удалённое за 3 дня» (промт КАРМАНА #169): список, просмотр, восстановление, окончательное удаление. */
+    deleted: {
+      list: (args?: { days?: number }) => Promise<
+        | {
+            ok: true;
+            days: number;
+            retentionDays: number;
+            rows: Array<{
+              kind: string;
+              id: string;
+              name: string;
+              section: string;
+              deletedAt: number;
+              restorePath: string;
+              /** Кем удалён (автор удаления из журнала действий). '' — автора в журнале нет. */
+              deletedBy: string;
+            }>;
+          }
+        | { ok: false; error: string }
+      >;
+      /** Что это за объект и что в нём — без восстановления. */
+      describe: (args: { kind: string; id: string }) => Promise<
+        | { ok: true; fields: Array<{ label: string; value: string }> }
+        | { ok: false; error: string }
+      >;
+      restore: (args: { kind: string; id: string }) => Promise<
+        | { ok: true; restorePath: string }
+        | { ok: false; error: string }
+      >;
+      purge: (args: { kind: string; id: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     };
   };
   access: {
