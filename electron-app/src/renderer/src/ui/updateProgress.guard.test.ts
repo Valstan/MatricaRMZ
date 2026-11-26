@@ -173,7 +173,7 @@ describe('оператор видит и решает', () => {
   });
 
   it('кнопка «Перезапуск» сама говорит, что обновление готово', () => {
-    // Плашка гаснет — нужна постоянная примета в шапке: точка и другая рамка.
+    // Плашка гаснет — нужна постоянная примета в шапке: сама кнопка (красная, мигающая).
     expect(SHELL).toContain('data-update-ready');
     expect(SHELL).toContain('v3-restart-btn--ready');
     expect(SHELL_CSS).toContain('.v3-restart-btn--ready');
@@ -188,6 +188,55 @@ describe('оператор видит и решает', () => {
   it('«Позже» ничего не теряет — обновление уже записано отложенным', () => {
     expect(SERVICE).toContain('await queuePendingUpdate({');
     expect(SERVICE).toContain('export async function applyPendingUpdateIfAny(');
+  });
+});
+
+// Мигание кнопки «Перезапуск» (промт КАРМАНА #150): обновление скачалось в фоне и
+// ждёт оператора — плашка про это гаснет, а программа остаётся на старой версии.
+// Признак готовности должен быть ОДИН и заметный: мигает сама кнопка.
+//
+// Сторож раньше проверял лишь наличие класса — мигание можно было снести правкой CSS
+// молча, и никто бы не заметил. Теперь проверяются анимация, красный цвет, спокойный
+// период и «уменьшить движение» (анимация гаснет, признак остаётся).
+describe('кнопка «Перезапуск» мигает красным, когда обновление скачано', () => {
+  /** Правило `.v3-restart-btn--ready { … }` — только оно, без соседних селекторов. */
+  const readyRule = (() => {
+    const at = SHELL_CSS.indexOf('.v3-restart-btn--ready {');
+    if (at < 0) return '';
+    const end = SHELL_CSS.indexOf('}', at);
+    return end < 0 ? '' : SHELL_CSS.slice(at, end);
+  })();
+
+  it('мигание есть — анимация висит на самой кнопке', () => {
+    expect(readyRule, 'правило кнопки не найдено — мигание отвалилось молча').not.toBe('');
+    expect(readyRule, 'без анимации кнопка не мигает').toContain('animation:');
+    expect(SHELL_CSS, 'сами кадры анимации должны быть в CSS').toContain('@keyframes v3-restart-ready-pulse');
+  });
+
+  it('мигание КРАСНОЕ — «обновление готово», а не синий акцент', () => {
+    expect(readyRule, 'красный как у тревожных меток — var(--danger)').toContain('var(--danger');
+    expect(readyRule, 'синий акцент путался бы с обычной кнопкой в шапке').not.toContain('var(--accent');
+  });
+
+  it('период спокойный: 1…1.5 с, без резких скачков яркости', () => {
+    const dur = Number(readyRule.match(/animation:[^;]*?([\d.]+)s/)?.[1]);
+    expect(Number.isFinite(dur), 'период мигания должен быть задан в секундах').toBe(true);
+    expect(dur).toBeGreaterThanOrEqual(1);
+    expect(dur).toBeLessThanOrEqual(1.5);
+    expect(readyRule, 'плавный ход — без рывков').toContain('ease-in-out');
+  });
+
+  it('при «уменьшить движение» мигания нет, но красный признак остаётся', () => {
+    const blocks = SHELL_CSS.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g) ?? [];
+    const block = blocks.find((b) => b.includes('.v3-restart-btn--ready'));
+    expect(block, 'системная настройка «уменьшить движение» должна глушить мигание').toBeTruthy();
+    expect(block).toMatch(/animation:\s*none/);
+    expect(readyRule, 'красный признак готовности остаётся и без анимации').toContain('var(--danger');
+  });
+
+  it('признак готовности один — мигает кнопка, а не кружок рядом', () => {
+    expect(SHELL, 'тихий кружок убран: признак один (сама кнопка)').not.toContain('v3-update-ready-dot');
+    expect(SHELL_CSS, 'и его правила в CSS больше нет').not.toContain('.v3-update-ready-dot');
   });
 });
 
