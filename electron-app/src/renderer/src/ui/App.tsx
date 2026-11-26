@@ -6164,6 +6164,10 @@ export function App() {
             canCreate={caps.canEditEngines}
             canViewMasterData={caps.canViewMasterData}
             canEditProductionProgram={caps.canEditProductionProgram}
+            // Право записи этапа ремонта (промт КАРМАНА #168): те же два кода, что у
+            // карточки двигателя, — гейт считает страница доменным `canWriteRepairHistory`.
+            canEditWorkSheets={caps.canEditWorkSheets}
+            canEditOperations={caps.canEditOperations}
             onNotify={notifyOperator}
             {...(caps.canCreateWorkOrders
               ? {

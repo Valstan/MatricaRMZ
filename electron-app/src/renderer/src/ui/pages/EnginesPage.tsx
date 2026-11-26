@@ -40,6 +40,12 @@ import {
   type FacetSelection,
 } from '@matricarmz/shared';
 import type { EngineFacetId, EngineFacetSelection, EngineListItem, EngineListGroupBy } from '@matricarmz/shared';
+import { PermissionCode, canWriteRepairHistory, productionProgramEngineStage, productionProgramStageOptions } from '@matricarmz/shared';
+import {
+  ProductionProgramStageDialog,
+  type ProductionProgramStageSubmitArgs,
+  type ProductionProgramStageSubmitResult,
+} from '../components/ProductionProgramStageDialog.js';
 
 import { EngineFacetFilter } from '../components/EngineFacetFilter.js';
 import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
@@ -79,7 +85,7 @@ import { resolveWorkshopName, useWorkshopNames } from '../hooks/useWorkshopNames
 import { useRepairStageTemplateRefs } from '../hooks/useRepairStageTemplateRefs.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
-import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
+import { formatMoscowDate, formatMoscowDateTime, parseIsoDateToMs } from '../utils/dateUtils.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
 import { ListLassoLayer } from '../components/ListLassoLayer.js';
@@ -522,6 +528,13 @@ export function EnginesPage(props: {
    * с ним в пачке появляется пункт «Добавить в производственную программу».
    */
   canEditProductionProgram?: boolean;
+  /**
+   * Право записи этапа ремонта — те же два кода, что у карточки двигателя
+   * (`work_sheets.edit` ИЛИ `operations.edit`, доменный гейт
+   * `canWriteRepairHistory(perms, 'stage')`). Без него колонка «Этап» только для чтения.
+   */
+  canEditWorkSheets?: boolean;
+  canEditOperations?: boolean;
   /** Кнопка «Отчёт „Двигатели“» → объединённый пресет engines (разрезы/фильтры/колонки/шаблоны). */
 }) {
   const [dedupeOpen, setDedupeOpen] = React.useState(false);
@@ -536,6 +549,13 @@ export function EnginesPage(props: {
   const [tagInitial, setTagInitial] = React.useState<EngineTagInitial[] | null>(null);
   const tagQueue = useTagPrintQueue();
   const [tagHintVisible, setTagHintVisible] = React.useState(false);
+  /** Модалка этапа из списка двигателей (промт КАРМАНА #168): какому движку меняем этап. */
+  const [stageDialog, setStageDialog] = React.useState<{
+    engineId: string;
+    engineLabel: string;
+    code: string;
+    workshopId: string;
+  } | null>(null);
   const { state: listState, patchState } = useListUiState<EnginesPageUiState>('list:engines', createDefaultEnginesPageUiState());
   const { containerRef, onScroll } = usePersistedScrollTop('list:engines');
   const query = listState.query;
@@ -788,12 +808,15 @@ export function EnginesPage(props: {
   // Заголовок печати (владелец 12.10.2026): при выбранном этапе фильтра «История»
   // печать отвечает тем же вопросом, что и экран — «эти двигатели прошли этап X».
   // Имя берём из того же справочника, что варианты ступени: подпись этапа одна на все места.
+  // Режим «Сейчас на заводе» тоже называем: лист должен говорить, какой это срез —
+  // иначе бумага расходится с тем, что оператор видит на экране.
   const printTitle = React.useMemo(() => {
     const code = selectedStageCode;
-    if (!code) return 'Список двигателей';
+    if (!code) return atPlantOnly ? 'Сейчас на заводе' : 'Список двигателей';
     const option = engineStageFacetOptions(sheetTypes, stageTemplates).find((o) => o.value === `stage:${code}`);
-    return option?.label ? `Двигатели, прошедшие этап: ${option.label}` : `Двигатели, прошедшие этап: ${code}`;
-  }, [selectedStageCode, sheetTypes, stageTemplates]);
+    const stage = option?.label ? `Двигатели, прошедшие этап: ${option.label}` : `Двигатели, прошедшие этап: ${code}`;
+    return atPlantOnly ? `Сейчас на заводе · ${stage}` : stage;
+  }, [atPlantOnly, selectedStageCode, sheetTypes, stageTemplates]);
 
   // ПКМ-меню строки: пункт «Наряд на сборку» (тема D) для одиночной строки. Печать/копия/
   // удаление двигателей из списка не поддержаны — меню целевое, без общего набора.
@@ -814,6 +837,88 @@ export function EnginesPage(props: {
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const engineById = useMemo(() => new Map(props.engines.map((e) => [String(e.id), e])), [props.engines]);
   const menuRows = useMemo(() => (menu ? resolveMenuRows(menu.targetIds, engineById) : []), [menu, engineById]);
+
+  // ── Этап меняется прямо в строке списка (промт КАРМАНА #168) ──
+  // Запись этапа ремонта идёт тем же путём, что из карточки и из производственной
+  // программы: `workSheets:stages:save` → `saveRepairStageRow`. Гейты (субординация
+  // дат, дубль этапа за день, смена даты дефектовки) — те же самые, иначе из списка
+  // можно было бы сломать историю ремонта.
+  //
+  // Право — доменный гейт `canWriteRepairHistory(perms, 'stage')`: тот же, что у
+  // карточки двигателя и на сервере. Без него колонка «Этап» остаётся только для
+  // чтения — и сервер всё равно не пустит запись.
+  const canEditStages = canWriteRepairHistory(
+    {
+      [PermissionCode.WorkSheetsEdit]: props.canEditWorkSheets === true,
+      [PermissionCode.OperationsEdit]: props.canEditOperations === true,
+    },
+    'stage',
+  );
+
+  /** Открыть выбор этапа для строки списка. */
+  const openStageDialog = React.useCallback(
+    (e: EngineListItem, code: string) => {
+      if (!canEditStages) return;
+      setStageDialog({
+        engineId: String(e.id),
+        engineLabel: [e.engineBrand, e.engineNumber].filter(Boolean).join(' ') || String(e.id),
+        code,
+        workshopId: String(e.workshopId ?? ''),
+      });
+    },
+    [canEditStages],
+  );
+
+  /**
+   * Запись этапа из модалки — тем же путём, что из карточки и из программы.
+   *
+   * Гейты задают вопросы (дубль за день, смена даты дефектовки) — ответы на них
+   * модалка даёт сама, повтором с флагом.
+   */
+  const submitStage = async (args: ProductionProgramStageSubmitArgs): Promise<ProductionProgramStageSubmitResult> => {
+    const dialog = stageDialog;
+    if (!dialog) return { ok: false, error: 'Этап не выбран' };
+    const atMs = parseIsoDateToMs(args.date);
+    if (atMs == null) return { ok: false, error: 'Укажите дату, когда этап был завершён' };
+    const wsLabel = String(workshopNameById[args.workshopId] ?? '').trim();
+    try {
+      const res = await window.matrica.workSheets.stages.save({
+        id: crypto.randomUUID(),
+        engineId: dialog.engineId,
+        code: args.code,
+        atMs,
+        ...(args.note.trim() ? { note: args.note.trim() } : {}),
+        ...(args.workshopId ? { workshopId: args.workshopId } : {}),
+        ...(wsLabel ? { workshopName: wsLabel } : {}),
+        ...(args.repeatPass ? { repeatPass: args.repeatPass } : {}),
+        ...(args.confirmDefectDate ? { confirmDefectDate: true } : {}),
+      });
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: res.error,
+          ...(res.duplicate
+            ? { duplicate: { nextPass: res.duplicate.nextPass, typeName: res.duplicate.typeName, atMs: res.duplicate.atMs } }
+            : {}),
+          ...(res.defectDateChange ? { defectDateChange: res.defectDateChange } : {}),
+        };
+      }
+      // Список перечитать: иначе колонка «Этап», дата этапа и группа покажут прежнее
+      // состояние до следующего живого обновления.
+      await props.onRefresh();
+      window.dispatchEvent(new Event('matrica:engines-changed'));
+      props.onNotify?.('Этап записан в историю ремонта двигателя.');
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: `Не удалось записать этап: ${String(e instanceof Error ? e.message : e)}` };
+    }
+  };
+
+  /** Справочник цехов для модалки — тот же, что у колонки «Цех». */
+  const stageWorkshops = useMemo(
+    () => Object.entries(workshopNameById).map(([id, label]) => ({ id, label })),
+    [workshopNameById],
+  );
 
   type EngineColumn = ColumnDescriptor & {
     sortable: boolean;
@@ -973,10 +1078,14 @@ export function EnginesPage(props: {
             </span>
           ),
       },
-      // Пилот PR6: «где двигатель сейчас» прямо в списке. Этап уже есть в строке
-      // (`lastStageName`), отдельных запросов не надо — колонка только показывает.
-      // Возврат (проход ≥ 2) виден суффиксом: иначе второй заход выглядел бы как первый,
-      // ровно та слепота, которую PR5 снял в отчёте.
+      // «Где двигатель сейчас» прямо в списке. Этап уже есть в строке
+      // (`lastStageName`), отдельных запросов не надо. Возврат (проход ≥ 2) виден
+      // суффиксом: иначе второй заход выглядел бы как первый.
+      //
+      // Промт КАРМАНА #168: колонка не только показывает, а меняет этап прямо в
+      // строке — тем же путём, что в производственной программе. Без права на
+      // запись этапов колонка остаётся только для чтения (тот же гейт, что у
+      // карточки и на сервере).
       {
         id: 'engineStage',
         label: 'Этап',
@@ -984,10 +1093,43 @@ export function EnginesPage(props: {
         sortable: true,
         sortKey: 'engineStage',
         kind: 'name',
+        printValue: (e) => String(e.lastStageName ?? '').trim() || '—',
         render: (e) => {
           const name = String(e.lastStageName ?? '').trim();
-          if (!name) return '-';
-          return e.lastStagePass != null && e.lastStagePass >= 2 ? `${name} · возврат` : name;
+          const isReturn = e.lastStagePass != null && e.lastStagePass >= 2;
+          if (!canEditStages) {
+            if (!name) return '-';
+            return isReturn ? `${name} · возврат` : name;
+          }
+          const current = String(e.lastStageCode ?? '').trim();
+          const options = productionProgramStageOptions(stageTemplates, current || null);
+          // Текущий этап может выпасть из списка (шаблон в архиве) — его всё равно
+          // показываем: иначе список соврёт, где двигатель.
+          const currentKnown = options.some((o) => o.code === current);
+          return (
+            <span onClick={(ev) => ev.stopPropagation()} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+              <select
+                data-engine-stage-select={String(e.id)}
+                value={current}
+                title="Выберите этап — откроется окно с датой, цехом и примечанием"
+                onChange={(ev) => {
+                  const code = String(ev.target.value ?? '');
+                  if (!code || code === current) return;
+                  openStageDialog(e, code);
+                }}
+                style={{ maxWidth: 180, padding: '2px 4px' }}
+              >
+                <option value="">— этап не задан —</option>
+                {!currentKnown && current ? <option value={current}>{name || current}</option> : null}
+                {options.map((o) => (
+                  <option key={o.code} value={o.code}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+              {isReturn ? <span style={{ fontSize: 11 }}>· возврат</span> : null}
+            </span>
+          );
         },
       },
       // Цех последнего события истории (владелец 13.10.2026): двигатель принадлежит
@@ -1045,7 +1187,7 @@ export function EnginesPage(props: {
         render: (e) => <ListRowThumbs files={(e as EngineRow).attachmentPreviews ?? []} />,
       },
     ],
-    [selectedStageDateOf, deepFilter.fieldMatches],
+    [selectedStageDateOf, deepFilter.fieldMatches, canEditStages, openStageDialog, stageTemplates],
   );
   /**
    * Колонки-номера — **обычные колонки списка** (промт КАРМАНА #164): свои идентификаторы,
@@ -1816,6 +1958,22 @@ export function EnginesPage(props: {
           onClose={() => setPrintDialogOpen(false)}
         />
       )}
+
+      {/* Модалка этапа из списка двигателей: та же, что в карточке и в производственной
+          программе, — этап пишется в историю ремонта целиком, а не «меняет статус». */}
+      {stageDialog ? (
+        <ProductionProgramStageDialog
+          engineLabel={stageDialog.engineLabel}
+          currentStage={productionProgramEngineStage(engineById.get(stageDialog.engineId) ?? null)}
+          templates={stageTemplates}
+          workshops={stageWorkshops}
+          initialCode={stageDialog.code}
+          planDeadline={null}
+          defaultWorkshopId={stageDialog.workshopId}
+          onClose={() => setStageDialog(null)}
+          onSubmit={submitStage}
+        />
+      ) : null}
     </div>
   );
 }

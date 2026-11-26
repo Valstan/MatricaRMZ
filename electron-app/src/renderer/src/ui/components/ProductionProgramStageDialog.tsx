@@ -41,7 +41,7 @@ export type ProductionProgramStageSubmitArgs = {
   /** Примечание к этапу. */
   note: string;
   /** Плановый срок отгрузки по строке плана (ГГГГ-ММ-ДД); пусто — срока нет. */
-  planDeadline: string;
+  planDeadline?: string;
   /** Осознанный повторный проход (ответ на гейт дублей), начиная с 2. */
   repeatPass?: number;
   /** Подтверждение смены даты разборки/дефектовки. */
@@ -77,8 +77,13 @@ export function ProductionProgramStageDialog(props: {
   workshops: readonly { id: string; label: string }[];
   /** Этап, выбранный в ячейке плана (уже выбранный оператором). */
   initialCode: string;
-  /** Плановый срок отгрузки строки плана (ГГГГ-ММ-ДД); пусто — срока нет. */
-  planDeadline: string;
+  /**
+   * Плановый срок отгрузки строки плана (ГГГГ-ММ-ДД); пусто — срока нет.
+   *
+   * `null` — строки плана рядом нет (список двигателей): поля «Срок по плану» тогда
+   * не показываем вовсе, иначе оператор впишет срок, который некуда деть.
+   */
+  planDeadline: string | null;
   /** Цех по умолчанию (цех программы, если он есть в справочнике). */
   defaultWorkshopId: string;
   onClose: () => void;
@@ -88,7 +93,7 @@ export function ProductionProgramStageDialog(props: {
   const [date, setDate] = useState<string>(todayInputValue());
   const [workshopId, setWorkshopId] = useState<string>(props.defaultWorkshopId);
   const [note, setNote] = useState<string>('');
-  const [planDeadline, setPlanDeadline] = useState<string>(props.planDeadline);
+  const [planDeadline, setPlanDeadline] = useState<string>(props.planDeadline ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>('');
   /** Вопрос «записать проходом № N?» — ждёт ответа оператора. */
@@ -132,7 +137,7 @@ export function ProductionProgramStageDialog(props: {
         date,
         workshopId,
         note,
-        planDeadline,
+        ...(props.planDeadline != null ? { planDeadline } : {}),
         ...(extra?.repeatPass ? { repeatPass: extra.repeatPass } : {}),
         ...(extra?.confirmDefectDate ? { confirmDefectDate: true } : {}),
       });
@@ -297,21 +302,23 @@ export function ProductionProgramStageDialog(props: {
           />
         </label>
 
-        <label style={{ display: 'grid', gap: 4 }}>
-          <span className="ui-muted" style={{ fontSize: 12 }}>
-            Срок по плану (дата отгрузки)
-          </span>
-          <UnifiedDateInput
-            type="date"
-            value={planDeadline}
-            disabled={busy}
-            data-pp-stage-deadline
-            onChange={(e) => setPlanDeadline(String(e.target.value ?? ''))}
-          />
-          <span className="ui-muted" style={{ fontSize: 11 }}>
-            Срок живёт в строке плана: по нему считаются «В срок / Просрочено» на плашке программы.
-          </span>
-        </label>
+        {props.planDeadline != null ? (
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span className="ui-muted" style={{ fontSize: 12 }}>
+              Срок по плану (дата отгрузки)
+            </span>
+            <UnifiedDateInput
+              type="date"
+              value={planDeadline}
+              disabled={busy}
+              data-pp-stage-deadline
+              onChange={(e) => setPlanDeadline(String(e.target.value ?? ''))}
+            />
+            <span className="ui-muted" style={{ fontSize: 11 }}>
+              Срок живёт в строке плана: по нему считаются «В срок / Просрочено» на плашке программы.
+            </span>
+          </label>
+        ) : null}
 
         {isBackward ? (
           <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
