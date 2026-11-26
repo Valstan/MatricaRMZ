@@ -13,6 +13,8 @@ import {
   type FacetOption,
   type FacetSelection,
 } from './listFacets.js';
+import { CONTRACT_KIND_LABELS, type ContractKind } from './contract.js';
+import { ENGINE_KIND_NONE_VALUE, engineKindFacetLabel, engineKindFacetValue } from './engineKind.js';
 
 /**
  * Ступени списка заказчиков поверх общего движка (`listFacets.ts`) — по образцу
@@ -42,6 +44,12 @@ export type CounterpartyFacetRow = {
   enginesAtFactory?: number;
   /** Просроченных договоров (срок исполнения прошёл). */
   overdueContracts?: number;
+  /**
+   * Вид заказчика (префикс) — из строгой таблицы `erp_counterparties.engine_kind`
+   * (промт КАРМАНА #147). `null`/пусто — вида нет; в EAV вида нет вовсе, поэтому
+   * источник один: строгая таблица.
+   */
+  engineKind?: ContractKind | null;
 };
 
 export type CounterpartyFacetId =
@@ -50,6 +58,7 @@ export type CounterpartyFacetId =
   | 'enginesAtFactory'
   | 'overdue'
   | 'requisites'
+  | 'kind'
   | 'files'
   | 'updatedAt';
 
@@ -119,6 +128,27 @@ export const COUNTERPARTY_FACETS: readonly CounterpartyFacetDescriptor[] = [
       if (filled < 3) return { value: 'partial', label: 'заполнены частично' };
       return { value: 'full', label: 'заполнены' };
     },
+  },
+  {
+    kind: 'values',
+    id: 'kind',
+    // Вид заказчика (префикс) — ГОЗ или гражданский (промт КАРМАНА #147). Раньше вида не
+    // было ни ступенью, ни колонкой: оператор не видел, почему заказчик предложен в договоре
+    // или не предложен. Источник — строгая таблица `erp_counterparties.engine_kind`, тот же,
+    // что у общего правила вида двигателя.
+    label: 'Вид',
+    valueOf: (r) => ({
+      value: engineKindFacetValue(r.engineKind),
+      label: engineKindFacetLabel(r.engineKind),
+    }),
+    // Ряд полный: вида «ГОЗ» на живых данных нет ни у кого, и ступень, собранная по
+    // строкам, тогда просто исчезла бы из фильтра. «Вид не задан» — отдельное значение:
+    // заказчики без вида должны отбираться отдельно, а не выпадать из отбора молча.
+    options: [
+      { value: 'military', label: CONTRACT_KIND_LABELS.military },
+      { value: 'civil', label: CONTRACT_KIND_LABELS.civil },
+      { value: ENGINE_KIND_NONE_VALUE, label: 'Вид не задан' },
+    ],
   },
   {
     kind: 'values',

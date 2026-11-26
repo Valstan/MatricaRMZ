@@ -61,7 +61,10 @@ import {
   contractAmountFromSections,
   describeFacetSelectionForRows,
   effectiveContractDueAt,
+  engineKindLabel,
+  parseCounterpartyKind,
   parseContractSections,
+  type ContractKind,
   type FacetDescriptor,
   type FacetSelection,
 } from '@matricarmz/shared';
@@ -87,6 +90,11 @@ type Row = {
   enginesAtFactory?: number;
   /** Просроченных договоров. */
   overdueContracts?: number;
+  /**
+   * Вид заказчика (префикс) — из строгой таблицы `erp_counterparties.engine_kind`
+   * (промт КАРМАНА #147). `null` — вида нет; в EAV вида нет вовсе.
+   */
+  engineKind?: ContractKind | null;
 };
 type SortKey = 'displayName' | 'inn' | 'updatedAt' | 'contractCount' | 'contractAmount';
 
@@ -268,6 +276,9 @@ export function CounterpartiesPage(props: {
               }
             : {}),
           updatedAt: Number(strict ? strict.updated_at : r.updatedAt ?? 0),
+          // Вид заказчика (префикс): строгая таблица — единственный источник (промт #147).
+          // В EAV вида нет, поэтому у легаси-контрагентов вида не будет — и это честно.
+          engineKind: parseCounterpartyKind(strict?.engine_kind),
           // Сводка по договорам заказчика (в списке это колонки «Договоров» и «Сумма»).
           ...(() => {
             const stats = statsByCustomer.get(String(r.id));
@@ -412,6 +423,10 @@ export function CounterpartiesPage(props: {
       { id: 'address', label: 'Адрес', kind: 'text', render: (row) => row.address || '—' },
       { id: 'phone', label: 'Телефон', kind: 'text', render: (row) => row.phone || '—' },
       { id: 'email', label: 'E-mail', kind: 'text', render: (row) => row.email || '—' },
+      // Вид заказчика (префикс) — по нему идёт отбор подсказок в карточке договора
+      // (промт КАРМАНА #147), поэтому оператор должен видеть его и здесь. Колонка по
+      // умолчанию скрыта (как реквизиты): включается в «Колонках списка».
+      { id: 'engineKind', label: 'Вид', kind: 'name', render: (row) => engineKindLabel(row.engineKind) },
       { id: 'contractCount', label: 'Договоров', sortKey: 'contractCount', kind: 'num', render: (row) => (row.contractCount ? String(row.contractCount) : '—') },
       { id: 'contractAmount', label: 'Сумма по договорам', sortKey: 'contractAmount', kind: 'num', render: (row) => (row.contractAmount ? `${(row.contractAmount / 1_000_000).toFixed(2)} млн` : '—') },
       { id: 'updatedAt', label: 'Дата изменения', tabletLabel: 'Изм.', sortKey: 'updatedAt', kind: 'date', render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
@@ -422,8 +437,16 @@ export function CounterpartiesPage(props: {
   const allColumnIds = useMemo(() => allColumns.map((c) => c.id), [allColumns]);
   const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);
   // Реквизиты из строгой карточки контрагента: по умолчанию скрыты (список не шире прежнего),
-  // включаются в «Колонках списка» — как колонка «Привязка» у двигателей.
-  const columnLayout = useColumnLayout('list:counterparties:columns', allColumnIds, ['shortName', 'kpp', 'address', 'phone', 'email']);
+  // включаются в «Колонках списка» — как колонка «Привязка» у двигателей. Вид заказчика
+  // (префикс) — туда же: он нужен оператору, чтобы понять, кого предложит договор.
+  const columnLayout = useColumnLayout('list:counterparties:columns', allColumnIds, [
+    'shortName',
+    'kpp',
+    'address',
+    'phone',
+    'email',
+    'engineKind',
+  ]);
   const visibleColumns = useMemo(
     () =>
       columnLayout.order

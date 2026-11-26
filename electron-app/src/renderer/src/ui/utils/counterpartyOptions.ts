@@ -1,3 +1,10 @@
+import {
+  counterpartyKindHint,
+  filterCounterpartiesByContractKind,
+  parseCounterpartyKind,
+  type ContractKind,
+} from '@matricarmz/shared';
+
 import { type SearchableSelectOption } from './selectOptions.js';
 
 /**
@@ -63,6 +70,18 @@ export type CounterpartySources = {
 };
 
 /**
+ * Подсказка поля выбора контрагента: обычная опция поля плюс ВИД заказчика (префикс).
+ *
+ * Вид нужен и подсказке (вторая строка — «Вид: ГОЗ» / «Вид не задан»), и отбору по виду
+ * договора (промт КАРМАНА #147): без него в подсказках нечем было бы отбирать, а оператор
+ * не видел бы, почему заказчик пропал или предложен.
+ */
+export type CounterpartySearchOption = SearchableSelectOption & {
+  /** Вид заказчика из строгой таблицы; `null` — вида нет. */
+  engineKind?: ContractKind | null;
+};
+
+/**
  * Мерж строгой таблицы и EAV — единственное место, где они соединяются.
  *
  * Строгие строки идут первыми: карточка контрагента — источник правды (так же, как в
@@ -106,19 +125,28 @@ export function counterpartySearchText(
 }
 
 /**
- * Подсказки поля выбора контрагента — из ТОГО ЖЕ мержа, что и список.
+ * Подсказка поля выбора контрагента — из ТОГО ЖЕ мержа, что и список.
  *
  * Метка и поисковый текст считаются здесь, чтобы поле выбора и список не разошлись
  * снова: у контрагента из строгой таблицы название есть, даже если его значения-атрибуты
  * ещё не доехали до реплики.
+ *
+ * **Вид заказчика (префикс) — в подсказке второй строкой** (промт КАРМАНА #147): оператор
+ * должен видеть, почему заказчик предложен или не предложен. Источник вида — строгая
+ * таблица (`erp_counterparties.engine_kind`); в EAV вида нет, и второй источник заводить
+ * нельзя.
  */
-export function counterpartySearchOptions(sources: CounterpartySources): SearchableSelectOption[] {
+export function counterpartySearchOptions(sources: CounterpartySources): CounterpartySearchOption[] {
   return sources.merged.map((row) => {
     const label = counterpartyLabel(row, sources.strictById);
     const searchText = counterpartySearchText(row, sources.strictById);
+    const strict = sources.strictById.get(String(row.id));
+    const engineKind = parseCounterpartyKind(strict?.engine_kind);
     return {
       id: String(row.id),
       label,
+      engineKind,
+      hintText: counterpartyKindHint(engineKind),
       ...(searchText ? { searchText } : {}),
     };
   });
@@ -130,9 +158,25 @@ export function counterpartySearchOptions(sources: CounterpartySources): Searcha
  * Источники те же, что у списка контрагентов: строгая таблица (реплика на машине) плюс
  * легаси-EAV. Если строгой таблицы на клиенте нет — берём EAV (запасной путь).
  */
-export async function loadCounterpartySearchOptions(typeId: string): Promise<SearchableSelectOption[]> {
+export async function loadCounterpartySearchOptions(typeId: string): Promise<CounterpartySearchOption[]> {
   const sources = await loadCounterpartySources(typeId);
   return counterpartySearchOptions(sources);
+}
+
+/**
+ * Отбор подсказок по виду договора (промт КАРМАНА #147).
+ *
+ * Правило — доменное (`filterCounterpartiesByContractKind`): заказчик чужого вида не
+ * предлагается, заказчик без вида предлагается всегда, но с пометкой «Вид не задан» в
+ * подсказке. `keepIds` — выбранный контрагент: он виден всегда, иначе поле врало бы, что
+ * значение удалено.
+ */
+export function filterCounterpartyOptionsByContractKind(
+  options: readonly CounterpartySearchOption[],
+  contractKind: ContractKind | null | undefined,
+  opts?: { keepIds?: readonly string[] },
+): CounterpartySearchOption[] {
+  return filterCounterpartiesByContractKind(options, contractKind, opts);
 }
 
 /** Загрузить оба источника и смержить их — для списка и для поля выбора. */
@@ -153,7 +197,7 @@ export async function loadCounterpartySources(typeId: string): Promise<Counterpa
 export function counterpartySearchOptionsFromRows(
   strictRows: CounterpartyStrictRow[],
   eavRows: CounterpartyEavRow[],
-): SearchableSelectOption[] {
+): CounterpartySearchOption[] {
   const { strictById, merged } = mergeCounterpartyRows(strictRows, eavRows);
   return counterpartySearchOptions({
     strictRows,
