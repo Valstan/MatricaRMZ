@@ -170,6 +170,50 @@ describe('поиск по названию папок и файлов', () => {
   });
 });
 
+describe('режим «Фото двигателя»: совпадение только по названию папки', () => {
+  it('папка с номером и фото внутри — одна находка со всеми картинками', async () => {
+    // Фикстура владельца: папка «Э06АТ0889_41-26» с фотографиями и одноимённый
+    // файл рядом. В режиме «Фото двигателя» файл находкой не является.
+    const engineDir = join(dir, 'Э06АТ0889_41-26');
+    mkdirSync(engineDir);
+    writeImage(engineDir, '1.jpg');
+    writeImage(engineDir, '2.jpg');
+    writeImage(engineDir, '3.jpg');
+    writeFileSync(join(dir, 'Э06АТ0889_41-26.txt'), 'данные', 'utf8');
+    const src = await source();
+
+    const result = await searchFolderSources([src], 'Э06АТ0889', { scope: 'folder' });
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]?.matchedBy).toBe('folder');
+    expect(result.matches[0]?.name).toBe('Э06АТ0889_41-26');
+    expect(result.matches[0]?.imageCount).toBe(3);
+    expect(result.images).toHaveLength(3);
+  });
+
+  it('в обычном режиме тот же файл остаётся отдельной находкой', async () => {
+    const engineDir = join(dir, 'Э06АТ0889_41-26');
+    mkdirSync(engineDir);
+    writeImage(engineDir, '1.jpg');
+    writeFileSync(join(dir, 'Э06АТ0889_41-26.txt'), 'данные', 'utf8');
+    const src = await source();
+
+    const result = await searchFolderSources([src], 'Э06АТ0889');
+    expect(result.matches.some((m) => m.matchedBy === 'folder')).toBe(true);
+    expect(result.matches.some((m) => m.matchedBy === 'file')).toBe(true);
+  });
+
+  it('область из аргументов: неизвестное значение — старое поведение', async () => {
+    const engineDir = join(dir, 'Э06АТ0889');
+    mkdirSync(engineDir);
+    writeImage(engineDir, '1.jpg');
+    writeFileSync(join(dir, 'Э06АТ0889.txt'), 'данные', 'utf8');
+    const src = await source();
+
+    const result = await searchFolderSources([src], 'Э06АТ0889', { scope: 'чепуха' as never });
+    expect(result.matches.some((m) => m.matchedBy === 'file')).toBe(true);
+  });
+});
+
 describe('реестр выданных id картинок', () => {
   it('картинка получает id, а путь остаётся у главного процесса', async () => {
     const engineDir = join(dir, 'Э06АТ0889');

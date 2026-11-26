@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
@@ -19,6 +20,8 @@ vi.mock('electron', () => ({
 
 import { registerFileSearchIpc } from './fileSearch.js';
 
+const here = dirname(fileURLToPath(import.meta.url));
+
 let dir = '';
 let sqlite: Database.Database;
 
@@ -26,8 +29,45 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'matrica-file-search-ipc-'));
   sqlite = new Database(':memory:');
   sqlite.exec(`CREATE TABLE sync_state (key text PRIMARY KEY NOT NULL, value text, updated_at integer NOT NULL)`);
+  createEngineSchema(sqlite);
   registerFileSearchIpc(makeCtx('user-1'));
 });
+
+/** Минимум схемы двигателей — для канала подсказок по номеру. */
+function createEngineSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE entity_types (id text PRIMARY KEY NOT NULL, code text NOT NULL, name text NOT NULL,
+      created_at integer NOT NULL, updated_at integer NOT NULL,
+      last_server_seq integer, deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+    CREATE TABLE entities (id text PRIMARY KEY NOT NULL, type_id text NOT NULL,
+      created_at integer NOT NULL, updated_at integer NOT NULL,
+      last_server_seq integer, deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+    CREATE TABLE attribute_defs (id text PRIMARY KEY NOT NULL, entity_type_id text NOT NULL,
+      code text NOT NULL, name text NOT NULL, data_type text NOT NULL, is_required integer NOT NULL DEFAULT 0,
+      sort_order integer NOT NULL DEFAULT 0, meta_json text,
+      created_at integer NOT NULL, updated_at integer NOT NULL,
+      last_server_seq integer, deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+    CREATE TABLE attribute_values (id text PRIMARY KEY NOT NULL, entity_id text NOT NULL,
+      attribute_def_id text NOT NULL, value_json text,
+      created_at integer NOT NULL, updated_at integer NOT NULL,
+      last_server_seq integer, deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+  `);
+  db.exec(readFileSync(join(here, '../../../../drizzle/0032_erp_engine_cards_replica.sql'), 'utf8'));
+  db.exec(readFileSync(join(here, '../../../../drizzle/0037_engine_rmz_numbers_replica.sql'), 'utf8'));
+  db.exec(`
+    INSERT INTO entity_types (id, code, name, created_at, updated_at) VALUES ('t-engine', 'engine', 'Двигатель', 1, 1);
+    INSERT INTO attribute_defs (id, entity_type_id, code, name, data_type, sort_order, created_at, updated_at)
+      VALUES ('d-number', 't-engine', 'engine_number', 'Номер двигателя', 'text', 10, 1, 1);
+  `);
+}
+
+function addEngine(db: Database.Database, id: string, engineNumber: string): void {
+  db.exec(`INSERT INTO entities (id, type_id, created_at, updated_at) VALUES ('${id}', 't-engine', 1, 1)`);
+  db.prepare(
+    `INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at)
+     VALUES (?,?,?,?,1,1)`,
+  ).run(`v-${id}`, id, 'd-number', JSON.stringify(engineNumber));
+}
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -168,5 +208,63 @@ describe('папки: хранение, поиск по названию, печ
     const r = (await preview({}, { id: 'fsimg_чужой' })) as { ok: boolean; error?: string };
     expect(r.ok).toBe(false);
     expect(r.error).toContain('не найдена');
+  });
+});
+
+describe('режим «Фото двигателя» и подсказки по номеру (промт КАРМАНА #155)', () => {
+  it('область folder: находка — папка со всеми фотографиями, отдельного файла нет', async () => {
+    const engineDir = join(dir, 'Э06АТ0889_41-26');
+    mkdirSync(engineDir);
+    writeFileSync(join(engineDir, '1.jpg'), 'x', 'utf8');
+    writeFileSync(join(engineDir, '2.jpg'), 'x', 'utf8');
+    writeFileSync(join(dir, 'Э06АТ0889_41-26.txt'), 'данные', 'utf8');
+    const set = handlers.get('fileSearch:folders:set')!;
+    await set({}, { folders: [{ id: 'fsf_1', path: dir, name: 'фото', addedAt: 1 }] });
+
+    const search = handlers.get('fileSearch:searchFolders')!;
+    const res = (await search({}, { query: 'Э06АТ0889', scope: 'folder' })) as {
+      ok: boolean;
+      result: { matches: { name: string; matchedBy: string; imageCount: number }[] };
+    };
+    expect(res.ok).toBe(true);
+    expect(res.result.matches).toHaveLength(1);
+    expect(res.result.matches[0]?.matchedBy).toBe('folder');
+    expect(res.result.matches[0]?.imageCount).toBe(2);
+  });
+
+  it('без области поведение прежнее: файл — отдельная находка', async () => {
+    const engineDir = join(dir, 'Э06АТ0889');
+    mkdirSync(engineDir);
+    writeFileSync(join(engineDir, '1.jpg'), 'x', 'utf8');
+    writeFileSync(join(dir, 'Э06АТ0889.txt'), 'данные', 'utf8');
+    const set = handlers.get('fileSearch:folders:set')!;
+    await set({}, { folders: [{ id: 'fsf_1', path: dir, name: 'фото', addedAt: 1 }] });
+
+    const search = handlers.get('fileSearch:searchFolders')!;
+    const res = (await search({}, { query: 'Э06АТ0889' })) as {
+      ok: boolean;
+      result: { matches: { matchedBy: string }[] };
+    };
+    expect(res.result.matches.some((m) => m.matchedBy === 'file')).toBe(true);
+  });
+
+  it('подсказки по неполному номеру дают полный номер двигателя', async () => {
+    addEngine(sqlite, 'e-1', 'Э06АТ0889');
+
+    const suggest = handlers.get('fileSearch:engineNumberSuggestions')!;
+    const res = (await suggest({}, { q: '0889' })) as {
+      ok: boolean;
+      suggestions: { id: string; engineNumber: string }[];
+    };
+    expect(res.ok).toBe(true);
+    expect(res.suggestions.map((s) => s.engineNumber)).toEqual(['Э06АТ0889']);
+  });
+
+  it('слово подсказок не даёт', async () => {
+    addEngine(sqlite, 'e-1', 'Э06АТ0889');
+
+    const suggest = handlers.get('fileSearch:engineNumberSuggestions')!;
+    const res = (await suggest({}, { q: 'акт' })) as { ok: boolean; suggestions: unknown[] };
+    expect(res.suggestions).toEqual([]);
   });
 });

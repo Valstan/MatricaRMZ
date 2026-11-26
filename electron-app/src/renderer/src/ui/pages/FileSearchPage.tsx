@@ -5,13 +5,16 @@ import {
   compareFindingsWithCard,
   engineCardMissingCharacteristics,
   groupFolderImagesByMatch,
+  isFileSearchEngineNumberLike,
   parseTransferDate,
   suggestTransferTargetCode,
   type EngineCardTransferTarget,
   type FileSearchComparisonRow,
   type FileSearchComparisonState,
+  type FileSearchEngineSuggestion,
   type FileSearchFinding,
   type FileSearchFolderResult,
+  type FileSearchFolderSearchScope,
   type FileSearchFolderSource,
   type FileSearchMatch,
   type FileSearchResult,
@@ -22,6 +25,45 @@ import {
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { SuggestInput } from '../components/SuggestInput.js';
+
+/**
+ * Режимы поиска модуля.
+ *
+ * `content` — по содержимому выбранных файлов;
+ * `folders` — по названию папки или файла в папках с фотографиями;
+ * `photos` — «Фото двигателя»: только по названию ПАПКИ, находка — папка
+ * целиком со всеми её фотографиями.
+ */
+type FileSearchMode = 'content' | 'folders' | 'photos';
+
+/** Режимы кнопками рядом со строкой поиска: подпись и что режим делает. */
+const SEARCH_MODES: { code: FileSearchMode; label: string; hint: string }[] = [
+  { code: 'content', label: 'В файлах', hint: 'Ищем по содержимому выбранных файлов.' },
+  {
+    code: 'folders',
+    label: 'В папках по названию',
+    hint: 'Ищем по названию папки или файла в папках с фотографиями.',
+  },
+  {
+    code: 'photos',
+    label: 'Фото двигателя',
+    hint: 'Ищем только по названию папки и открываем её целиком — со всеми фотографиями двигателя.',
+  },
+];
+
+/**
+ * Область совпадения по папкам для режима.
+ *
+ * «Фото двигателя» ищет по названию папки; отдельный файл, имя которого
+ * случайно подошло, находкой в этом режиме не является.
+ */
+function folderScopeOfMode(mode: FileSearchMode): FileSearchFolderSearchScope {
+  return mode === 'photos' ? 'folder' : 'any';
+}
+
+/** Задержка запроса подсказок — как в глобальном поиске. */
+const SUGGEST_DEBOUNCE_MS = 300;
 
 type EngineLookup = {
   id: string;
@@ -126,14 +168,15 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
   const [status, setStatus] = useState('');
 
   /**
-   * Режим поиска: по содержимому файлов (было) или по названию в папках (стало).
+   * Режим поиска: что именно ищем.
    *
-   * Два режима — две разные задачи оператора: найти сведения В документе или
-   * найти ПАПКУ с фотографиями двигателя по номеру в её названии. Переключатель
-   * рядом со строкой поиска, а не отдельный раздел — иначе оператору пришлось бы
-   * гадать, в каком поле что набирать.
+   * Три режима — три разные задачи оператора: найти сведения В документе, найти
+   * ПАПКУ или отдельный файл по названию либо найти ПАПКУ с фотографиями
+   * двигателя по номеру в её названии и открыть её целиком. Переключатель —
+   * кнопками рядом со строкой поиска, а не отдельным разделом: иначе оператору
+   * пришлось бы гадать, в каком поле что набирать.
    */
-  const [mode, setMode] = useState<'content' | 'folders'>('content');
+  const [mode, setMode] = useState<FileSearchMode>('content');
   const [folders, setFolders] = useState<FileSearchFolderSource[]>([]);
   const [folderResult, setFolderResult] = useState<FileSearchFolderResult | null>(null);
   /** Отмеченные галочками картинки — по id, который выдал главный процесс. */
@@ -149,6 +192,13 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
    * прячется сама, если мастера нет.
    */
   const [osPrintWizard, setOsPrintWizard] = useState(false);
+  /**
+   * Подсказки номера двигателя по последним цифрам (промт КАРМАНА #155).
+   *
+   * Оператор набирает «0889» — а движок в базе один, и номер у него полный.
+   * Подсказка показывает полный номер; выбор подставляет его в строку.
+   */
+  const [suggestions, setSuggestions] = useState<FileSearchEngineSuggestion[]>([]);
 
   const [lookup, setLookup] = useState<{ engine: EngineLookup; note: string | null } | null>(null);
   const [card, setCard] = useState<Record<string, unknown> | null>(null);
@@ -170,6 +220,47 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
       if (caps?.ok) setOsPrintWizard(caps.osPrintWizard);
     })();
   }, []);
+
+  /**
+   * Подсказки по номеру двигателя.
+   *
+   * Запрос к базе — с задержкой, как в глобальном поиске: на каждый ввод ходить
+   * в базу нельзя. Подсказки появляются ТОЛЬКО когда ввод похож на номер:
+   * оператор ищет слово по содержимому файлов, и выпадашка с номерами мешала бы
+   * вводу.
+   */
+  useEffect(() => {
+    const q = query.trim();
+    if (!isFileSearchEngineNumberLike(q)) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await window.matrica.fileSearch.engineNumberSuggestions({ q });
+        if (!cancelled) setSuggestions(res.ok ? res.suggestions : []);
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      }
+    }, SUGGEST_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query]);
+
+  /** Подсказки для выпадашки: номер двигателя и чем он ещё узнаваем. */
+  const suggestOptions = useMemo(
+    () =>
+      suggestions.map((item) => {
+        const details = [item.internalNumberFull ? `внутр. ${item.internalNumberFull}` : '', item.rmzCode ?? '']
+          .filter(Boolean)
+          .join(' · ');
+        return { value: item.engineNumber, ...(details ? { description: details } : {}) };
+      }),
+    [suggestions],
+  );
 
   const persistSources = useCallback(async (next: FileSearchSource[]) => {
     setSources(next);
@@ -237,7 +328,9 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
     }
     setBusy(true);
     try {
-      const res = await window.matrica.fileSearch.searchFolders({ query: q });
+      // Область — по режиму: «Фото двигателя» ищет только по названию папки и
+      // отдаёт её целиком; «В папках по названию» — как было (папка или файл).
+      const res = await window.matrica.fileSearch.searchFolders({ query: q, scope: folderScopeOfMode(mode) });
       if (!res.ok) {
         setStatus(`Ошибка поиска: ${res.error}`);
         return;
@@ -251,7 +344,7 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
     } finally {
       setBusy(false);
     }
-  }, [folders, query]);
+  }, [folders, mode, query]);
 
   /**
    * Крупные превью подгружаем порциями, по мере разворачивания находки: фото
@@ -730,40 +823,39 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
       </SectionCard>
 
       <SectionCard title="Что ищем">
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
-          <span style={{ color: 'var(--muted)', fontSize: 12 }}>Ищем:</span>
-          <Button
-            size="sm"
-            variant={mode === 'content' ? 'primary' : 'outline'}
-            onClick={() => setMode('content')}
-          >
-            по содержимому файлов
-          </Button>
-          <Button
-            size="sm"
-            variant={mode === 'folders' ? 'primary' : 'outline'}
-            onClick={() => setMode('folders')}
-          >
-            по названию в папках
-          </Button>
-        </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void (mode === 'folders' ? runFolderSearch() : runSearch());
-            }}
-            placeholder={mode === 'folders' ? 'Например: Э06АТ0889' : 'Например: 41/26'}
-            style={{ flex: 1, minWidth: 220 }}
-          />
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>Ищем:</span>
+          {SEARCH_MODES.map((item) => (
+            <Button
+              key={item.code}
+              size="sm"
+              variant={mode === item.code ? 'primary' : 'outline'}
+              onClick={() => setMode(item.code)}
+              title={item.hint}
+            >
+              {item.label}
+            </Button>
+          ))}
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <SuggestInput
+              value={query}
+              options={suggestOptions}
+              onChange={setQuery}
+              onSubmit={() => void (mode === 'content' ? runSearch() : runFolderSearch())}
+              waitForOptions
+              placeholder={mode === 'content' ? 'Например: 41/26' : 'Например: Э06АТ0889'}
+            />
+          </div>
           <Button
             variant="primary"
-            onClick={() => void (mode === 'folders' ? runFolderSearch() : runSearch())}
+            onClick={() => void (mode === 'content' ? runSearch() : runFolderSearch())}
             disabled={busy}
           >
             Искать
           </Button>
+        </div>
+        <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+          {SEARCH_MODES.find((item) => item.code === mode)?.hint}
         </div>
         {status ? (
           <div style={{ color: status.startsWith('Не ') || status.startsWith('Ошибка') ? 'var(--danger, #b00)' : 'var(--muted)', marginTop: 8 }}>
@@ -772,9 +864,15 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
         ) : null}
       </SectionCard>
 
-      {mode === 'folders' && folderResult ? (
+      {(mode === 'folders' || mode === 'photos') && folderResult ? (
         <>
-          <SectionCard title={`Найденные папки и файлы (${folderResult.matches.length})`}>
+          <SectionCard
+            title={
+              mode === 'photos'
+                ? `Фото двигателя — папки с номером в названии (${folderResult.matches.length})`
+                : `Найденные папки и файлы (${folderResult.matches.length})`
+            }
+          >
             {folderResult.matches.length === 0 ? (
               <div style={{ color: 'var(--muted)' }}>
                 По запросу «{folderResult.query}» в выбранных папках ничего не нашлось.

@@ -1,15 +1,36 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  FILE_SEARCH_FOLDER_SEARCH_SCOPES,
   FILE_SEARCH_IMAGE_EXTENSIONS,
   fileSearchImageExtension,
   folderMatchKey,
   folderNameMatches,
+  folderScopeAllowsFileMatches,
   groupFolderImagesByMatch,
   isFileSearchImage,
   matchFolderNames,
+  normalizeFileSearchFolderScope,
   type FileSearchFolderImage,
 } from './fileSearchFolders.js';
+
+describe('область совпадения при поиске по папкам', () => {
+  it('известные области — «any» и «folder»', () => {
+    expect(FILE_SEARCH_FOLDER_SEARCH_SCOPES).toEqual(['any', 'folder']);
+  });
+
+  it('неизвестное значение — «any»: поиск остаётся как был', () => {
+    expect(normalizeFileSearchFolderScope('any')).toBe('any');
+    expect(normalizeFileSearchFolderScope('folder')).toBe('folder');
+    expect(normalizeFileSearchFolderScope('чепуха')).toBe('any');
+    expect(normalizeFileSearchFolderScope(undefined)).toBe('any');
+  });
+
+  it('область «folder» не допускает находку по названию файла', () => {
+    expect(folderScopeAllowsFileMatches('any')).toBe(true);
+    expect(folderScopeAllowsFileMatches('folder')).toBe(false);
+  });
+});
 
 describe('совпадение по названию папки и файла', () => {
   it('ищет вхождение подстроки без учёта регистра', () => {

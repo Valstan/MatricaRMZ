@@ -39,7 +39,8 @@ import type {
   OrgEventSaveDto,
 } from '../domain/orgGifts.js';
 import type { FileSearchResult, FileSearchSource } from '../domain/fileSearch.js';
-import type { FileSearchFolderResult, FileSearchFolderSource } from '../domain/fileSearchFolders.js';
+import type { FileSearchFolderResult, FileSearchFolderSearchScope, FileSearchFolderSource } from '../domain/fileSearchFolders.js';
+import type { FileSearchEngineSuggestion } from '../domain/fileSearchEngineSuggest.js';
 import type { PrintTemplateRow } from '../domain/printTemplate.js';
 import type { PrintDocumentDto } from '../domain/printDocuments.js';
 
@@ -1634,8 +1635,18 @@ export type MatricaApi = {
       | { ok: true; folders: FileSearchFolderSource[]; skipped: string[] }
       | { ok: false; error: string }
     >;
-    searchFolders: (args: { query: string }) => Promise<
+    searchFolders: (args: { query: string; scope?: FileSearchFolderSearchScope }) => Promise<
       { ok: true; result: FileSearchFolderResult } | { ok: false; error: string }
+    >;
+    /**
+     * Подсказки номера двигателя по неполному номеру (промт КАРМАНА #155).
+     *
+     * Оператор набирает в строке поиска последние цифры номера («0889») и ждёт
+     * полный номер из базы — как в списке двигателей. Ввод, не похожий на
+     * номер, подсказок не даёт.
+     */
+    engineNumberSuggestions: (args: { q: string; limit?: number }) => Promise<
+      { ok: true; suggestions: FileSearchEngineSuggestion[] } | { ok: false; error: string }
     >;
     /** Крупное превью картинки — по id, который выдал главный процесс. */
     imagePreview: (args: { id: string }) => Promise<

@@ -2,8 +2,11 @@ import { BrowserWindow, dialog, ipcMain } from 'electron';
 
 import {
   FILE_SEARCH_DIALOG_FILTERS,
+  normalizeFileSearchFolderScope,
+  type FileSearchEngineSuggestion,
   type FileSearchFolderResult,
   type FileSearchFolderSource,
+  type FileSearchFolderSearchScope,
   type FileSearchResult,
   type FileSearchSource,
 } from '@matricarmz/shared';
@@ -11,6 +14,7 @@ import {
 import type { IpcContext } from '../ipcContext.js';
 import { requirePermOrResult } from '../ipcContext.js';
 import { findEngineByExactNumber, listEngineCharacteristicDefs } from '../../services/engineExactLookupService.js';
+import { suggestEnginesByNumberFragment } from '../../services/engineNumberSuggestionService.js';
 import {
   SEARCH_SOURCE_EXTENSIONS,
   describeSearchSource,
@@ -335,18 +339,54 @@ export function registerFileSearchIpc(ctx: IpcContext) {
    * Папки берутся из машинно-локального хранилища этого пользователя, а НЕ из
    * аргументов renderer: иначе канал стал бы «обойди любую папку на диске».
    * Оператор добавляет папки кнопкой (диалог выбора) — они и ищутся.
+   *
+   * `scope` — что считается находкой: `any` (папка или отдельный файл, как
+   * было) или `folder` (режим «Фото двигателя»: только папка, и она — целиком,
+   * со всеми фотографиями).
    */
   ipcMain.handle(
     'fileSearch:searchFolders',
-    async (_e, args: { query?: string }): Promise<
+    async (_e, args: { query?: string; scope?: FileSearchFolderSearchScope }): Promise<
       { ok: true; result: FileSearchFolderResult } | Err
     > => {
       try {
         const userId = (await ctx.currentActor()) || 'local';
         const raw = await settingsGetString(ctx.sysDb, SettingsKey.FileSearchFolders);
         const folders = parseFolderMap(raw)[userId] ?? [];
-        const result = await searchFolderSources(folders, String(args?.query ?? ''));
+        const result = await searchFolderSources(folders, String(args?.query ?? ''), {
+          scope: normalizeFileSearchFolderScope(args?.scope),
+        });
         return { ok: true, result };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+  );
+
+  /**
+   * Подсказки номера двигателя по неполному номеру (промт КАРМАНА #155).
+   *
+   * Оператор набирает в строке поиска последние цифры номера («0889») и ждёт
+   * полный номер из базы. Источник — локальная реплика карточек: список всех
+   * двигателей в renderer тянуть нельзя, а точечный запрос с лимитом — можно.
+   *
+   * Право — как на чтение карточки (`engines.view`): подсказка показывает номер
+   * двигателя, который и так виден оператору с этим правом.
+   */
+  ipcMain.handle(
+    'fileSearch:engineNumberSuggestions',
+    async (_e, args: { q?: string; limit?: number }): Promise<
+      { ok: true; suggestions: FileSearchEngineSuggestion[] } | Err
+    > => {
+      const gate = await requirePermOrResult(ctx, 'engines.view');
+      if (!gate.ok) return gate as Err;
+      try {
+        const rawLimit = args?.limit;
+        const suggestions = await suggestEnginesByNumberFragment(ctx.dataDb(), {
+          q: String(args?.q ?? ''),
+          ...(rawLimit == null ? {} : { limit: Number(rawLimit) }),
+        });
+        return { ok: true, suggestions };
       } catch (e) {
         return { ok: false, error: String(e) };
       }
