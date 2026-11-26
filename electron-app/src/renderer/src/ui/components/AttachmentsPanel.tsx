@@ -182,6 +182,10 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [printNames, setPrintNames] = useState(true);
   const [printContents, setPrintContents] = useState(true);
+  // Умеет ли эта машина системный мастер печати фотографий (промт КАРМАНА #159).
+  // Renderer про ОС ничего не знает, поэтому способность спрашивается у main —
+  // и пункт меню прячется сам, если мастера на машине нет (правило промта #158).
+  const [osPrintWizard, setOsPrintWizard] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   // На планшете нет ни файловых диалогов, ни кэша на диске, ни Проводника: часть
   // кнопок панели там просто не имеет смысла — гейтим их поштучно, а не панель целиком.
@@ -256,6 +260,17 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     // Управляемой выборкой владеет модуль — он же её и сбрасывает.
     if (!controlledSelection) setOwnSelected(new Set());
   }, [listKey, controlledSelection]);
+
+  useEffect(() => {
+    // На планшете мастера нет и не будет — там файловой системы нет.
+    if (isAndroid) return;
+    const caps = window.matrica.fileSearch.printCapabilities();
+    void caps
+      .then((c) => {
+        if (c.ok) setOsPrintWizard(c.osPrintWizard);
+      })
+      .catch(() => undefined);
+  }, [isAndroid]);
 
   useEffect(() => {
     thumbsRef.current = thumbs;
@@ -713,9 +728,10 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
       // верстак» работают: это чат и профиль, они на телефоне есть.
       return id === 'colleague' || id === 'desktop';
     }
-    // Мастер печати фотографий — для снимков, лежащих на диске оператора
-    // (выдача «Поиска по файлам»). У вложения карточки своего пути на диске нет.
-    if (id === 'printWizard') return false;
+    // Мастер печати фотографий для вложений: файлы лежат на СЕРВЕРЕ, поэтому
+    // главный процесс сначала копирует их в папку оператора (промт #159 + #160).
+    // На машине без мастера (не Windows) пункт не показывается — правило #158.
+    if (id === 'printWizard') return osPrintWizard;
     // «Скопировать путь»: у серверного файла своего пути нет — он лежит на сервере.
     if (id === 'copyPath') return false;
     return true;
@@ -750,6 +766,23 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     // / содержимое изображений) и предпросмотр окна. Второй механизм печати не заводим.
     if (id === 'print') {
       setPrintDialogOpen(true);
+      return;
+    }
+
+    // Мастер печати фотографий — тем же общим шагом печати, что и в выдаче
+    // «Поиска по файлам» (промт КАРМАНА #159). Вложения лежат на сервере, поэтому
+    // их копии в папку оператора собирает главный процесс.
+    if (id === 'printWizard') {
+      setBusy('Готовим фотографии к печати...');
+      const call = window.matrica.files.printWizard({ fileIds, label: 'Фото для печати' });
+      const r = await call.catch((e) => ({ ok: false as const, error: String(e) }));
+      if (!r.ok) {
+        setBusy(`Мастер печати не открылся: ${r.error}`);
+        setTimeout(() => setBusy(''), 8000);
+        return;
+      }
+      setBusy('Мастер печати закрыт. Временные копии фотографий лежат в папке на диске.');
+      setTimeout(() => setBusy(''), 8000);
       return;
     }
 

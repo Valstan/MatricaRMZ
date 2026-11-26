@@ -4259,6 +4259,12 @@ export type MatricaApi = {
     assemblePdf: (args: { fileIds: string[]; defaultName?: string }) => Promise<{ ok: true; savePath: string } | { ok: false; error: string }>;
     // Печатает выбранные фото (1 фото на A4) на принтер.
     print: (args: { fileIds: string[]; listHtml?: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    // Системный мастер печати фотографий для вложений карточки (промт КАРМАНА #159 + #160).
+    // Серверные файлы копируются во временную папку, и уже копии уходят в мастер.
+    // Дверь ждёт, пока оператор закроет мастер; `folder` — папка с копиями (её можно убрать).
+    printWizard: (args: { fileIds: string[]; label?: string }) => Promise<
+      { ok: true; folder: string } | { ok: false; error: string; folder?: string }
+    >;
     // Регистрирует пути файлов, брошенных мышью на карточку, и возвращает их для загрузки.
     dropped: (files: File[]) => Promise<{ ok: true; paths: string[] } | { ok: false; error: string }>;
     // Достаёт из буфера обмена файлы / картинку / текст, сохраняя два последних во временный файл.
