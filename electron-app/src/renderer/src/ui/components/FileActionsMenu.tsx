@@ -6,9 +6,9 @@ import { PopupLayer } from './PopupLayer.js';
 //
 // Где включается:
 //   * выдача «Поиска по файлам» (локальные файлы оператора) — `FileSearchPage.tsx`;
-//   * панель вложений карточки (серверные вложения) — по заявке владельца
-//     от 25.11.2026 «Контекстное меню над файлами: почта, печать, ИИ, коллега»
-//     (отдельная нить; набор и компонент — эти же).
+//   * панель вложений карточки (серверные вложения) — `AttachmentsPanel.tsx`
+//     (промт КАРМАНА #160, заявка владельца от 25.11.2026 «Контекстное меню над
+//     файлами: почта, печать, ИИ, коллега»).
 //
 // Почему один список, а не два: набор действий — это продуктовое решение, и две
 // копии разъезжаются (в одной появится «отправить», в другой забудут). Различаются
@@ -25,6 +25,7 @@ export type FileActionId =
   | 'mail'
   | 'colleague'
   | 'chat'
+  | 'ai'
   | 'openFolder'
   | 'desktop'
   | 'copyPath';
@@ -35,6 +36,13 @@ export type FileActionDef = {
   icon: string;
   /** Что действие делает — одной строкой, для подсказки. */
   hint: string;
+  /**
+   * Действию нужна помощь хоста: путь к файлу и вопрос оператора (ИИваныч берёт
+   * файл по «выданному» пути и не знает, о чём спросить). Пока хост такую помощь
+   * не объявил — пункт в меню НЕ показывается: показать и не сделать хуже, чем
+   * не показать вовсе (правило промта КАРМАНА #158).
+   */
+  needsHost?: boolean;
 };
 
 /** Набор действий над отмеченными файлами. */
@@ -76,6 +84,13 @@ export const FILE_ACTIONS: FileActionDef[] = [
     hint: 'Отправить файлом в переписку с коллегой',
   },
   {
+    id: 'ai',
+    label: 'В ИИ (ИИваныч)',
+    icon: '🤖',
+    hint: 'Задать ИИванычу вопрос по файлу — ответ придёт во вкладке «ИИваныч»',
+    needsHost: true,
+  },
+  {
     id: 'openFolder',
     label: 'Открыть папку с файлами',
     icon: '📂',
@@ -110,6 +125,18 @@ export type FileActionsMenuProps = {
   count: number;
   /** Какое действие на этой машине доступно. Недоступные в меню не показываются. */
   available?: (id: FileActionId) => boolean;
+  /**
+   * Какие действия хост умеет выполнить целиком (те, что помечены `needsHost`:
+   * «в ИИ» — хост даёт путь к файлу и спрашивает вопрос у оператора). Не объявлено —
+   * такие пункты в меню не показываются.
+   */
+  handled?: FileActionId[];
+  /**
+   * Строка под шапкой: что на этой машине недоступно и почему (например, на
+   * планшете нет файлов на диске). Молча прятать пункты нельзя — оператор решит,
+   * что функцию забыли.
+   */
+  note?: string;
   onAction: (id: FileActionId) => void;
   onClose: () => void;
 };
@@ -124,6 +151,7 @@ export type FileActionsMenuProps = {
 export function FileActionsMenu(props: FileActionsMenuProps) {
   const { open, at, count, onAction, onClose } = props;
   const available = props.available ?? (() => true);
+  const handled = props.handled ?? [];
 
   useEffect(() => {
     if (!open) return;
@@ -145,7 +173,7 @@ export function FileActionsMenu(props: FileActionsMenuProps) {
 
   if (!open || !at) return null;
 
-  const items = FILE_ACTIONS.filter((a) => available(a.id));
+  const items = FILE_ACTIONS.filter((a) => (a.needsHost ? handled.includes(a.id) : true) && available(a.id));
   if (items.length === 0) return null;
 
   const width = 320;
@@ -180,6 +208,14 @@ export function FileActionsMenu(props: FileActionsMenuProps) {
         >
           Отмечено файлов: {count}
         </div>
+        {props.note ? (
+          <div
+            data-file-actions-note
+            style={{ padding: '0 12px 8px', fontSize: 12, color: 'var(--subtle, #64748b)', lineHeight: 1.35 }}
+          >
+            {props.note}
+          </div>
+        ) : null}
         {items.map((item) => (
           <button
             key={item.id}

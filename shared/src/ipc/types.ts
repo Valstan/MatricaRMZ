@@ -4243,6 +4243,12 @@ export type MatricaApi = {
     copyToFolder: (args: { fileIds: string[]; transferId?: string }) => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
     // Собирает оригиналы во временную папку и открывает её в Проводнике (для перетаскивания в Telegram/MAX); mailto — заодно открыть черновик письма.
     revealForShare: (args: { fileIds: string[]; label?: string; mailto?: boolean }) => Promise<{ ok: true; folder: string } | { ok: false; error: string }>;
+    // Собирает выбранные файлы в папку с ЧЕЛОВЕЧЕСКИМИ именами и выдаёт пути к копиям.
+    // Пути выданы главным процессом — renderer не может подсунуть произвольный путь.
+    // Нужны почте, чату и ИИванычу: все трое умеют работать только с путём.
+    stageForShare: (args: { fileIds: string[]; label?: string }) => Promise<
+      { ok: true; folder: string; files: { id: string; name: string; path: string }[] } | { ok: false; error: string }
+    >;
     // Собирает выбранные фото в один PDF и сохраняет по выбранному пути (по умолчанию — Верстак).
     assemblePdf: (args: { fileIds: string[]; defaultName?: string }) => Promise<{ ok: true; savePath: string } | { ok: false; error: string }>;
     // Печатает выбранные фото (1 фото на A4) на принтер.
@@ -4289,7 +4295,7 @@ export type MatricaApi = {
      * клиент — прикрепляет файлы оператор руками (своего сервера нет).
      */
     prepareLocalAttachment: (args: { paths: string[]; label?: string; subject?: string; body?: string }) => Promise<
-      { ok: true; folder: string } | { ok: false; error: string }
+      { ok: true; folder: string; note: string } | { ok: false; error: string }
     >;
   };
   exports: {

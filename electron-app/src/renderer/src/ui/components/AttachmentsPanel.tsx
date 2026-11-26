@@ -4,10 +4,14 @@ import type { FileRef } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { CardTable } from './CardTable.js';
+import { FileActionsMenu, type FileActionId } from './FileActionsMenu.js';
+import { Input } from './Input.js';
 import { ListCount } from './ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
+import { SendFileToColleagueDialog } from './SendFileToColleagueDialog.js';
 import { useConfirm } from './ConfirmContext.js';
 import { useDesktopFiles } from './DesktopFilesContext.js';
+import { requestDesktopPutFiles } from './DesktopAddFilesBus.js';
 import { takeDesktopAttachIntent, useDesktopAttachIntent } from './DesktopAttachIntent.js';
 import { useFileUploadFlow, type UploadTask } from '../hooks/useFileUploadFlow.js';
 import { isAndroidPlatform } from '../platform.js';
@@ -80,6 +84,14 @@ function isObsoleteFile(file: AttachmentFileRef): boolean {
 /** Печатается содержимым только картинка — офисные файлы конвейер main'а не рендерит. */
 function isPrintableImage(name: string): boolean {
   return ['jpg', 'jpeg', 'png', 'bmp', 'gif', 'webp'].includes(fileExt(name));
+}
+
+/** Что отправляем — одной строкой: имена первых трёх и счёт остальных. */
+function describeFiles(files: AttachmentFileRef[]): string {
+  if (files.length === 0) return 'файлы';
+  const names = files.slice(0, 3).map((f) => f.name);
+  const rest = files.length - names.length;
+  return rest > 0 ? `${names.join(', ')} и ещё ${rest}` : names.join(', ');
 }
 
 /** Снимок с камеры приходит как image.jpg — в списке вложений это бесполезное имя. */
@@ -184,6 +196,24 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   // Идёт съём кадра: кнопку «Сканировать» в это время жать нельзя.
   const [scanBusy, setScanBusy] = useState(false);
 
+  // ── Действия над отмеченными файлами (промт КАРМАНА #160) ─────────────────
+  //
+  // Набор действий ОДИН на все точки включения (`components/FileActionsMenu.tsx`):
+  // меню открывается правой кнопкой по строке и кнопкой «Действия…» над отметками.
+  // Здесь файлы СЕРВЕРНЫЕ (у них есть `fileId`), поэтому каждое действие идёт по id
+  // через ту дверь, что уже работает в программе, — второй механизм не заводим.
+  //
+  // `menuFiles` — набор, над которым меню работает: он снимается в момент открытия,
+  // потому что отметки меняются (правая кнопка по неотмеченному файлу добавляет его
+  // к отметкам), а состояние обновляется не сразу.
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [menuFiles, setMenuFiles] = useState<AttachmentFileRef[]>([]);
+  /** Куда отправляем: «коллеге» (на Верстак) или «в личные сообщения чата». */
+  const [sendMode, setSendMode] = useState<'colleague' | 'chat' | null>(null);
+  /** Вопрос для ИИваныча: файл он берёт один, а вопрос — оператора. */
+  const [aiAskOpen, setAiAskOpen] = useState(false);
+  const [aiQuestion, setAiQuestion] = useState('');
+
   /**
    * Намерение с Верстака: оператор выделил файлы и выбрал карточку — «прикрепить к карточке».
    *
@@ -217,6 +247,8 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   const listKey = useMemo(() => list.map((x) => x.id).join('|'), [list]);
   // Выбор живёт по id: файл удалили/отфильтровали — он выпадает и из выборки.
   const selectedIds = useMemo(() => filteredList.filter((f) => selected.has(f.id)).map((f) => f.id), [filteredList, selected]);
+  // Те же отмеченные файлы, но объектами: ими кормятся действия над файлами.
+  const selectedFiles = useMemo(() => filteredList.filter((f) => selected.has(f.id)), [filteredList, selected]);
   const objectLabel = props.objectLabel?.trim() || props.title?.trim() || 'Карточка';
 
   useEffect(() => {
@@ -634,6 +666,259 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     }
   }
 
+  // ── Действия над отмеченными файлами (промт КАРМАНА #160) ─────────────────
+  //
+  // Правило промта: каждое действие ДОВОДИТ файл до конца и говорит результат —
+  // молчать нельзя, иначе оператор не отличит «ушло» от «зависло». Отказ называет
+  // причину (как уже делает отправка коллеге).
+
+  /** Открыть меню действий над набором файлов. */
+  function openFileMenu(files: AttachmentFileRef[], at: { x: number; y: number }) {
+    setMenuFiles(files);
+    setMenuAt(at);
+  }
+
+  /**
+   * Правая кнопка по строке вложения.
+   *
+   * Если файл не отмечен — он ДОБАВЛЯЕТСЯ к отметкам: оператор отметил пять файлов
+   * и ткнул правой кнопкой в шестой, он хочет шесть, а не «потерять пять».
+   * Отметки при этом не снимаются — меню работает по всей выборке.
+   */
+  function onRowContextMenu(file: AttachmentFileRef, e: React.MouseEvent) {
+    e.preventDefault();
+    const already = selected.has(file.id);
+    if (!already) setSelected((prev) => new Set(prev).add(file.id));
+    openFileMenu(already ? selectedFiles : [...selectedFiles, file], { x: e.clientX, y: e.clientY });
+  }
+
+  /** Кнопка «Действия…» над отметками: меню встаёт под кнопкой. */
+  function openFileMenuFromButton(e: React.MouseEvent<HTMLButtonElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    openFileMenu(selectedFiles, { x: rect.left, y: rect.bottom + 4 });
+  }
+
+  /**
+   * Какие действия на этой машине доступны.
+   *
+   * Недоступное в меню НЕ показывается (правило промта #158), но про планшет
+   * говорим словами в строке-примечании: молча спрятанный пункт оператор
+   * прочитает как «функцию забыли».
+   */
+  const actionAvailable = (id: FileActionId): boolean => {
+    if (isAndroid) {
+      // На планшете файлов на диске нет: печать, PDF, почта, чат и ИИ работают
+      // через файловый слой компьютера — тут их нет. Отправка коллеге и «на
+      // верстак» работают: это чат и профиль, они на телефоне есть.
+      return id === 'colleague' || id === 'desktop';
+    }
+    // Мастер печати фотографий — для снимков, лежащих на диске оператора
+    // (выдача «Поиска по файлам»). У вложения карточки своего пути на диске нет.
+    if (id === 'printWizard') return false;
+    // «Скопировать путь»: у серверного файла своего пути нет — он лежит на сервере.
+    if (id === 'copyPath') return false;
+    return true;
+  };
+
+  /** Что на этой машине недоступно — говорим словами, а не прячем. */
+  const actionNote = isAndroid
+    ? 'На планшете доступны только отправка коллеге и «на верстак»: файлов на диске нет — печать, PDF, почта, чат и ИИ здесь не работают.'
+    : '';
+
+  /** Копии файлов с человеческими именами — их потом примет почта, чат и ИИваныч. */
+  async function stageFiles(files: AttachmentFileRef[], label: string) {
+    const r = await window.matrica.files.stageForShare({ fileIds: files.map((f) => f.id), label }).catch((e) => ({
+      ok: false as const,
+      error: String(e),
+    }));
+    if (!r.ok) return { ok: false as const, error: r.error };
+    return { ok: true as const, folder: r.folder, files: r.files };
+  }
+
+  /** Одно действие из меню. */
+  async function runFileAction(id: FileActionId) {
+    const files = menuFiles;
+    if (files.length === 0) {
+      setBusy('Отметьте файлы — над чем действовать');
+      setTimeout(() => setBusy(''), 2500);
+      return;
+    }
+    const fileIds = files.map((f) => f.id);
+
+    // Печать — та же дверь, что у кнопки «Печать…»: свой диалог (список названий
+    // / содержимое изображений) и предпросмотр окна. Второй механизм печати не заводим.
+    if (id === 'print') {
+      setPrintDialogOpen(true);
+      return;
+    }
+
+    if (id === 'pdf') {
+      setBusy('Собираем PDF...');
+      const r = await window.matrica.files
+        .assemblePdf({ fileIds, defaultName: objectLabel })
+        .catch((e) => ({ ok: false as const, error: String(e) }));
+      setBusy(r.ok ? `PDF сохранён: ${r.savePath}` : `PDF не собрался: ${r.error}`);
+      setTimeout(() => setBusy(''), r.ok ? 3500 : 4500);
+      return;
+    }
+
+    if (id === 'mail') {
+      setBusy('Готовим файлы к письму...');
+      const staged = await stageFiles(files, 'Почта');
+      if (!staged.ok) {
+        setBusy(`К письму файлы не подготовить: ${staged.error}`);
+        setTimeout(() => setBusy(''), 4500);
+        return;
+      }
+      const draft = await window.matrica.mail.prepareLocalAttachment({ paths: staged.files.map((f) => f.path), label: objectLabel }).catch((e) => ({
+        ok: false as const,
+        error: String(e),
+      }));
+      if (!draft.ok) {
+        setBusy(`Письмо не открылось: ${draft.error}. Файлы лежат в папке: ${staged.folder}`);
+        setTimeout(() => setBusy(''), 6000);
+        return;
+      }
+      // Своего почтового сервера нет, а `mailto:` вложений не умеет: письмо уходит
+      // БЕЗ вложений, файлы оператор тащит руками. Молчать об этом нельзя.
+      setBusy(`Письмо открыто без вложений. ${draft.note} Файлы лежат в папке: ${draft.folder}`);
+      setTimeout(() => setBusy(''), 9000);
+      return;
+    }
+
+    // «Отправить коллеге» и «в личные сообщения» — одна дверь (личное сообщение чата
+    // с файлом), но разные: коллеге файл карточки уходит как есть (без копии),
+    // в личные сообщения — копия в хранилище чата. Получателя выбирает оператор.
+    if (id === 'colleague' || id === 'chat') {
+      setSendMode(id);
+      return;
+    }
+
+    if (id === 'ai') {
+      setAiQuestion('');
+      setAiAskOpen(true);
+      return;
+    }
+
+    if (id === 'openFolder') {
+      setBusy('Открываем папку с файлами...');
+      const r = await window.matrica.files
+        .openObjectDir({ fileIds, label: objectLabel })
+        .catch((e) => ({ ok: false as const, error: String(e) }));
+      setBusy(r.ok ? `Папка открыта: ${r.folder}` : `Папку не открыть: ${r.error}`);
+      setTimeout(() => setBusy(''), r.ok ? 3000 : 4500);
+      return;
+    }
+
+    if (id === 'desktop') {
+      // Ярлык Верстака ссылается на СЕРВЕРНЫЙ файл, а вложение карточки уже на
+      // сервере — грузить его заново не нужно (в отличие от снимка с диска).
+      requestDesktopPutFiles(files.map((f) => ({ id: f.id, name: f.name, mime: f.mime ?? null })));
+      setBusy(`На Верстак отправлено файлов: ${files.length}.`);
+      setTimeout(() => setBusy(''), 3000);
+      return;
+    }
+  }
+
+  /** Отправка отмеченных файлов получателю (коллеге или в личные сообщения). */
+  async function sendFilesTo(recipientUserId: string) {
+    const mode = sendMode;
+    const files = menuFiles;
+    setSendMode(null);
+    if (!mode || files.length === 0) return;
+
+    if (mode === 'colleague') {
+      setBusy('Отправляем коллеге...');
+      let sent = 0;
+      const failures: string[] = [];
+      for (const f of files) {
+        const r = await window.matrica.desktopTransfer
+          .sendToColleague({ fileId: f.id, recipientUserId })
+          .catch((e) => ({ ok: false as const, error: String(e) }));
+        if (r.ok) sent += 1;
+        else failures.push(`${f.name} — ${r.error}`);
+      }
+      setBusy(
+        failures.length > 0
+          ? `Отправлено файлов: ${sent}. Не получилось: ${failures.join('; ')}`
+          : `Отправлено коллеге файлов: ${sent} — лягут у него на Верстаке после подтверждения.`,
+      );
+      setTimeout(() => setBusy(''), failures.length > 0 ? 6000 : 4000);
+      return;
+    }
+
+    // Личные сообщения чата: файл уходит копией в хранилище чата.
+    setBusy('Готовим файлы для чата...');
+    const staged = await stageFiles(files, 'Чат');
+    if (!staged.ok) {
+      setBusy(`В чат файлы не подготовить: ${staged.error}`);
+      setTimeout(() => setBusy(''), 4500);
+      return;
+    }
+    let sent = 0;
+    const failures: string[] = [];
+    for (const f of staged.files) {
+      const r = await window.matrica.chat.sendFile({ recipientUserId, path: f.path }).catch((e) => ({ // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile — это мост чата, а не Express res.sendFile; путь копии выдал главный процесс
+        ok: false as const,
+        error: String(e),
+      }));
+      if (r.ok) sent += 1;
+      else failures.push(`${f.name} — ${r.error}`);
+    }
+    setBusy(
+      failures.length > 0
+        ? `Отправлено в личные сообщения: ${sent}. Не получилось: ${failures.join('; ')}`
+        : `Отправлено в личные сообщения: ${sent}.`,
+    );
+    setTimeout(() => setBusy(''), failures.length > 0 ? 6000 : 3500);
+  }
+
+  /**
+   * Вопрос ИИванычу по файлу.
+   *
+   * ИИваныч берёт файл по ПУТИ, который выдал главный процесс («путь не из диалога
+   * выбора файлов» — иначе вопрос уехал бы без файла). Поэтому файл сначала
+   * копируется во временную папку, и уже её путь отдаётся в вопрос.
+   *
+   * Файл один: ИИваныч берёт один файл на вопрос. Остальные называем в тексте
+   * вопроса и честно говорим, что приложен только первый.
+   */
+  async function askAi() {
+    const question = aiQuestion.trim();
+    const files = menuFiles;
+    const first = files[0];
+    if (!question || !first) return;
+    setAiAskOpen(false);
+    setBusy('Готовим файл для ИИваныча...');
+    const staged = await stageFiles([first], 'ИИваныч');
+    if (!staged.ok) {
+      setBusy(`ИИванычу отдать файл не удалось: ${staged.error}`);
+      setTimeout(() => setBusy(''), 4500);
+      return;
+    }
+    const path = staged.files[0]?.path ?? '';
+    if (!path) {
+      setBusy('ИИванычу отдать файл не удалось: копия не подготовлена');
+      setTimeout(() => setBusy(''), 4500);
+      return;
+    }
+    const r = await window.matrica.aiChat.create({ questionText: question, filePath: path }).catch((e) => ({
+      ok: false as const,
+      error: String(e),
+    }));
+    if (!r.ok) {
+      setBusy(`ИИваныч не принял вопрос: ${r.error}`);
+      setTimeout(() => setBusy(''), 4500);
+      return;
+    }
+    setBusy(
+      files.length > 1
+        ? `Вопрос отправлен ИИванычу с файлом «${first.name}». Остальные файлы приложить нельзя — ИИваныч берёт один файл на вопрос. Ответ придёт во вкладке «ИИваныч».`
+        : `Вопрос отправлен ИИванычу с файлом «${first.name}». Ответ придёт во вкладке «ИИваныч».`,
+    );
+    setTimeout(() => setBusy(''), 6000);
+  }
+
   if (!props.canView) return null;
 
   return (
@@ -805,8 +1090,9 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
         </Button></>
         )}
       </div>
-      {selectedIds.length > 0 && !props.hideBulkBar && (
+      {selectedIds.length > 0 && (
         <div
+          data-attachments-bulk-bar
           style={{
             marginTop: 10,
             display: 'flex',
@@ -819,10 +1105,23 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
             background: '#eff6ff',
           }}
         >
-          <strong style={{ fontSize: 13 }}>Выбрано файлов: {selectedIds.length}</strong>
+          {/* В модуле вложений (карточка двигателя) счётчик и «Снять выбор» уже есть
+              в его own-тулбаре — здесь остаётся только кнопка действий, чтобы ряд
+              не дублировался. */}
+          {!props.hideBulkBar && <strong style={{ fontSize: 13 }}>Выбрано файлов: {selectedIds.length}</strong>}
+          {/* Одно меню действий над отмеченными файлами (промт КАРМАНА #160) — и
+              правой кнопкой по строке, и этой кнопкой. Набор общий с выдачей
+              «Поиска по файлам» (`components/FileActionsMenu.tsx`). */}
+          <Button
+            variant="outline"
+            title="Почта, печать, ИИ, коллеге, верстак, личные сообщения — над отмеченными файлами"
+            onClick={openFileMenuFromButton}
+          >
+            Действия…
+          </Button>
           {/* Управляющие кнопки влево (владелец 24.11.2026, промт КАРМАНА #141):
               «Печать…»/«Копировать…»/«Отправить…» стоят сразу за счётчиком, не у края. */}
-          {!isAndroid && (
+          {!props.hideBulkBar && !isAndroid && (
             <>
               <Button variant="ghost" onClick={() => setPrintDialogOpen(true)}>
                 Печать…
@@ -838,9 +1137,11 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
               </Button>
             </>
           )}
-          <Button variant="ghost" onClick={() => setSelected(new Set())}>
-            Снять выбор
-          </Button>
+          {!props.hideBulkBar && (
+            <Button variant="ghost" onClick={() => setSelected(new Set())}>
+              Снять выбор
+            </Button>
+          )}
         </div>
       )}
       {/* Тот же гейт, что у кнопки: право могло уйти, пока выбор открыт (например,
@@ -1027,7 +1328,14 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           </thead>
           <tbody>
             {filteredList.map((f, i) => (
-              <tr key={f.id}>
+              <tr
+                key={f.id}
+                data-attachments-row={f.id}
+                /* Правая кнопка по строке — то же меню действий, что и кнопка «Действия…»
+                   (промт КАРМАНА #160). Меню рисуется порталом, поэтому строка может
+                   лежать под липкой шапкой карточки — портал всё равно сверху. */
+                onContextMenu={(e) => onRowContextMenu(f, e)}
+              >
                 <RowNumberCell n={i + 1} style={{ borderBottom: '1px solid #f3f4f6', padding: 10, verticalAlign: 'top' }} />
                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, verticalAlign: 'top' }}>
                   <input
@@ -1190,6 +1498,66 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           </tbody>
         </CardTable>
       )}
+
+      {/* Вопрос ИИванычу по файлу (промт КАРМАНА #160).
+          ИИваныч берёт файл по «выданному» пути, а вопрос — оператора: без вопроса
+          модель не знает, что именно разобрать. */}
+      {aiAskOpen && (
+        <div
+          data-attachments-ai-ask
+          style={{ marginTop: 10, padding: 12, border: '1px solid #e5e7eb', borderRadius: 12, background: '#f8fafc' }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>
+            Вопрос ИИванычу по файлу «{menuFiles[0]?.name ?? ''}»
+          </div>
+          <Input
+            value={aiQuestion}
+            onChange={(e) => setAiQuestion(e.target.value)}
+            placeholder="Что спросить у ИИваныча"
+            autoFocus
+          />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+            <Button disabled={!aiQuestion.trim()} onClick={() => void askAi()}>
+              Отправить
+            </Button>
+            <Button variant="ghost" onClick={() => setAiAskOpen(false)}>
+              Отмена
+            </Button>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+            Файл уедет на сервер вместе с вопросом — ИИваныч прочитает его и ответит во вкладке «ИИваныч».
+            Копия файла на диске остаётся у вас.
+          </div>
+        </div>
+      )}
+
+      {/* Одно меню действий над отмеченными файлами — и с кнопки, и правой кнопкой
+          по строке. Набор общий с выдачей «Поиска по файлам»
+          (`components/FileActionsMenu.tsx`), портал — `PopupLayer`. */}
+      <FileActionsMenu
+        open={menuAt != null}
+        at={menuAt}
+        count={menuFiles.length}
+        available={actionAvailable}
+        handled={['ai']}
+        {...(actionNote ? { note: actionNote } : {})}
+        onAction={(id) => void runFileAction(id)}
+        onClose={() => setMenuAt(null)}
+      />
+
+      {/* Выбор получателя: коллеге (файл ляжет у него на Верстаке) или в личные
+          сообщения чата. Диалог общий с Верстаком и поиском по файлам. */}
+      <SendFileToColleagueDialog
+        open={sendMode != null}
+        fileName={
+          sendMode === 'chat'
+            ? `В личные сообщения: ${describeFiles(menuFiles)}`
+            : `Коллеге на Верстак: ${describeFiles(menuFiles)}`
+        }
+        onClose={() => setSendMode(null)}
+        onSend={(recipientUserId) => void sendFilesTo(recipientUserId)}
+      />
+
       {uploadFlow.renameDialog}
     </div>
   );

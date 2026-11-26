@@ -73,7 +73,7 @@ export function registerMailIpc(_ctx: IpcContext) {
     async (
       _e,
       args: { paths?: string[]; label?: string; subject?: string; body?: string },
-    ): Promise<{ ok: true; folder: string } | { ok: false; error: string }> => {
+    ): Promise<{ ok: true; folder: string; note: string } | { ok: false; error: string }> => {
       const list = (Array.isArray(args?.paths) ? args.paths : [])
         .map((p) => String(p ?? '').trim())
         .filter(Boolean)
@@ -95,7 +95,9 @@ export function registerMailIpc(_ctx: IpcContext) {
           `\n\nФайлы лежат в открытой папке:\n${folder}\n\n${MAIL_ATTACHMENT_LIMITATION}`,
       });
       if (!draft.ok) return { ok: false, error: draft.error };
-      return { ok: true, folder };
+      // Ограничение отдаём и в UI: оператор должен услышать его в программе, а не
+      // только прочитать в теле письма — иначе он будет ждать отправки, которой нет.
+      return { ok: true, folder, note: MAIL_ATTACHMENT_LIMITATION };
     },
   );
 }

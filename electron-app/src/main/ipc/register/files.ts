@@ -25,6 +25,7 @@ import {
   filesPreviewGet,
   filesReadPastableText,
   filesRevealForShare,
+  filesStageForShare,
   filesUpload,
   photosAssemblePdf,
   photosPrint,
@@ -220,6 +221,31 @@ export function registerFilesIpc(ctx: IpcContext) {
       label: String(args.label || 'Фото двигателя'),
       ...(args.mailto ? { mailto: true } : {}),
     });
+  });
+
+  /**
+   * Собрать серверные файлы в папку с человеческими именами и выдать пути к копиям.
+   *
+   * Отличие от `files:revealForShare`: папка не открывается, а пути к копиям
+   * возвращаются — их потом можно отдать почте, чату и ИИванычу (все три умеют
+   * работать только с ПУТЁМ, который выдал главный процесс). Право — то же
+   * (`files.view`), и проверку доступа файла делает сервер при скачивании.
+   */
+  ipcMain.handle('files:stageForShare', async (_e, args: { fileIds: string[]; label?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'files.view');
+    if (!gate.ok) return gate;
+    const dir = await filesDownloadDirGet(ctx.sysDb, { defaultDir: app.getPath('downloads') });
+    if (!dir.ok) return dir;
+    const r = await filesStageForShare(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+      fileIds: (Array.isArray(args?.fileIds) ? args.fileIds : []).map((id) => String(id ?? '')).filter(Boolean),
+      downloadDir: dir.path,
+      label: String(args?.label || 'Файлы'),
+    });
+    if (!r.ok) return r;
+    // Копии объявлены «выданными»: renderer сможет отдать их почте/чату/ИИ, но не
+    // сможет подсунуть свой путь (allowlist путей, см. `pathOriginRegistry`).
+    for (const f of r.files) rememberIssuedPath(f.path);
+    return r;
   });
 
   ipcMain.handle('files:assemblePdf', async (_e, args: { fileIds: string[]; defaultName?: string }) => {
