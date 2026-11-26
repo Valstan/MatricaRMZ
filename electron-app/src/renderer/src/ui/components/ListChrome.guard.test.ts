@@ -278,6 +278,7 @@ describe('шапка колонки — одна строка', () => {
 // «работает», просто снова не видно, сколько строк осталось после фильтра.
 const VIRTUAL_TABLE = src('./VirtualTable.tsx');
 const PRINT_DIALOG = src('./ListPrintDialog.tsx');
+const PRINT_TABLE = src('../utils/listPrintTable.ts');
 const COUNTED_PAGES = [
   ...PAGES,
   ...['EngineBrandsPage', 'ChangesPage', 'StockBalancesPage', 'EngineAssemblyBomPage'].map(
@@ -302,8 +303,18 @@ describe('счётчик и нумерация строк', () => {
     expect(VIRTUAL_TABLE).toContain('baseColCount + 1');
     for (const [name, page] of COUNTED_PAGES) {
       if (!page.includes('<VirtualTable')) continue;
+      // Список двигателей — исключение: нумерация стала ОБЫЧНОЙ колонкой (промт КАРМАНА
+      // #164), её рисует страница, и отключить её можно как любую другую колонку.
+      if (name === 'EnginesPage') continue;
       expect(page, `${name}: VirtualTable без rowNumbers`).toContain('rowNumbers');
     }
+  });
+
+  it('список двигателей рисует колонки-номера сам — они обычные колонки списка', () => {
+    const engines = COUNTED_PAGES.find(([name]) => name === 'EnginesPage')?.[1] ?? '';
+    expect(engines).toContain('renderNumberCells');
+    expect(engines).toContain('<RowNumberCell');
+    expect(engines).toContain('leadingColumns={1 + numberColumnCount}');
   });
 
   it('колонка «№» схлопнута CSS и не меряется хуком ширин', () => {
@@ -319,7 +330,10 @@ describe('счётчик и нумерация строк', () => {
   });
 
   it('печать списка ведёт колонку «№» первой', () => {
-    expect(PRINT_DIALOG).toContain('<th style="text-align:right">№</th>');
+    // Колонку-номер печатает общий сборщик печатной таблицы (`listPrintTable.ts`) — печать
+    // из тулбара, печать из контекстного меню и выгрузка берут ОДИН код (промт КАРМАНА #164).
+    expect(PRINT_TABLE).toContain('<th style="text-align:right">№</th>');
+    expect(PRINT_DIALOG).toContain('buildListPrintTableHtml');
   });
 });
 

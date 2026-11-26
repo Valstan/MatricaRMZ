@@ -13,6 +13,7 @@ import {
 } from '../utils/printColumnMismatch.js';
 import { planListPrintLayout } from '../utils/listPrintLayout.js';
 import { buildListExportSpec } from '../utils/listExportSpec.js';
+import { filterPrintItemsBySelection, type ListPrintItem, type ListPrintNumberColumns } from '../utils/listPrintTable.js';
 import { listToText } from '../utils/mailText.js';
 import { formatMomentLabel } from '../utils/printPreview.js';
 import { Button } from './Button.js';
@@ -54,6 +55,15 @@ export function ListExportButtons<T>(props: {
   fileBaseName?: string;
   /** Страницы отчётов держат выгрузку под правом `reports.export` — там оно приходит сюда. */
   enabled?: boolean;
+  /**
+   * Сгруппированный ряд списка (промт КАРМАНА #164): заголовки групп и строки внутри
+   * своих групп — как на экране и на листе. Нет — файл плоский, как был.
+   */
+  series?: readonly ListPrintItem<T>[];
+  /** Колонки-номера в файле: по умолчанию — сквозная «№». */
+  numberColumns?: ListPrintNumberColumns;
+  /** Отобрана ли строка (для ряда из `series`). */
+  rowSelected?: (row: T) => boolean;
 }) {
   const [busy, setBusy] = useState<ListExportFormat | null>(null);
   const [pending, setPending] = useState<{ format: ListExportFormat; count: number } | null>(null);
@@ -95,15 +105,35 @@ export function ListExportButtons<T>(props: {
     const specFields = props.columns.filter((c) => ids.includes(c.id));
     const sample = scopeRows.slice(0, LAYOUT_SAMPLE_ROWS);
     const plan = planListPrintLayout({
-      columns: specFields.map((field) => ({
-        label: field.label,
-        valueChars: sample.reduce((max, row) => Math.max(max, field.printValue(row).length), 0),
-      })),
+      columns: [
+        // Колонки-номера — часть набора файла, значит, и ширины считаются вместе с ними
+        // (промт КАРМАНА #164): иначе ширины не совпали бы с числом колонок, и сборщик
+        // разложил бы таблицу по-своему.
+        ...(props.numberColumns
+          ? [
+              ...(props.numberColumns.number ? [{ label: '№', valueChars: 3 }] : []),
+              ...(props.numberColumns.groupNumber ? [{ label: '№ в группе', valueChars: 5 }] : []),
+            ]
+          : []),
+        ...specFields.map((field) => ({
+          label: field.label,
+          valueChars: sample.reduce((max, row) => Math.max(max, field.printValue(row).length), 0),
+        })),
+      ],
     });
+    // Ряд для файла — тот же, что идёт на печать: сгруппированный, с теми же заголовками
+    // групп и тем же порядком строк (промт КАРМАНА #164).
+    const items = props.series
+      ? props.selectedRows.length > 0
+        ? filterPrintItemsBySelection(props.series, props.selectedRows, props.rowSelected)
+        : [...props.series]
+      : undefined;
     return buildListExportSpec({
       title: props.title,
       fields: specFields,
       rows: scopeRows,
+      ...(items ? { items } : {}),
+      ...(props.numberColumns ? { numberColumns: props.numberColumns } : {}),
       filters: props.filtersSummary ?? [],
       columnWidthsMm: plan.widthsMm,
       meta: `Выгружено: ${formatMomentLabel(new Date())}`,

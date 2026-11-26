@@ -77,4 +77,57 @@ describe('выгрузка списка: идентификаторов в фа�
     expect(spec.rows[0]).toEqual(['1', 'Ромашка', 'Д-245', '12 500,00']);
     expect(spec.filters).toEqual(['Заказчик: Ромашка', 'Период: октябрь 2026']);
   });
+
+  /**
+   * Группировка в файле (промт КАРМАНА #164): заголовки групп едут в файл, а строки идут в
+   * том же порядке, что на экране. Без этого файл был плоской сеткой.
+   */
+  it('группировка попадает в файл: заголовки групп и тот же порядок строк', () => {
+    const rowA: Row = { customer: 'Ромашка', number: 'Д-245', amount: '10' };
+    const rowB: Row = { customer: 'Ромашка', number: 'Д-246', amount: '20' };
+    const items = [
+      { kind: 'group' as const, label: 'Альфа', depth: 0, count: 2 },
+      { kind: 'row' as const, row: rowA, number: 1, groupNumber: 1 },
+      { kind: 'row' as const, row: rowB, number: 2, groupNumber: 2 },
+    ];
+    const spec = buildListExportSpec<Row>({
+      title: 'Контракты',
+      fields: columns(),
+      rows: [rowA, rowB],
+      items,
+      filters: [],
+    });
+    expect(spec.groups).toEqual([{ rowIndex: 0, label: 'Альфа', depth: 0 }]);
+    expect(spec.rows.map((r) => r[1])).toEqual(['Ромашка', 'Ромашка']);
+    // Сквозная нумерация едет первой колонкой, как на экране.
+    expect(spec.rows.map((r) => r[0])).toEqual(['1', '2']);
+  });
+
+  it('обе нумерации — отдельные колонки файла, отключённая не едет', () => {
+    const rowA: Row = { customer: 'Ромашка', number: 'Д-245', amount: '10' };
+    const items = [
+      { kind: 'group' as const, label: 'Альфа', depth: 0, count: 1 },
+      { kind: 'row' as const, row: rowA, number: 1, groupNumber: 1 },
+    ];
+    const withBoth = buildListExportSpec<Row>({
+      title: 'Контракты',
+      fields: columns(),
+      rows: [rowA],
+      items,
+      numberColumns: { number: true, groupNumber: true },
+      filters: [],
+    });
+    expect(withBoth.columns.map((c) => c.label)).toEqual(['№', '№ в группе', 'Заказчик', '№ договора', 'Сумма']);
+    expect(withBoth.rows[0]?.slice(0, 2)).toEqual(['1', '1']);
+
+    const withoutNumbers = buildListExportSpec<Row>({
+      title: 'Контракты',
+      fields: columns(),
+      rows: [rowA],
+      items,
+      numberColumns: { number: false, groupNumber: false },
+      filters: [],
+    });
+    expect(withoutNumbers.columns.map((c) => c.label)).toEqual(['Заказчик', '№ договора', 'Сумма']);
+  });
 });

@@ -17,11 +17,13 @@ describe('EnginesPage — мультивыбор чекбоксами', () => {
 
   it('VirtualTable рендерит чекбокс в renderCells', () => {
     expect(PAGE).toContain('renderCells={(i) => {');
-    expect(PAGE).toContain('colCount={Math.max(1, visibleColumns.length) + 2}');
+    // Плюс колонка чекбокса и колонки-номера (промт КАРМАНА #164: нумерации стали
+    // обычными колонками списка, и их может быть две).
+    expect(PAGE).toContain('colCount={Math.max(1, visibleColumns.length) + 1 + numberColumnCount}');
   });
 
-  it('colSpan пустого состояния учитывает чекбокс-колонку', () => {
-    expect(PAGE).toContain('colSpan={Math.max(1, visibleColumns.length) + 3}');
+  it('colSpan пустого состояния учитывает чекбокс-колонку и колонки-номера', () => {
+    expect(PAGE).toContain('colSpan={Math.max(1, visibleColumns.length) + 1 + numberColumnCount}');
   });
 
   it('клик по чекбоксу не открывает карточку (stopPropagation до строки)', () => {

@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import {
   ENGINE_FACETS,
+  ENGINE_LIST_GROUP_BY_LABELS,
+  LIST_NUMBER_COLUMN_IDS,
+  LIST_NUMBER_COLUMN_LABELS,
   applyEngineFacets,
   currentPassRows,
   describeFacetSelectionForRows,
@@ -17,9 +20,9 @@ import {
   stripStageDateWhenWhereNow,
   classifyEngineContractBinding,
   engineBindingLabel,
-  engineFactoryStage,
   engineInternalNumberSortKey,
   engineRmzNumberSortKey,
+  engineListGroupLevels,
   formatEngineRmzNumber,
   engineScrapDate,
   engineStatusDate,
@@ -33,7 +36,7 @@ import {
   searchFieldOptionsForRows,
   type FacetSelection,
 } from '@matricarmz/shared';
-import type { EngineFacetId, EngineFacetSelection, EngineListItem, GroupLevel } from '@matricarmz/shared';
+import type { EngineFacetId, EngineFacetSelection, EngineListItem, EngineListGroupBy } from '@matricarmz/shared';
 
 import { EngineFacetFilter } from '../components/EngineFacetFilter.js';
 import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
@@ -59,6 +62,13 @@ import { TwoColumnList } from '../components/TwoColumnList.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
+import {
+  buildListPrintItemsText,
+  buildListPrintTableHtml,
+  filterPrintItemsBySelection,
+  type ListPrintNumberColumns,
+} from '../utils/listPrintTable.js';
+import { openPrintPreview } from '../utils/printPreview.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useWorkSheetTypeRefs } from '../hooks/useWorkSheetTypeRefs.js';
 import { resolveWorkshopName, useWorkshopNames } from '../hooks/useWorkshopNames.js';
@@ -69,7 +79,7 @@ import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
 import { ListLassoLayer } from '../components/ListLassoLayer.js';
-import { buildListContextMenuItems, type ListActionDeclaration } from '../utils/listContextActions.js';
+import { buildListContextMenuItems, listCopyAction, listPrintAction, type ListActionDeclaration } from '../utils/listContextActions.js';
 import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
 import { resolveMenuRows } from '../utils/listContextActions.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
@@ -213,17 +223,11 @@ export type EnginesPageUiState = {
   atPlantOnly?: boolean;
 };
 
-export type EngineListGroupBy = 'stage' | 'customer' | 'customer_stage' | 'contract' | 'customer_contract' | 'none';
-
-const ENGINE_LIST_GROUP_BY_LABELS: Record<EngineListGroupBy, string> = {
-  stage: 'По этапу на заводе',
-  customer: 'По заказчику',
-  customer_stage: 'Заказчик → этап',
-  contract: 'По договору',
-  customer_contract: 'Заказчик → договор',
-  none: 'Без группировки',
-};
-
+/**
+ * Разрезы группировки и их уровни живут в домене (`engineListGrouping.ts`): список читает
+ * их оттуда, и сторож читает тот же список — иначе новый разрез можно добавить «только на
+ * экран», и никто этого не заметит (промт КАРМАНА #164).
+ */
 export function createDefaultEnginesPageUiState(): EnginesPageUiState {
   return {
     query: '',
@@ -767,63 +771,14 @@ export function EnginesPage(props: {
   // двигателей в группах допустимы (решение владельца). В двухколоночном режиме
   // группировка не раскладывается — список показывается одной колонкой.
   const groupBy: EngineListGroupBy = listState.groupBy ?? 'none';
-  const groupLevels = useMemo<GroupLevel<EngineListItem>[]>(() => {
-    const byStage: GroupLevel<EngineListItem> = {
-      keyOf: (e) => {
-        const s = engineFactoryStage(e, sheetTypes, stageTemplates);
-        return { key: s.key, label: s.label, rank: s.rank };
-      },
-    };
-    const byCustomer: GroupLevel<EngineListItem> = {
-      keyOf: (e) => {
-        const label = String(e.customerName ?? '').trim();
-        return { key: String(e.customerId ?? '').trim() || `name:${label.toLowerCase()}` || 'none', label: label || 'Без заказчика' };
-      },
-    };
-    // Группировка по договору (промт КАРМАНА #105): ключ — договор карточки
-    // (`contractId`), подпись — его НОМЕР (`contractName` = атрибут `number` договора;
-    // своего названия у договора нет). Двигатели без договора — отдельная группа
-    // «Без договора», не «прочие».
-    // ДС (дополнительное соглашение) — отдельный атрибут карточки
-    // (`contractSectionNumber`), договор остаётся основным ⇒ ДС сливается со
-    // своим договором, как в отчёте «Двигатели» и в списке этапов работ
-    // (фасет «Контракт» в фильтре ДС различает — это другая механика, её не трогаем).
-    const byContract: GroupLevel<EngineListItem> = {
-      keyOf: (e) => {
-        const label = String(e.contractName ?? '').trim();
-        const id = String(e.contractId ?? '').trim();
-        return { key: id || `name:${label.toLowerCase()}`, label: label || 'Без договора' };
-      },
-    };
-    switch (groupBy) {
-      case 'stage':
-        return [byStage];
-      case 'customer':
-        return [byCustomer];
-      case 'customer_stage':
-        return [byCustomer, byStage];
-      case 'contract':
-        return [byContract];
-      case 'customer_contract':
-        return [byCustomer, byContract];
-      default:
-        return [];
-    }
-  }, [groupBy, sheetTypes, stageTemplates]);
+  // Уровни группировки — из домена (`engineListGrouping.ts`): там же список разрезов, который
+  // читает сторож. Этап несёт ранг из `engineFactoryStage` (порядок групп), заказчик — по
+  // подписи, договор — по номеру. Двигатели без договора — отдельная группа «Без договора».
+  const groupLevels = useMemo(() => engineListGroupLevels(groupBy, { sheetTypes, stageTemplates }), [groupBy, sheetTypes, stageTemplates]);
   const groupedItems = useMemo(() => flattenGrouped(sorted, groupLevels), [sorted, groupLevels]);
 
-  // Подпись группы для печати: путь заголовков над строкой, как на экране.
-  const groupLabelByRow = useMemo(() => {
-    const map = new Map<string, string>();
-    const path: string[] = [];
-    for (const it of groupedItems) {
-      if (it.kind === 'group') {
-        path.length = it.depth;
-        path[it.depth] = it.label;
-      } else map.set(String(it.row.id), path.join(' › '));
-    }
-    return map;
-  }, [groupedItems]);
+  // Подпись группы для печати больше не нужна: печать и выгрузка получают тот же ряд
+  // группировки, что и экран, — с заголовками групп (промт КАРМАНА #164).
 
   // Заголовок печати (владелец 12.10.2026): при выбранном этапе фильтра «История»
   // печать отвечает тем же вопросом, что и экран — «эти двигатели прошли этап X».
@@ -854,62 +809,6 @@ export function EnginesPage(props: {
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const engineById = useMemo(() => new Map(props.engines.map((e) => [String(e.id), e])), [props.engines]);
   const menuRows = useMemo(() => (menu ? resolveMenuRows(menu.targetIds, engineById) : []), [menu, engineById]);
-  const menuItems = useMemo<ListContextMenuItem[]>(() => {
-    if (!menu) return [];
-    // Список ОБЪЯВЛЯЕТ свои действия — меню собирается из объявления (промт КАРМАНА #67).
-    // Действия двигателей: бирки на выбранные, добавление в производственную программу,
-    // наряд на сборку. Печати/копирования/удаления этот список не умеет — значит, и
-    // таких пунктов в меню нет.
-    const actions: ListActionDeclaration<EngineListItem>[] = [];
-    if (menu.bulk) {
-      // Пачка выделенных строк: бирки на них — единственное групповое действие списка.
-      actions.push({
-        id: 'engine-tags-bulk',
-        label: '🏷️ Бирки на выбранные',
-        bulkLabel: '🏷️ Бирки на выбранные',
-        available: true,
-        scope: 'bulk',
-        run: (rows) => {
-          setTagHintVisible(false);
-          setTagInitial(rows.map((e) => ({ ...e, engineId: String(e.id) })));
-        },
-      });
-      // Добавление в производственную программу — только пачкой: одна строка
-      // добавляется прямо в самой программе (там виден её состав и порядок).
-      if (props.canEditProductionProgram) {
-        actions.push({
-          id: 'engine-add-to-program-bulk',
-          label: '🏭 Добавить в производственную программу',
-          bulkLabel: '🏭 Добавить в производственную программу',
-          available: true,
-          scope: 'bulk',
-          run: (rows) => {
-            setTagHintVisible(false);
-            // Выделение ловим ЗДЕСЬ: меню закроется, и `menuRows` станет пустым.
-            setProgramAddEngines(rows);
-            setAddToProgramOpen(true);
-          },
-        });
-      }
-    } else if (menuRows.length === 1 && props.onCreateAssemblyOrder) {
-      actions.push({
-        id: 'assembly-order',
-        label: '🛠️ Наряд на сборку',
-        available: true,
-        scope: 'single',
-        run: (rows) => props.onCreateAssemblyOrder?.(rows[0]!),
-      });
-    }
-    return buildListContextMenuItems({
-      rows: menuRows,
-      bulk: menu.bulk,
-      getId: (e) => String(e.id),
-      onSelect: selection.toggleSelect,
-      onClearSelection: selection.clearSelection,
-      hasSelection: selection.selectedCount > 0,
-      actions,
-    });
-  }, [menu, menuRows, props, selection]);
 
   type EngineColumn = ColumnDescriptor & {
     sortable: boolean;
@@ -1141,9 +1040,29 @@ export function EnginesPage(props: {
     ],
     [selectedStageDateOf, deepFilter.fieldMatches],
   );
-  const allColumnIds = useMemo(() => allColumns.map((c) => c.id), [allColumns]);
+  /**
+   * Колонки-номера — **обычные колонки списка** (промт КАРМАНА #164): свои идентификаторы,
+   * свой порядок, видны в «Колонках списка», каждую можно отключить. Отключённая не
+   * показывается на экране, не печатается и не выгружается.
+   */
+  const allColumnIds = useMemo(() => [...LIST_NUMBER_COLUMN_IDS, ...allColumns.map((c) => c.id)], [allColumns]);
   const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);
   const columnLayout = useColumnLayout('list:engines:columns', allColumnIds, ENGINE_LIST_HIDDEN_BY_DEFAULT);
+  /**
+   * Групповой номера нет без группировки: показывать «№ в группе», когда групп нет, —
+   * пустая колонка. Сама колонка в раскладке остаётся, иначе оператор включил бы её один
+   * раз и потерял бы выбор.
+   */
+  const numberColumnsVisible = useMemo<ListPrintNumberColumns>(
+    () => ({
+      number: columnLayout.isVisible('rowNumber'),
+      groupNumber: groupBy !== 'none' && columnLayout.isVisible('groupNumber'),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isVisible пересоздаётся каждый рендер, данные уже в deps
+    [columnLayout.hidden, columnLayout.order, groupBy],
+  );
+  /** Сколько колонок-номеров на экране — столько же ячеек в строке и в шапке. */
+  const numberColumnCount = (numberColumnsVisible.number ? 1 : 0) + (numberColumnsVisible.groupNumber ? 1 : 0);
   const visibleColumns = useMemo(
     () =>
       columnLayout.order
@@ -1156,8 +1075,121 @@ export function EnginesPage(props: {
   // Колонку «Превью» оператор убирает прямо в шапке столбцов (владелец 08.09.2026), поэтому
   // отдельной кнопки-тумблера больше нет: высоту строки определяет сама видимость колонки.
   const previewsVisible = useMemo(() => visibleColumns.some((c) => c.id === 'previews'), [visibleColumns]);
-  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
+  /**
+   * Плашки колонок: сначала колонки-номера, потом обычные. «№ в группе» появляется только
+   * при выбранной группировке — без групп такой колонки нет.
+   */
+  const columnDescriptors = useMemo<ColumnDescriptor[]>(
+    () => [
+      { id: 'rowNumber', label: LIST_NUMBER_COLUMN_LABELS.rowNumber },
+      ...(groupBy !== 'none' ? [{ id: 'groupNumber', label: LIST_NUMBER_COLUMN_LABELS.groupNumber }] : []),
+      ...allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })),
+    ],
+    [allColumns, groupBy],
+  );
   const printColumns = useMemo(() => buildListPrintColumns(allColumns), [allColumns]);
+
+  /**
+   * Печать и копирование из контекстного меню — **сгруппированный** ряд (промт КАРМАНА #164):
+   * тот же, что и печать из тулбара, — с заголовками групп и в порядке групп. Печать из меню,
+   * собиравшая плоскую таблицу, теряла связь «эти строки — под этим заказчиком».
+   */
+  const menuPrintFields = useMemo(
+    () => printColumns.filter((c) => visibleColumns.some((v) => v.id === c.id)),
+    [printColumns, visibleColumns],
+  );
+
+  const printGroupedRows = (rows: EngineListItem[]) => {
+    const items = filterPrintItemsBySelection(groupedItems, rows);
+    const { thead, tbody } = buildListPrintTableHtml({
+      items,
+      fields: menuPrintFields,
+      numberColumns: numberColumnsVisible,
+      rowBackground: (e) => engineScrapRowBackgroundPrint(e.isScrap),
+    });
+    openPrintPreview({
+      title: printTitle,
+      sections: [
+        {
+          id: 'rows',
+          title: printTitle,
+          hideTitle: true,
+          html: `<table class="list-print"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>`,
+        },
+      ],
+    });
+  };
+
+  const copyGroupedRows = async (rows: EngineListItem[]) => {
+    const items = filterPrintItemsBySelection(groupedItems, rows);
+    const text = buildListPrintItemsText({
+      items,
+      columns: menuPrintFields.map((field) => ({ title: field.label, value: (e: EngineListItem) => field.printValue(e) })),
+    });
+    await navigator.clipboard.writeText(text);
+  };
+
+  const menuItems = useMemo<ListContextMenuItem[]>(() => {
+    if (!menu) return [];
+    // Список ОБЪЯВЛЯЕТ свои действия — меню собирается из объявления (промт КАРМАНА #67).
+    // Действия двигателей: печать и копирование (с группировкой!), бирки на выбранные,
+    // добавление в производственную программу, наряд на сборку. Удаления список не умеет —
+    // значит, и такого пункта в меню нет.
+    const actions: ListActionDeclaration<EngineListItem>[] = [];
+    actions.push(
+      listPrintAction<EngineListItem>({ available: true, print: (rows) => printGroupedRows(rows) }),
+      listCopyAction<EngineListItem>({ available: true, copy: (rows) => copyGroupedRows(rows) }),
+    );
+    if (menu.bulk) {
+      // Пачка выделенных строк: бирки на них — единственное групповое действие списка.
+      actions.push({
+        id: 'engine-tags-bulk',
+        label: '🏷️ Бирки на выбранные',
+        bulkLabel: '🏷️ Бирки на выбранные',
+        available: true,
+        scope: 'bulk',
+        run: (rows) => {
+          setTagHintVisible(false);
+          setTagInitial(rows.map((e) => ({ ...e, engineId: String(e.id) })));
+        },
+      });
+      // Добавление в производственную программу — только пачкой: одна строка
+      // добавляется прямо в самой программе (там виден её состав и порядок).
+      if (props.canEditProductionProgram) {
+        actions.push({
+          id: 'engine-add-to-program-bulk',
+          label: '🏭 Добавить в производственную программу',
+          bulkLabel: '🏭 Добавить в производственную программу',
+          available: true,
+          scope: 'bulk',
+          run: (rows) => {
+            setTagHintVisible(false);
+            // Выделение ловим ЗДЕСЬ: меню закроется, и `menuRows` станет пустым.
+            setProgramAddEngines(rows);
+            setAddToProgramOpen(true);
+          },
+        });
+      }
+    } else if (menuRows.length === 1 && props.onCreateAssemblyOrder) {
+      actions.push({
+        id: 'assembly-order',
+        label: '🛠️ Наряд на сборку',
+        available: true,
+        scope: 'single',
+        run: (rows) => props.onCreateAssemblyOrder?.(rows[0]!),
+      });
+    }
+    return buildListContextMenuItems({
+      rows: menuRows,
+      bulk: menu.bulk,
+      getId: (e) => String(e.id),
+      onSelect: selection.toggleSelect,
+      onClearSelection: selection.clearSelection,
+      hasSelection: selection.selectedCount > 0,
+      actions,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- печать и копирование из меню берут сгруппированный ряд и набор колонок: они в deps, иначе меню печатало бы старый ряд
+  }, [menu, menuRows, props, selection, groupedItems, menuPrintFields, numberColumnsVisible]);
 
   const openEngine = (id: string) => {
     void props.onOpen(id);
@@ -1221,7 +1253,19 @@ export function EnginesPage(props: {
               style={{ cursor: 'pointer', margin: 0 }}
             />
           </th>
-          <RowNumberHeaderCell style={{ padding: 8, position: 'sticky', top: 0, zIndex: 2, borderBottom: '1px solid rgba(255,255,255,0.25)' }} />
+          {numberColumnsVisible.number ? (
+            <RowNumberHeaderCell style={{ padding: 8, position: 'sticky', top: 0, zIndex: 2, borderBottom: '1px solid rgba(255,255,255,0.25)' }} />
+          ) : null}
+          {numberColumnsVisible.groupNumber ? (
+            <th
+              data-col-kind="rownum"
+              style={{ padding: 8, position: 'sticky', top: 0, zIndex: 2, borderBottom: '1px solid rgba(255,255,255,0.25)', textAlign: 'right' }}
+              title="Номер строки внутри группы"
+              aria-label="Номер строки в группе"
+            >
+              № в группе
+            </th>
+          ) : null}
           {allInOrder.map((col) => {
             const visible = columnLayout.isVisible(col.id);
             // Hidden columns render nothing at all: a placeholder <th> here had no matching
@@ -1264,6 +1308,26 @@ export function EnginesPage(props: {
           <th className="list-col-filler" aria-hidden="true" />
         </tr>
       </thead>
+    );
+  }
+
+  /**
+   * Ячейки колонок-номера — сквозная и групповая. Рисует их страница, а не сама таблица:
+   * значение номера живёт в ряду группировки, и колонку-номер можно отключить (промт
+   * КАРМАНА #164).
+   */
+  function renderNumberCells(number: number | null, groupNumber: number | null) {
+    return (
+      <>
+        {numberColumnsVisible.number ? (
+          <RowNumberCell n={number} style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }} />
+        ) : null}
+        {numberColumnsVisible.groupNumber ? (
+          <td data-col-kind="rownum" style={{ borderBottom: '1px solid #f3f4f6', padding: 8, textAlign: 'right' }}>
+            {groupNumber ?? ''}
+          </td>
+        ) : null}
+      </>
     );
   }
 
@@ -1332,13 +1396,13 @@ export function EnginesPage(props: {
                     aria-label={`Выделить двигатель ${e.engineNumber ?? e.id}`}
                   />
                 </td>
-                <RowNumberCell n={startIndex + i + 1} style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }} />
+                {renderNumberCells(startIndex + i + 1, null)}
                 {renderEngineCells(e)}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 3}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 1 + numberColumnCount}>
                   {searchModeEmptyText(searchSimilar, query)}
                 </td>
               </tr>
@@ -1458,6 +1522,9 @@ export function EnginesPage(props: {
           rows={displayRows}
           selectedRows={displayRows.filter((e) => selection.isSelected(String(e.id)))}
           storageKey="list:engines:printFields"
+          series={groupedItems}
+          numberColumns={numberColumnsVisible}
+          rowSelected={(e) => selection.isSelected(String(e.id))}
           filtersSummary={describeFacetSelectionForRows(ENGINE_FACETS, props.engines, facets as FacetSelection, {
             search: query,
             grouping: groupBy === 'none' ? '' : ENGINE_LIST_GROUP_BY_LABELS[groupBy],
@@ -1575,7 +1642,7 @@ export function EnginesPage(props: {
               const it = groupedItems[i]!;
               if (it.kind === 'group') {
                 return (
-                  <td colSpan={visibleColumns.length + 2} style={{ borderBottom: '1px solid #f3f4f6', padding: 8, fontWeight: 600, background: it.depth === 0 ? '#eef2ff' : '#f8fafc' }} data-engine-group={it.key} data-engine-group-depth={it.depth}>
+                  <td colSpan={visibleColumns.length + 1 + numberColumnCount} style={{ borderBottom: '1px solid #f3f4f6', padding: 8, fontWeight: 600, background: it.depth === 0 ? '#eef2ff' : '#f8fafc' }} data-engine-group={it.key} data-engine-group-depth={it.depth}>
                     <span style={{ display: 'inline-block', paddingLeft: it.depth * 18 }}>
                       {it.depth > 0 ? '↳ ' : ''}
                       {it.label} <span className="ui-muted" style={{ fontWeight: 400 }}>· {it.count}</span>
@@ -1598,6 +1665,7 @@ export function EnginesPage(props: {
                       aria-label={`Выделить двигатель ${e.engineNumber ?? e.id}`}
                     />
                   </td>
+                  {renderNumberCells(it.number, it.groupNumber)}
                   {renderEngineCells(e)}
                 </>
               );
@@ -1610,16 +1678,11 @@ export function EnginesPage(props: {
               const it = groupedItems[i]!;
               return it.kind === 'group' ? { 'data-engine-group': it.key } : engineRowProps(it.row);
             }}
-            rowNumberOf={(i) => {
-              const it = groupedItems[i]!;
-              return it.kind === 'group' ? null : it.number;
-            }}
-            colCount={Math.max(1, visibleColumns.length) + 2}
-            rowNumbers
+            colCount={Math.max(1, visibleColumns.length) + 1 + numberColumnCount}
             estimateSize={previewsVisible ? 64 : 40}
             emptyState={searchModeEmptyText(searchSimilar, query, 'Ничего не найдено')}
             columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
-            leadingColumns={2}
+            leadingColumns={1 + numberColumnCount}
           />
         )}
       </div>
@@ -1724,7 +1787,9 @@ export function EnginesPage(props: {
           rows={displayRows}
           selectedRows={displayRows.filter((e) => selection.isSelected(String(e.id)))}
           storageKey="list:engines:printFields"
-          rowGroupLabel={(e) => groupLabelByRow.get(String(e.id)) || null}
+          series={groupedItems}
+          numberColumns={numberColumnsVisible}
+          rowSelected={(e) => selection.isSelected(String(e.id))}
           rowBackground={(e) => engineScrapRowBackgroundPrint(e.isScrap)}
           filtersSummary={describeFacetSelectionForRows(ENGINE_FACETS, props.engines, facets as FacetSelection, {
             search: query,

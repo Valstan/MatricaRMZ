@@ -23,6 +23,7 @@ import {
   parseExportNumber,
   sanitizeExportFileName,
   type ListExportCellKind,
+  type ListExportGroup,
   type ListExportSpec,
 } from '@matricarmz/shared';
 
@@ -50,6 +51,20 @@ function typedCell(kind: ListExportCellKind, text: string): { value: string | nu
  * читают и считают, и обрезанная на экране ячейка врёт сильнее, чем непохожий на лист вид. */
 const MAX_COL_WIDTH = 60;
 const WIDTH_SAMPLE_ROWS = 500;
+
+/**
+ * Заголовки групп — по индексу строки данных, перед которой они стоят
+ * (промт КАРМАНА #164: файл повторяет группировку списка, а не плоскую сетку).
+ */
+function groupRowsByIndex(spec: ListExportSpec): Map<number, ListExportGroup[]> {
+  const map = new Map<number, ListExportGroup[]>();
+  for (const group of spec.groups ?? []) {
+    const list = map.get(group.rowIndex);
+    if (list) list.push(group);
+    else map.set(group.rowIndex, [group]);
+  }
+  return map;
+}
 
 function sheetName(title: string): string {
   return sanitizeExportFileName(title).slice(0, 31) || 'Список';
@@ -82,9 +97,22 @@ export async function buildListWorkbook(spec: ListExportSpec): Promise<Buffer> {
     cell.alignment = { wrapText: true, vertical: 'middle' };
   });
 
-  spec.rows.forEach((row) => {
+  const groupsByIndex = groupRowsByIndex(spec);
+  let lastRowNumber = headerRow.number;
+  spec.rows.forEach((row, index) => {
+    // Заголовок группы — строка на всю ширину, перед первой строкой своей группы.
+    for (const group of groupsByIndex.get(index) ?? []) {
+      const groupRow = ws.addRow([xmlSafe(group.label)]);
+      groupRow.font = { bold: true };
+      groupRow.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFEFEF' } };
+        cell.alignment = { vertical: 'middle', indent: group.depth };
+      });
+      if (width > 1) ws.mergeCells(groupRow.number, 1, groupRow.number, width);
+    }
     const values = spec.columns.map((col, i) => typedCell(col.kind, row[i] ?? '').value);
     const added = ws.addRow(values);
+    lastRowNumber = added.number;
     spec.columns.forEach((col, i) => {
       const cell = added.getCell(i + 1);
       const fmt = typedCell(col.kind, row[i] ?? '').numFmt;
@@ -105,7 +133,7 @@ export async function buildListWorkbook(spec: ListExportSpec): Promise<Buffer> {
   ws.views = [{ state: 'frozen', ySplit: headerRow.number }];
   ws.autoFilter = {
     from: { row: headerRow.number, column: 1 },
-    to: { row: headerRow.number + spec.rows.length, column: width },
+    to: { row: lastRowNumber, column: width },
   };
 
   return Buffer.from(await wb.xlsx.writeBuffer());
@@ -142,6 +170,24 @@ export async function buildListDocument(spec: ListExportSpec): Promise<Buffer> {
       ],
     });
 
+  const groupsByIndex = groupRowsByIndex(spec);
+  /** Заголовок группы — одна ячейка на всю ширину таблицы, с отступом по вложенности. */
+  const groupCell = (group: ListExportGroup) =>
+    new TableCell({
+      columnSpan: spec.columns.length,
+      shading: { fill: 'EFEFEF' },
+      children: [
+        new Paragraph({
+          ...(group.depth > 0 ? { indent: { left: 360 * group.depth } } : {}),
+          children: [new TextRun({ text: xmlSafe(group.label), bold: true, size: 18 })],
+        }),
+      ],
+    });
+  const bodyRows = spec.rows.flatMap((row, index) => [
+    ...(groupsByIndex.get(index) ?? []).map((group) => new TableRow({ children: [groupCell(group)] })),
+    new TableRow({ children: spec.columns.map((_, i) => cell(row[i] ?? '')) }),
+  ]);
+
   const table = new Table({
     width: { size: contentTwips, type: WidthType.DXA },
     columnWidths: columnTwips,
@@ -156,7 +202,7 @@ export async function buildListDocument(spec: ListExportSpec): Promise<Buffer> {
     },
     rows: [
       new TableRow({ tableHeader: true, children: spec.columns.map((col) => cell(col.label, { bold: true, shaded: true })) }),
-      ...spec.rows.map((row) => new TableRow({ children: spec.columns.map((_, i) => cell(row[i] ?? '')) })),
+      ...bodyRows,
     ],
   });
 
