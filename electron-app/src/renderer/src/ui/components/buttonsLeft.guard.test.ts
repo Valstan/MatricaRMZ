@@ -57,7 +57,7 @@ function isSkippable(line: string): boolean {
 /** Кнопка в следующих строках (пропуская пустые и комментарии). */
 function buttonFollows(lines: string[], from: number, depth = 6): boolean {
   for (let i = from; i < Math.min(lines.length, from + depth); i += 1) {
-    const t = lines[i].trim();
+    const t = (lines[i] ?? '').trim();
     if (isSkippable(t)) continue;
     return BUTTON_START.test(t);
   }
@@ -70,7 +70,7 @@ function scan(): Hit[] {
     const rel = file.slice(UI_ROOT.length).replace(/\\/g, '/');
     const lines = readFileSync(file, 'utf8').split(/\r?\n/);
     for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i];
+      const line = lines[i] ?? '';
 
       // Пустая распорка перед кнопкой.
       if (/^<(span|div) style=\{\{ flex: 1 \}\} \/>\s*$/.test(line.trim())) {
