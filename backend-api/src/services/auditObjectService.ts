@@ -22,7 +22,7 @@ import {
   auditObjectNameFromPayload,
   auditSectionForAction,
   auditSectionForObjectKind,
-  sectionLabelForTabKey,
+  auditSectionForTabKey,
   type AuditObjectKind,
 } from '@matricarmz/shared';
 
@@ -156,16 +156,19 @@ export async function resolveAuditObjectInfo(rows: AuditRowInput[]): Promise<Map
 
   for (const row of rows) {
     const cardKey = pickString(row.payload, 'label');
-    const tabKey = row.action === 'ui.visit' ? cardKey : '';
+    // Отчёты: клиент шлёт id пресета, а не ключ вкладки ⇒ раздел известен заранее.
+    const isReport = row.action === 'ui.report_open' || row.action === 'ui.report_build';
+    // Ключ вкладки/карточки — самый точный источник раздела: и визит раздела, и открытие
+    // карточки кладут его в `payload.label` (`ui.visit`, `ui.card_open`).
+    const tabKey = isReport ? '' : cardKey;
     const entityId = String(row.entityId ?? '').trim();
 
-    let section = auditSectionForAction(row.action);
+    let section = isReport ? 'Отчёты' : auditSectionForAction(row.action);
     let objectKind: AuditObjectKind | null = null;
 
-    // Визит вкладки: раздел — из ключа вкладки (клиент шлёт его в payload.label).
+    // Раздел по ключу вкладки (клиент шлёт его в payload.label).
     if (!section && tabKey) {
-      const label = sectionLabelForTabKey(tabKey);
-      if (label && label !== '—') section = label;
+      section = auditSectionForTabKey(tabKey);
     }
     // Тип объекта: сервер знает его по строке `entities` — он и есть раздел.
     const typeInfo = entityId ? typeByEntity.get(entityId) : undefined;
@@ -178,9 +181,6 @@ export async function resolveAuditObjectInfo(rows: AuditRowInput[]): Promise<Map
       if (kind) objectKind = kind;
     }
     if (!section && objectKind) section = auditSectionForObjectKind(objectKind as never);
-
-    // Отчёты: отдельный раздел (клиент шлёт id пресета, а не вкладку).
-    if (!section && (row.action === 'ui.report_open' || row.action === 'ui.report_build')) section = 'Отчёты';
 
     let objectName = auditObjectNameFromPayload(row.payload);
     if (!objectName && entityId) {

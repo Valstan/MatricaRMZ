@@ -36,7 +36,7 @@ type DescribeResult = {
 
 const KIND_LABELS: Record<string, string> = {
   engine: 'Двигатель',
-  contract: 'Договор',
+  contract: 'Контракт',
   counterparty: 'Контрагент',
   supply_request: 'Заявка',
   part: 'Деталь',

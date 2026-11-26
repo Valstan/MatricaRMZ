@@ -19,7 +19,7 @@
 import { and, eq, gte, inArray, isNotNull, isNull, lt } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
-import { DELETED_RETENTION_DAYS, deletedObjectRestorePath, deletedObjectsSince } from '@matricarmz/shared';
+import { DELETED_RETENTION_DAYS, deletedObjectRestorePath, deletedObjectSection, deletedObjectsSince } from '@matricarmz/shared';
 import { SyncTableName } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
@@ -232,7 +232,7 @@ export async function listRecentlyDeleted(args?: { days?: number }): Promise<{ o
     .where(gte(erpEngineCards.deletedAt, since));
   for (const row of engineRows) {
     const name = String(row.engineNumber ?? '').trim();
-    rows.push({ deletedBy: '', kind: 'engine', id: String(row.id), name, section: 'Двигатели', deletedAt: Number(row.deletedAt), restorePath: deletedObjectRestorePath('engine', name) });
+    rows.push({ deletedBy: '', kind: 'engine', id: String(row.id), name, section: deletedObjectSection('engine'), deletedAt: Number(row.deletedAt), restorePath: deletedObjectRestorePath('engine', name) });
   }
 
   const contractRows = await db
@@ -241,7 +241,7 @@ export async function listRecentlyDeleted(args?: { days?: number }): Promise<{ o
     .where(gte(erpContracts.deletedAt, since));
   for (const row of contractRows) {
     const name = String(row.number ?? row.internalNumber ?? row.gozName ?? '').trim();
-    rows.push({ deletedBy: '', kind: 'contract', id: String(row.id), name, section: 'Договоры', deletedAt: Number(row.deletedAt), restorePath: deletedObjectRestorePath('contract', name) });
+    rows.push({ deletedBy: '', kind: 'contract', id: String(row.id), name, section: deletedObjectSection('contract'), deletedAt: Number(row.deletedAt), restorePath: deletedObjectRestorePath('contract', name) });
   }
 
   const counterpartyRows = await db
@@ -250,7 +250,7 @@ export async function listRecentlyDeleted(args?: { days?: number }): Promise<{ o
     .where(gte(erpCounterparties.deletedAt, since));
   for (const row of counterpartyRows) {
     const name = String(row.name ?? '').trim();
-    rows.push({ deletedBy: '', kind: 'counterparty', id: String(row.id), name, section: 'Контрагенты', deletedAt: Number(row.deletedAt), restorePath: deletedObjectRestorePath('counterparty', name) });
+    rows.push({ deletedBy: '', kind: 'counterparty', id: String(row.id), name, section: deletedObjectSection('counterparty'), deletedAt: Number(row.deletedAt), restorePath: deletedObjectRestorePath('counterparty', name) });
   }
 
   const fileRows = await db
@@ -259,7 +259,7 @@ export async function listRecentlyDeleted(args?: { days?: number }): Promise<{ o
     .where(gte(fileAssets.deletedAt, since));
   for (const row of fileRows) {
     const name = String(row.name ?? '').trim();
-    rows.push({ deletedBy: '', kind: 'file', id: String(row.id), name, section: 'Файлы', deletedAt: Number(row.deletedAt), restorePath: deletedObjectRestorePath('file', name) });
+    rows.push({ deletedBy: '', kind: 'file', id: String(row.id), name, section: deletedObjectSection('file'), deletedAt: Number(row.deletedAt), restorePath: deletedObjectRestorePath('file', name) });
   }
 
   // EAV-сущности (заявки, наряды, справочники, сотрудники).
@@ -280,7 +280,7 @@ export async function listRecentlyDeleted(args?: { days?: number }): Promise<{ o
       const code = typeCodeById.get(String(row.typeId)) ?? '';
       const kind = EAV_KIND_BY_TYPE_CODE[code] ?? 'masterdata';
       const name = names.get(String(row.id)) ?? '';
-      const section = kind === 'employee' ? 'Сотрудники' : kind === 'supply_request' ? 'Заявки' : kind === 'work_order' ? 'Наряды' : 'Справочники';
+      const section = deletedObjectSection(kind) || 'Справочники';
       rows.push({ deletedBy: '', kind, id: String(row.id), name, section, deletedAt: Number(row.deletedAt), restorePath: deletedObjectRestorePath(kind, name) });
     }
   }
