@@ -9,6 +9,7 @@ import {
   desktopFileFromLink,
   desktopFileIcon,
   desktopFileLink,
+  desktopFileOriginText,
   desktopFolderShortcuts,
   desktopLayoutGrid,
   desktopMoveToFolder,
@@ -19,10 +20,12 @@ import {
   desktopRenameFolder,
   desktopRenameShortcut,
   desktopRestoreFromTrash,
+  desktopSelectedFileShortcuts,
   desktopSetPositions,
   desktopSurfaceShortcuts,
   desktopTileMetrics,
   desktopTrashShortcuts,
+  type DesktopAttachTarget,
   type DesktopPlacement,
   type DesktopShortcut,
   type DesktopTileMetrics,
@@ -33,6 +36,10 @@ import { theme } from '../theme.js';
 import { matricaPlatform } from '../platform.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useConfirm } from './ConfirmContext.js';
+import { DesktopAttachTargetDialog } from './DesktopAttachTargetDialog.js';
+import { DesktopFileActionsPanel } from './DesktopFileActionsPanel.js';
+import { SendFileToColleagueDialog } from './SendFileToColleagueDialog.js';
+import { setDesktopAttachIntent } from './DesktopAttachIntent.js';
 
 // MIME-тип DnD внутри Верстака: сторонние перетаскивания (файлы из
 // проводника, текст) им не прикидываются и молча игнорируются.
@@ -98,6 +105,14 @@ export function DesktopPane(props: {
   /** Куда ляжет плитка, если отпустить здесь. Показывается маркером на самой ячейке. */
   const [dropCell, setDropCell] = useState<{ col: number; row: number } | null>(null);
   const [cols, setCols] = useState(1);
+  /** Прямоугольник полотна в координатах окна — панель действий встаёт у его низа. */
+  const [paneRect, setPaneRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  /** Идёт действие над файлами — кнопки панели блокируются. */
+  const [filesBusy, setFilesBusy] = useState(false);
+  /** Выбор карточки-цели для «Прикрепить к карточке…». */
+  const [attachTargetOpen, setAttachTargetOpen] = useState(false);
+  /** Выбор коллеги для отправки ВСЕХ выделенных файлов сразу. */
+  const [sendColleagueOpen, setSendColleagueOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -136,6 +151,43 @@ export function DesktopPane(props: {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Прямоугольник полотна в координатах окна: панель действий рисуется порталом (PopupLayer),
+  // поэтому «прибить» её к низу панели стилями не выйдется — позицию считаем по факту.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setPaneRect((prev) => {
+        const next = { left: r.left, top: r.top, width: r.width, height: r.height };
+        if (
+          prev &&
+          prev.left === next.left &&
+          prev.top === next.top &&
+          prev.width === next.width &&
+          prev.height === next.height
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener('resize', measure);
+    // Разделитель «чат | Верстак» двигает полотно без изменения его размера — ловим прокрутку.
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, []);
+
+  /** Выделенные ФАЙЛОВЫЕ ярлыки: ярлык на раздел рядом с файлом в действие файла не попадает. */
+  const selectedFiles = useMemo(() => desktopSelectedFileShortcuts(desktop, selected), [desktop, selected]);
 
   const grid = useMemo(
     () =>
@@ -385,6 +437,159 @@ export function DesktopPane(props: {
     notify(`Копия сохранена: «${file.name}».`);
   }
 
+  // ─── действия над ВЫДЕЛЕННЫМИ файлами ───────────────────────────────────────
+
+  /**
+   * «Копировать в папку…» — копия выбранных файлов в выбранную папку.
+   *
+   * Оригиналы в программе и ярлыки на Верстаке не трогаем: правило проекта — Верстак
+   * убирает только СВОЙ ярлык и никогда не удаляет файл (дедуп по sha256, счётчика ссылок нет).
+   */
+  async function copySelectedToFolder() {
+    const files = selectedFiles;
+    if (files.length === 0) return;
+    setFilesBusy(true);
+    const r = await window.matrica.files
+      .copyToFolder({ fileIds: files.map((f) => f.fileId) })
+      .catch((e) => ({ ok: false as const, error: String(e) }));
+    setFilesBusy(false);
+    if (!r.ok) {
+      if (r.error !== 'cancelled') notify(`Не удалось скопировать файлы: ${r.error}`, 'error');
+      return;
+    }
+    notify(
+      `Скопировано файлов: ${r.count}. Оригиналы на месте, ярлыки на Верстаке остаются.` +
+        `Если в папке уже лежал такой файл — он не перезаписан, а сохранён рядом с номером.`,
+    );
+  }
+
+  /**
+   * «Перенести в папку…» — файлы копируются в выбранную папку, а СВОИ ярлыки с Верстака
+   * убираются в корзину.
+   *
+   * Оригинал в программе НЕ удаляется: «перенос» тут — это копирование плюс убор ярлыка.
+   * Что именно произойдёт, оператор видит в подтверждении ДО выбора папки.
+   */
+  async function moveSelectedToFolder() {
+    const files = selectedFiles;
+    if (files.length === 0) return;
+    const ok = await confirm({
+      title: 'Перенести файлы в папку?',
+      detail:
+        `Файлов: ${files.length}. Они будут СКОПИРОВАНЫ в выбранную папку.\n\n` +
+        `Оригиналы в программе останутся — Верстак не удаляет файлы, только свой ярлык.\n` +
+        `Ярлыки этих файлов будут убраны с Верстака в корзину.`,
+      confirmLabel: 'Перенести',
+    });
+    if (!ok) return;
+    setFilesBusy(true);
+    const r = await window.matrica.files
+      .copyToFolder({ fileIds: files.map((f) => f.fileId) })
+      .catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setFilesBusy(false);
+      if (r.error !== 'cancelled') notify(`Не удалось перенести файлы: ${r.error}`, 'error');
+      return;
+    }
+    const next = desktopMoveToTrashMany(
+      desktop,
+      files.map((f) => f.shortcutId),
+      Date.now(),
+    );
+    if (next !== desktop) {
+      clearSelection();
+      onChange(next);
+    }
+    setFilesBusy(false);
+    notify(`Перенесено файлов: ${r.count}. Оригиналы в программе не тронуты, ярлыки убраны в корзину.`);
+  }
+
+  /**
+   * «Отправить коллеге…» — личное сообщение чата с файлом: оно и доезжает, и выдаёт доступ.
+   * Ярлык коллеге кладётся только после его согласия, поэтому чужим Верстаком не засыпать.
+   */
+  async function sendSelectedToColleague(recipientUserId: string) {
+    const files = selectedFiles;
+    setSendColleagueOpen(false);
+    if (files.length === 0) return;
+    setFilesBusy(true);
+    let sent = 0;
+    const failures: string[] = [];
+    for (const f of files) {
+      const r = await window.matrica.desktopTransfer
+        .sendToColleague({ fileId: f.fileId, recipientUserId })
+        .catch((e) => ({ ok: false as const, error: String(e) }));
+      if (r.ok) sent += 1;
+      else failures.push(`«${f.name}» — ${r.error}`);
+    }
+    setFilesBusy(false);
+    if (failures.length > 0) {
+      notify(
+        sent > 0
+          ? `Отправлено файлов: ${sent}. Не отправлено: ${failures.join('; ')}`
+          : `Не отправлено: ${failures.join('; ')}`,
+        'error',
+      );
+      return;
+    }
+    notify(`Отправлено файлов: ${sent} — они появятся у коллеги на Верстаке после подтверждения.`);
+  }
+
+  /**
+   * «Отправить по почте…» — честно про ограничение.
+   *
+   * Своего почтового сервера у завода нет, а `mailto:` вложений не умеет: письмо уходит
+   * БЕЗ вложений, а файлы лежат в открытой папке, и оператор тащит их в письмо руками.
+   * Молчать об этом нельзя — иначе оператор отправит пустое письмо и решит, что файлы ушли.
+   */
+  async function sendSelectedByMail() {
+    const files = selectedFiles;
+    if (files.length === 0) return;
+    setFilesBusy(true);
+    const label = `Файлы с Верстака (${files.length})`;
+    const r = await window.matrica.files.revealForShare({ fileIds: files.map((f) => f.fileId), label }).catch((e) => ({ ok: false as const, error: String(e) }));
+    setFilesBusy(false);
+    if (!r.ok) {
+      notify(`Не удалось подготовить файлы к письму: ${r.error}`, 'error');
+      return;
+    }
+    const draft = await window.matrica.mail.openDraft({
+      subject: label,
+      body:
+        `Файлы с Верстака (${files.length}) подготовлены в папке:\n${r.folder}\n\n` +
+        `Программа не умеет прикреплять файлы к письму сама — перетащите их из папки в это письмо.`,
+    }).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!draft.ok) {
+      notify(`Письмо не открылось: ${draft.error}. Файлы лежат в папке: ${r.folder}`, 'error');
+      return;
+    }
+    notify('Письмо открыто без вложений: файлы лежат в открытой папке — перетащите их в письмо.');
+  }
+
+  /**
+   * «Прикрепить к карточке…» — файл кладёт САМА карточка.
+   *
+   * У трёх карточек из девяти список вложений живёт в памяти открытой карточки и уходит в БД
+   * снимком при её закрытии: запись «снаружи» потерялась бы молча. Поэтому мы оставляем
+   * карточке записку (кто, что, какие файлы) и открываем её — дальше карточка покажет файлы
+   * отмеченными и приложит их своим обычным механизмом.
+   */
+  function onAttachTargetPicked(target: DesktopAttachTarget & { id: string; label: string }) {
+    const files = selectedFiles;
+    setAttachTargetOpen(false);
+    if (files.length === 0) return;
+    setDesktopAttachIntent({
+      ownerType: target.ownerType,
+      ownerId: target.id,
+      category: target.category,
+      fileIds: files.map((f) => f.fileId),
+    });
+    props.onOpenLink({ kind: 'app_link', tab: target.tab, [target.linkField]: target.id }, files[0]?.shortcutId ?? '');
+    notify(
+      `Карточка «${target.label}» открыта. Файлы с Верстака уже отмечены во вкладке файлов карточки — нажмите «Приложить».`,
+    );
+  }
+
   // ─── лассо ────────────────────────────────────────────────────────────────
   function pointFromEvent(clientX: number, clientY: number): { x: number; y: number } | null {
     const el = canvasRef.current;
@@ -510,9 +715,16 @@ export function DesktopPane(props: {
   function shortcutTile(s: DesktopShortcut, opts: { inTrash?: boolean; place?: DesktopPlacement } = {}) {
     const m = desktopTileMetrics(tileStep(s.id));
     const on = selected.has(s.id);
+    // Присланный файл виден как присланный: оператор должен отличить «пришло от коллеги»
+    // от «подобрал из своих». Пометка живёт в ссылке ярлыка (см. DesktopFileLink.from),
+    // поэтому переименование плитки её не стирает.
+    const originText = desktopFileOriginText(desktopFileFromLink(s.link)?.from);
+    // Короткая метка отправителя для плитки: «Иванова» или «📥», если отправителя нет.
+    const originName = desktopFileFromLink(s.link)?.from?.name ?? '';
+    const originBadge = originName ? (originName.length > 9 ? `${originName.slice(0, 8)}…` : originName) : '📥';
     const box: React.CSSProperties = opts.place
       ? { position: 'absolute', ...tileOrigin(opts.place, m), width: m.width, height: m.height }
-      : { width: m.width };
+      : { position: 'relative', width: m.width };
     return (
       <button
         key={s.id}
@@ -532,7 +744,7 @@ export function DesktopPane(props: {
           if (!selected.has(s.id)) setSelected(new Set([s.id]));
           setCtxMenu({ kind: 'shortcut', id: s.id, inTrash: opts.inTrash ?? false, ...menuPos(e) });
         }}
-        title={s.link != null ? `${s.label} — двойной клик откроет раздел` : s.label}
+        title={s.link != null ? `${s.label} — ${desktopFileFromLink(s.link) ? 'двойной клик откроет файл' : 'двойной клик откроет раздел'}${originText ? ` — ${originText}` : ''}` : s.label}
         style={{
           ...box,
           display: 'flex',
@@ -553,8 +765,32 @@ export function DesktopPane(props: {
           overflow: 'hidden',
         }}
       >
-        <span style={{ fontSize: m.icon, lineHeight: `${m.iconLine}px` }} aria-hidden="true">
-          {s.icon}
+        <span style={{ fontSize: m.icon, lineHeight: `${m.iconLine}px`, display: 'flex', alignItems: 'center', gap: 3 }}>
+          <span aria-hidden="true">{s.icon}</span>
+          {originText ? (
+            // Пометка «пришло» — видимая, а не только в подсказке: оператор должен отличить
+            // присланный файл от своего. Подпись плитки занимает обе строки, поэтому
+            // отправитель встаёт рядом со значком, а полная строка — в подсказке.
+            <span
+              data-desktop-file-origin
+              title={originText}
+              style={{
+                fontSize: Math.max(8, m.label - 2),
+                lineHeight: '11px',
+                padding: '0 4px',
+                borderRadius: 6,
+                border: `1px solid ${theme.colors.border}`,
+                background: theme.colors.surface2,
+                color: theme.colors.muted,
+                maxWidth: 46,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {originBadge}
+            </span>
+          ) : null}
         </span>
         <span
           style={{
@@ -573,6 +809,22 @@ export function DesktopPane(props: {
         >
           {s.label}
         </span>
+        {originText ? (
+          <span
+            data-desktop-file-origin
+            title={originText}
+            style={{
+              position: 'absolute',
+              top: 1,
+              right: 2,
+              fontSize: Math.max(9, m.label - 1),
+              lineHeight: `${m.labelLine - 1}px`,
+            }}
+            aria-hidden="true"
+          >
+            📥
+          </span>
+        ) : null}
       </button>
     );
   }
@@ -820,7 +1072,9 @@ export function DesktopPane(props: {
         style={{
           position: 'absolute',
           right: 16,
-          bottom: 12,
+          // Панель действий над выделенными файлами встаёт у низа Верстака — корзина
+          // поднимается над ней, иначе панель накрыла бы её целиком.
+          bottom: selectedFiles.length > 0 ? 68 : 12,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -964,7 +1218,8 @@ export function DesktopPane(props: {
             position: 'absolute',
             left: 16,
             right: 16,
-            bottom: 12,
+            // Над панелью действий: обе полосы у низа Верстака, и одна накрыла бы другую.
+            bottom: selectedFiles.length > 0 ? 68 : 12,
             padding: '8px 12px',
             border: `1px solid ${theme.colors.border}`,
             borderRadius: 10,
@@ -1121,6 +1376,40 @@ export function DesktopPane(props: {
           )}
         </div>
       )}
+
+      {/* Панель действий над выделенными файлами. Рисуется порталом (PopupLayer) — см.
+          components/DesktopFileActionsPanel.tsx: меню внутри контекста наложения предка
+          уезжает под интерфейс. */}
+      <DesktopFileActionsPanel
+        paneRect={paneRect}
+        count={selectedFiles.length}
+        canUseDisk={!isAndroid}
+        busy={filesBusy}
+        onAttach={() => setAttachTargetOpen(true)}
+        onCopy={() => void copySelectedToFolder()}
+        onMove={() => void moveSelectedToFolder()}
+        onSendColleague={() => setSendColleagueOpen(true)}
+        onSendMail={() => void sendSelectedByMail()}
+        onRemoveShortcuts={() => void trashSelection()}
+      />
+
+      <DesktopAttachTargetDialog
+        open={attachTargetOpen}
+        fileCount={selectedFiles.length}
+        onClose={() => setAttachTargetOpen(false)}
+        onPick={onAttachTargetPicked}
+      />
+
+      <SendFileToColleagueDialog
+        open={sendColleagueOpen}
+        fileName={
+          selectedFiles.length === 1
+            ? (selectedFiles[0]?.name ?? 'Файл')
+            : `Файлов с Верстака: ${selectedFiles.length}`
+        }
+        onClose={() => setSendColleagueOpen(false)}
+        onSend={(recipientUserId) => sendSelectedToColleague(recipientUserId)}
+      />
     </div>
   );
 }

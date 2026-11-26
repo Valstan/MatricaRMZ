@@ -8,6 +8,7 @@ import { ListCount } from './ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { useConfirm } from './ConfirmContext.js';
 import { useDesktopFiles } from './DesktopFilesContext.js';
+import { takeDesktopAttachIntent, useDesktopAttachIntent } from './DesktopAttachIntent.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { isAndroidPlatform } from '../platform.js';
 import { escapeHtml, printSectionsDirect } from '../utils/printPreview.js';
@@ -159,6 +160,25 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   const isAndroid = isAndroidPlatform();
   const androidPickRef = useRef<HTMLInputElement>(null);
   const androidCameraRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Намерение с Верстака: оператор выделил файлы и выбрал карточку — «прикрепить к карточке».
+   *
+   * Файлы кладёт САМА карточка (своим `onChange`), иначе запись снаружи потерялась бы молча:
+   * у трёх карточек из девяти список вложений живёт в памяти открытой карточки и уходит в БД
+   * снимком при её закрытии. Поэтому Верстак не пишет в карточку — он оставляет записку с
+   * адресатом, а панель находит её по своему `scope`, показывает файлы ОТМЕЧЕННЫМИ и ждёт
+   * нажатия «Приложить». Доступ к каждому файлу проверяется сервером при этом самом нажатии.
+   */
+  const attachIntent = useDesktopAttachIntent(props.scope);
+  useEffect(() => {
+    if (!attachIntent) return;
+    setDesktopPickerOpen(true);
+    setDesktopPicked(new Set(attachIntent.fileIds));
+    // Записка одноразовая: кто первый забрал — тот и приложит. Иначе она уехала бы в
+    // следующую открытую карточку и приложила файлы не туда.
+    takeDesktopAttachIntent();
+  }, [attachIntent]);
 
   const list = useMemo(() => normalizeList(props.value), [props.value]);
   // Длинный список файлов по умолчанию свёрнут (этап 4 tabs-window-shell): пользователь

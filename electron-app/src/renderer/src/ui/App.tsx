@@ -4889,7 +4889,18 @@ export function App() {
       for (const item of items) {
         const put = desktopPutShortcut(
           next,
-          { id: `file-${item.fileId}`, label: item.fileName, icon: desktopFileIcon(item.fileName), link: desktopFileLink({ id: item.fileId, name: item.fileName, mime: item.mime }) },
+          {
+            id: `file-${item.fileId}`,
+            label: item.fileName,
+            icon: desktopFileIcon(item.fileName),
+            // Пометка «от кого и когда пришёл» — в ссылке ярлыка: оператор на Верстаке видит,
+            // что файл ПРИСЛАН, а не подобран из своих. В подписи плитки места нет (она занята
+            // именем файла), поэтому отправитель рисуется рядом со значком.
+            link: desktopFileLink({ id: item.fileId, name: item.fileName, mime: item.mime }, {
+              name: item.senderUsername,
+              at: item.sentAt,
+            }),
+          },
           Date.now(),
         );
         if (put.outcome === 'added') added += 1;

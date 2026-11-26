@@ -501,27 +501,60 @@ export function desktopRenameFolder(d: UserUiProfileDesktop, folderId: string, n
 // (PENDING_FOLLOWUPS §Security п.6). Обычно это незаметно — файл загрузил сам оператор, и
 // его открывает ранняя ветка `createdByUserId`.
 
-export type DesktopFileLink = { kind: 'file'; fileId: string; name: string; mime?: string };
+/**
+ * Откуда файл на Верстаке. Для присланного с телефона — «от кого и когда пришёл».
+ *
+ * Живёт ВНУТРИ `link` (как и сам файловый ярлык): новое поле ярлыка санитайзер не знает и
+ * вычеркнул бы при первом же сохранении профиля.
+ */
+export type DesktopFileOrigin = {
+  /** Отправитель (логин коллеги или имя машины). */
+  name: string;
+  /** Момент прихода (мс epoch). */
+  at: number;
+};
 
-export function desktopFileLink(file: { id: string; name: string; mime?: string | null }): DesktopFileLink {
+export type DesktopFileLink = { kind: 'file'; fileId: string; name: string; mime?: string; from?: DesktopFileOrigin };
+
+export function desktopFileLink(
+  file: { id: string; name: string; mime?: string | null },
+  from?: DesktopFileOrigin | null,
+): DesktopFileLink {
   return {
     kind: 'file',
     fileId: String(file.id),
     name: String(file.name ?? '').slice(0, MAX_LABEL) || 'Файл',
     ...(file.mime ? { mime: String(file.mime).slice(0, 120) } : {}),
+    ...(from && from.name ? { from: { name: String(from.name).slice(0, 120), at: Number(from.at) || 0 } } : {}),
   };
 }
 
-export function desktopFileFromLink(link: unknown): { fileId: string; name: string; mime: string | null } | null {
+/** Пометка «от кого и когда пришёл» — словами, а не датой в углу. */
+export function desktopFileOriginText(origin: DesktopFileOrigin | null | undefined): string {
+  if (!origin || !origin.name) return '';
+  const at = Number(origin.at);
+  if (!Number.isFinite(at) || at <= 0) return `пришёл от ${origin.name}`;
+  const d = new Date(at);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `пришёл от ${origin.name} ${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+export function desktopFileFromLink(
+  link: unknown,
+): { fileId: string; name: string; mime: string | null; from: DesktopFileOrigin | null } | null {
   if (typeof link !== 'object' || link == null) return null;
   const l = link as Record<string, unknown>;
   if (String(l.kind ?? '') !== 'file') return null;
   const fileId = String(l.fileId ?? '').trim();
   if (!fileId) return null;
+  const fromRaw = (typeof l.from === 'object' && l.from != null ? l.from : {}) as Record<string, unknown>;
+  const fromName = String(fromRaw.name ?? '').trim().slice(0, 120);
+  const fromAt = Number(fromRaw.at);
   return {
     fileId,
     name: String(l.name ?? '').trim() || 'Файл',
     mime: typeof l.mime === 'string' && l.mime.trim() ? l.mime.trim() : null,
+    from: fromName ? { name: fromName, at: Number.isFinite(fromAt) && fromAt > 0 ? fromAt : 0 } : null,
   };
 }
 
@@ -533,6 +566,8 @@ export type DesktopFileShortcut = {
   mime: string | null;
   /** Подпись плитки — её оператор мог переименовать, и на Верстаке он видит именно её. */
   label: string;
+  /** Откуда файл: прислан с телефона — «от кого и когда». Своих файлов пометки нет. */
+  from: DesktopFileOrigin | null;
 };
 
 /**
@@ -549,9 +584,80 @@ export function desktopLiveFileShortcuts(d: UserUiProfileDesktop): DesktopFileSh
     if (s.deletedAt != null) continue;
     const file = desktopFileFromLink(s.link);
     if (!file) continue;
-    out.push({ shortcutId: s.id, fileId: file.fileId, name: file.name, mime: file.mime, label: s.label });
+    out.push({
+      shortcutId: s.id,
+      fileId: file.fileId,
+      name: file.name,
+      mime: file.mime,
+      label: s.label,
+      from: file.from,
+    });
   }
   return out;
+}
+
+/**
+ * Файловые ярлыки среди ВЫДЕЛЕННЫХ на Верстаке.
+ *
+ * Выделение — это ids плиток, а не файлов: ярлык на раздел в выделении может оказаться рядом с
+ * файловым. Действия над файлами берут только те, что действительно про файлы.
+ */
+export function desktopSelectedFileShortcuts(
+  d: UserUiProfileDesktop,
+  ids: Iterable<string>,
+): DesktopFileShortcut[] {
+  const wanted = new Set<string>();
+  for (const id of ids) wanted.add(String(id));
+  if (wanted.size === 0) return [];
+  return desktopLiveFileShortcuts(d).filter((f) => wanted.has(f.shortcutId));
+}
+
+/**
+ * Куда карточка умеет принять файлы с Верстака.
+ *
+ * Набор карточек — не произвольный: у каждой должен быть свой `scope` (род и категория
+ * вложений), по которому панель вложений узнаёт, что файл адресован ИМЕННО ей. Карточки
+ * без панели вложений или без `scope` в этот список не попадают — иначе оператор выбрал бы
+ * цель, которая файл молча не примет.
+ */
+export type DesktopAttachTarget = {
+  /** Род карточки — как `scope.ownerType` панели вложений. */
+  ownerType: string;
+  /** Категория вложений карточки — как `scope.category`. */
+  category: string;
+  /** Поле ссылки приложения, в котором лежит id карточки. */
+  linkField: 'engineId' | 'contractId' | 'employeeId' | 'engineBrandId' | 'counterpartyId' | 'toolId';
+  /** Вкладка, в которую открывается карточка. */
+  tab: string;
+};
+
+/**
+ * Карточки, принимающие файлы с Верстака.
+ *
+ * Ключ — вид сущности глобального поиска (`GlobalSearchKind`), значение — как карточка
+ * называет свои вложения. Проверка обратная: любая карточка, которой здесь нет, файлы с
+ * Верстака не принимает — и панель действий её не предлагает.
+ */
+export const DESKTOP_ATTACH_TARGETS: Record<string, DesktopAttachTarget> = {
+  engine: { ownerType: 'engine', category: 'attachments', linkField: 'engineId', tab: 'engine' },
+  contract: { ownerType: 'contract', category: 'attachments', linkField: 'contractId', tab: 'contract' },
+  employee: { ownerType: 'employee', category: 'attachments', linkField: 'employeeId', tab: 'employee' },
+  engine_brand: { ownerType: 'engine_brand', category: 'attachments', linkField: 'engineBrandId', tab: 'engine_brand' },
+  counterparty: { ownerType: 'customer', category: 'attachments', linkField: 'counterpartyId', tab: 'counterparty' },
+  tool: { ownerType: 'tool', category: 'photos', linkField: 'toolId', tab: 'tool' },
+};
+
+/** Виды карточек, принимающих файлы с Верстака (для фильтра поиска). */
+export function desktopAttachTargetKinds(): readonly string[] {
+  return Object.keys(DESKTOP_ATTACH_TARGETS);
+}
+
+/** Цель прикрепления для вида карточки; null — эта карточка файлы не принимает. */
+export function desktopAttachTarget(kind: string, id: string): (DesktopAttachTarget & { id: string }) | null {
+  const target = DESKTOP_ATTACH_TARGETS[String(kind ?? '')];
+  const cardId = String(id ?? '').trim();
+  if (!target || !cardId) return null;
+  return { ...target, id: cardId };
 }
 
 /** Значок плитки по расширению. Оператор узнаёт документ по виду, а не по подписи. */

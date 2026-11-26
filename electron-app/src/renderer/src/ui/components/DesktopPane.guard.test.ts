@@ -19,6 +19,9 @@ function src(rel: string): string {
 }
 
 const PANE = src('./DesktopPane.tsx');
+const PANEL = src('./DesktopFileActionsPanel.tsx');
+const TARGET = src('./DesktopAttachTargetDialog.tsx');
+const INTENT = src('./DesktopAttachIntent.ts');
 
 describe('якоря смоуков на месте', () => {
   const ANCHORS = [
@@ -151,5 +154,65 @@ describe('фоновая подпись «ВЕРСТАК» не мешает р�
     // У половины парка тёмная тема — фиксированный серый превратился бы там в грязное пятно.
     expect(block).toContain("color: 'var(--text)'");
     expect(block).toContain('opacity: 0.07');
+  });
+});
+
+describe('действия над выделенными файлами (промт КАРМАНА #144)', () => {
+  it('панель действий рисуется порталом — меню внутри контекста наложения уезжает под интерфейс', () => {
+    expect(PANEL).toContain('PopupLayer');
+    expect(PANEL).toContain('<PopupLayer>');
+  });
+
+  it('панель появляется только когда выделены файлы, а не когда выделен любой ярлык', () => {
+    expect(PANE).toContain('desktopSelectedFileShortcuts');
+    expect(PANEL).toContain('props.count <= 0');
+  });
+
+  it('копирование и перенос идут через файловый слой, а не путём на диск из рендерера', () => {
+    // Прямой путь с диска в рендерере — это мост «прочитай/запиши любой файл» и обход
+    // проверки доступа: `files.copyToFolder` внутри спрашивает карточку файла (files.meta).
+    expect(PANE).toContain('window.matrica.files.copyToFolder');
+    expect(PANE).not.toContain('files.downloadDirGet');
+  });
+
+  it('«перенести» убирает только СВОЙ ярлык — файл в программе остаётся', () => {
+    // Правило проекта: Верстак убирает свой ярлык и никогда не удаляет файл.
+    expect(PANE).not.toContain('files.delete');
+    expect(PANE).toContain('desktopMoveToTrashMany');
+  });
+
+  it('оператору сказано, что оригиналы остаются, а не молча', () => {
+    expect(PANE).toContain('Оригиналы на месте');
+    expect(PANE).toContain('Оригиналы в программе не тронуты');
+  });
+
+  it('почтой файлы не отправляются — и это сказано словами', () => {
+    // Своего почтового сервера нет, `mailto:` вложений не умеет. Молча отправить пустое
+    // письмо — значит солгать оператору, что файл ушёл.
+    expect(PANE).toContain('window.matrica.files.revealForShare');
+    expect(PANE).toContain('window.matrica.mail.openDraft');
+    expect(PANE).toContain('Письмо открыто без вложений');
+  });
+
+  it('прикрепление к карточке идёт через записку — карточка пишет вложения сама', () => {
+    // Верстак не пишет в карточку: у трёх карточек из девяти список вложений живёт в памяти
+    // открытой карточки, и внешняя запись потерялась бы молча.
+    expect(PANE).toContain('setDesktopAttachIntent');
+    expect(INTENT).toContain('takeDesktopAttachIntent');
+  });
+
+  it('цель прикрепления выбирается поиском и берётся только из списка карточек-приёмников', () => {
+    expect(TARGET).toContain('window.matrica.search.global');
+    expect(TARGET).toContain('desktopAttachTarget');
+  });
+
+  it('на планшете действия без файловой системы не показываются, а причина названа', () => {
+    expect(PANE).toContain('canUseDisk={!isAndroid}');
+    expect(PANEL).toContain('На планшете файлы не копируются на диск');
+  });
+
+  it('присланный файл помечен как присланный — от кого и когда', () => {
+    expect(PANE).toContain('desktopFileOriginText');
+    expect(PANE).toContain('data-desktop-file-origin');
   });
 });
