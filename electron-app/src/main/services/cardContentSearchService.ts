@@ -5,6 +5,7 @@ import { ENGINE_INVENTORY_STAGE, type GlobalSearchHit } from '@matricarmz/shared
 
 import { attributeValues, operations } from '../database/schema.js';
 import { readInventoryRowsForOperations } from './engineInventoryLinesReplica.js';
+import { SearchCancelledError } from './searchAbort.js';
 
 // Bottom list filter, tier-2 (docs/plans/list-bottom-filter-and-global-search-2026-07.md):
 // given the entity ids a list page currently displays, return the subset whose card
@@ -14,14 +15,31 @@ import { readInventoryRowsForOperations } from './engineInventoryLinesReplica.js
 const MAX_ENTITY_IDS = 5000;
 const CHUNK = 400;
 
+/** Ход поиска по содержимому карточек — наверх, в общий канал прогресса. */
+export type CardContentSearchProgress = {
+  /** Сколько карточек проверено. */
+  scanned: number;
+  /** Сколько карточек в выборке. */
+  total: number;
+  /** Найдено совпадений. */
+  found: number;
+};
+
 function compact(s: string): string {
   return s.replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 export async function searchEntityCardContent(
   db: BetterSQLite3Database,
-  args: { entityIds: string[]; q: string },
-): Promise<{ ok: true; ids: string[] } | { ok: false; error: string }> {
+  args: {
+    entityIds: string[];
+    q: string;
+    /** Сигнал отмены: оператор нажал «Отмена». */
+    signal?: AbortSignal;
+    /** Ход поиска: сколько карточек проверено и сколько найдено. */
+    onProgress?: (progress: CardContentSearchProgress) => void;
+  },
+): Promise<{ ok: true; ids: string[]; cancelled?: boolean } | { ok: false; error: string }> {
   try {
     const q = String(args.q ?? '').trim().toLowerCase();
     const entityIds = Array.from(new Set((args.entityIds ?? []).map((x) => String(x).trim()).filter(Boolean))).slice(
@@ -30,8 +48,17 @@ export async function searchEntityCardContent(
     );
     if (!q || entityIds.length === 0) return { ok: true, ids: [] };
 
+    const signal = args.signal;
+    const onProgress = args.onProgress;
     const textById = new Map<string, string[]>();
+    let scanned = 0;
     for (let i = 0; i < entityIds.length; i += CHUNK) {
+      if (signal?.aborted) {
+        // Отмена между пачками: отдаём то, что нашли, и говорим, что поиск
+        // остановлен по команде оператора.
+        const partial = matchCollected(textById, q);
+        return { ok: true, ids: partial, cancelled: true };
+      }
       const chunk = entityIds.slice(i, i + CHUNK);
       const rows = await db
         .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
@@ -43,22 +70,31 @@ export async function searchEntityCardContent(
         arr.push(String(r.valueJson).toLowerCase());
         textById.set(String(r.entityId), arr);
       }
+      scanned = Math.min(entityIds.length, i + CHUNK);
+      if (onProgress) onProgress({ scanned, total: entityIds.length, found: matchCollected(textById, q).length });
     }
 
-    const ids: string[] = [];
-    for (const [entityId, parts] of textById) {
-      const text = parts.join(' ');
-      const textCompact = compact(text);
-      // Точный режим (владелец 10.10.2026): только подряд идущее вхождение ВСЕГО
-      // запроса. Потиражный AND («слово тут, слово там») — уже похожее, ему место
-      // за кнопкой «≈ Похожие», а не в выдаче по умолчанию.
-      const hit = text.includes(q) || (compact(q).length > 0 && textCompact.includes(compact(q)));
-      if (hit) ids.push(entityId);
-    }
+    const ids = matchCollected(textById, q);
     return { ok: true, ids };
   } catch (e) {
+    if (e instanceof SearchCancelledError) return { ok: true, ids: [], cancelled: true };
     return { ok: false, error: String(e) };
   }
+}
+
+/** Совпадения по собранным значениям карточек (точный режим тира-2). */
+function matchCollected(textById: Map<string, string[]>, q: string): string[] {
+  const ids: string[] = [];
+  for (const [entityId, parts] of textById) {
+    const text = parts.join(' ');
+    const textCompact = compact(text);
+    // Точный режим (владелец 10.10.2026): только подряд идущее вхождение ВСЕГО
+    // запроса. Потиражный AND («слово тут, слово там») — уже похожее, ему место
+    // за кнопкой «≈ Похожие», а не в выдаче по умолчанию.
+    const hit = text.includes(q) || (compact(q).length > 0 && textCompact.includes(compact(q)));
+    if (hit) ids.push(entityId);
+  }
+  return ids;
 }
 
 // «Найти двигатель по НАБИТОМУ на детали номеру» (№ на детали, не сборочный). Оператор

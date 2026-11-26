@@ -34,6 +34,7 @@ import { registerExportsIpc } from './register/exports.js';
 import { registerMailIpc } from './register/mail.js';
 import { registerFilesIpc } from './register/files.js';
 import { registerFileSearchIpc } from './register/fileSearch.js';
+import { registerSearchProgressIpc } from './register/searchProgress.js';
 import { registerLoggingIpc } from './register/logging.js';
 import { registerNotesIpc } from './register/notes.js';
 import { registerPartsIpc } from './register/parts.js';
@@ -241,6 +242,7 @@ export function registerIpc(
   registerFilesIpc(ctx);
   registerScannerIpc(ctx);
   registerFileSearchIpc(ctx);
+  registerSearchProgressIpc(ctx);
   registerExportsIpc(ctx);
   registerMailIpc(ctx);
   registerChatIpc(ctx);

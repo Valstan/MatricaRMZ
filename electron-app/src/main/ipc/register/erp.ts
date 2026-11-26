@@ -4,6 +4,7 @@ import type { PartMetadata } from '@matricarmz/shared';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult } from '../ipcContext.js';
 import { searchEntityCardContent, searchEnginesByStampedPartNumber } from '../../services/cardContentSearchService.js';
+import { beginSearchProgress } from '../../services/searchProgress.js';
 import { logPerfWarn } from '../../services/logService.js';
 import {
   warehouseEngineInstanceDelete,
@@ -98,12 +99,43 @@ export function registerErpIpc(ctx: IpcContext) {
   // Bottom list filter tier-2: match query against live EAV values of the ids the
   // page currently displays. Returns ids only (no attribute data crosses the bridge),
   // so the section read-gate of the calling list is not widened.
+  //
+  // Прогресс и отмена (промт КАРМАНА #166): поиск по содержимому карточек идёт
+  // по тысячам записей — оператор видит, сколько карточек проверено, и может
+  // остановить поиск кнопкой «Отмена».
   ipcMain.handle('search:cardContent', async (_e, args?: { entityIds?: string[]; q?: string }) => {
     if (isViewMode(ctx)) return { ok: true as const, ids: [] as string[] };
-    return searchEntityCardContent(ctx.dataDb(), {
-      entityIds: Array.isArray(args?.entityIds) ? args.entityIds.map(String) : [],
-      q: String(args?.q ?? ''),
+    const entityIds = Array.isArray(args?.entityIds) ? args.entityIds.map(String) : [];
+    const q = String(args?.q ?? '').trim();
+    if (!q || entityIds.length === 0) {
+      return searchEntityCardContent(ctx.dataDb(), { entityIds, q });
+    }
+    const progress = beginSearchProgress({
+      kind: 'cards',
+      title: 'Поиск по карточкам',
+      total: entityIds.length,
     });
+    try {
+      const result = await searchEntityCardContent(ctx.dataDb(), {
+        entityIds,
+        q,
+        signal: progress.signal,
+        onProgress: (p) =>
+          progress.report({
+            scanned: p.scanned,
+            total: p.total,
+            found: p.found,
+          }),
+      });
+      progress.finish({
+        state: !result.ok ? 'error' : result.cancelled ? 'cancelled' : 'done',
+        ...(result.ok ? {} : { error: result.error }),
+      });
+      return result;
+    } catch (e) {
+      progress.finish({ state: 'error', error: String(e) });
+      throw e;
+    }
   });
 
   ipcMain.handle('search:enginesByStampedNumber', async (_e, args?: { q?: string; limit?: number }) => {
@@ -116,10 +148,24 @@ export function registerErpIpc(ctx: IpcContext) {
 
   ipcMain.handle('search:global', async (_e, args?: { q?: string; limit?: number }) => {
     if (isViewMode(ctx)) return { query: '', hits: [], truncated: false };
-    return globalSearchQuery(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), {
-      q: String(args?.q ?? ''),
-      ...(args?.limit !== undefined ? { limit: Number(args.limit) } : {}),
-    });
+    const q = String(args?.q ?? '').trim();
+    if (!q) return globalSearchQuery(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), { q });
+    // Серверный уровень глобального поиска: запрос уходит на сервер, и он может
+    // занять время — показываем прогресс и даём отмену (промт КАРМАНА #166).
+    const progress = beginSearchProgress({ kind: 'global', title: 'Глобальный поиск', total: 1 });
+    try {
+      const result = await globalSearchQuery(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), {
+        q,
+        ...(args?.limit !== undefined ? { limit: Number(args.limit) } : {}),
+        signal: progress.signal,
+      });
+      progress.report({ scanned: 1, total: 1, found: result.hits.length });
+      progress.finish({ state: progress.signal.aborted ? 'cancelled' : 'done' });
+      return result;
+    } catch (e) {
+      progress.finish({ state: 'error', error: String(e) });
+      throw e;
+    }
   });
 
   ipcMain.handle(

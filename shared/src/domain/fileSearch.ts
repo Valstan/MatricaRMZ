@@ -61,6 +61,8 @@ export type FileSearchResult = {
   durationMs: number;
   /** Замечания к прочитанному: «файл обрезан», «прочитаны первые N строк». */
   notes: string[];
+  /** Поиск остановлен по команде оператора — отдан частичный результат. */
+  cancelled: boolean;
 };
 
 export type FileSearchExcelSheet = {

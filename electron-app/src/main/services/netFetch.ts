@@ -80,8 +80,16 @@ export async function fetchWithRetry(url: string, init: RequestInit, opts: Retry
     }
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(new Error('timeout')), opts.timeoutMs);
+    // Внешний сигнал (отмена поиска) — вместе с потолком по времени: кто
+    // сработал первым, тот и остановил запрос. Без внешнего сигнала поведение
+    // прежнее (только потолок по времени).
+    const external = init.signal as AbortSignal | null | undefined;
+    const signal =
+      external && typeof external.addEventListener === 'function'
+        ? AbortSignal.any([external, ac.signal])
+        : ac.signal;
     try {
-      const res = await net.fetch(url, { ...init, signal: ac.signal as any });
+      const res = await net.fetch(url, { ...init, signal: signal as any });
       if (opts.retryOnStatuses && opts.retryOnStatuses.includes(res.status) && attempt < opts.attempts) {
         await sleep(getBackoffMs(attempt, opts));
         continue;
@@ -89,6 +97,9 @@ export async function fetchWithRetry(url: string, init: RequestInit, opts: Retry
       return res;
     } catch (e) {
       lastErr = e;
+      // Отмена вызывающей стороны (оператор нажал «Отмена» в поиске) — не
+      // повод повторять запрос: работа прекращается по-настоящему.
+      if (external?.aborted) break;
       if (!isTransientNetworkError(e) || attempt >= opts.attempts) break;
       await sleep(getBackoffMs(attempt, opts));
     } finally {

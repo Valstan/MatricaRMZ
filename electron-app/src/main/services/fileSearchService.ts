@@ -27,11 +27,32 @@ import {
   type FileSearchUnreadable,
 } from '@matricarmz/shared';
 
+import { raceWithAbort, SearchCancelledError } from './searchAbort.js';
+
 /** Книга больше — читаем с потолка и говорим оператору, что прочитали не всё. */
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_SHEET_ROWS = 20000;
 const MAX_COLUMNS = 60;
+/**
+ * Потолок на ЧТЕНИЕ ОДНОГО файла.
+ *
+ * Это страховка от «нечитаемого» файла (зависшая сетевая папка, битый том), а
+ * НЕ ограничение поиска: потолка на весь поиск здесь нет (промт КАРМАНА #166),
+ * а отмена рвёт чтение немедленно.
+ */
 const READ_TIMEOUT_MS = 30000;
+
+/** Ход поиска по файлам-источникам — наверх, в общий канал прогресса. */
+export type FileSearchProgress = {
+  /** Что читается прямо сейчас: имя файла. */
+  current: string | null;
+  /** Сколько файлов прочитано. */
+  scanned: number;
+  /** Сколько файлов выбрано оператором. */
+  total: number;
+  /** Найдено совпадений. */
+  found: number;
+};
 
 export class SourceReadError extends Error {}
 
@@ -108,24 +129,32 @@ function formatExcelDate(value: Date): string {
   return `${day}.${month}.${value.getFullYear()}`;
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+  signal?: AbortSignal,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new SourceReadError(message)), ms);
-      }),
-    ]);
+    return await raceWithAbort(
+      Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new SourceReadError(message)), ms);
+        }),
+      ]),
+      signal,
+    );
   } finally {
     if (timer) clearTimeout(timer);
   }
 }
 
-async function assertFileReadable(path: string): Promise<number> {
+async function assertFileReadable(path: string, signal?: AbortSignal): Promise<number> {
   let size = 0;
   try {
-    const st = await stat(path);
+    const st = await raceWithAbort(stat(path), signal);
     if (!st.isFile()) throw new SourceReadError('Это не файл');
     size = st.size;
   } catch (e) {
@@ -149,11 +178,16 @@ async function assertFileReadable(path: string): Promise<number> {
  * Зачем: у оператора в «РМЗ» лежат десятки `.xls` — табели, «Дела ремонтов», —
  * и без них модуль молча отказывал на самом нужном файле.
  */
-async function readLegacyXlsSheets(path: string, notes: string[]): Promise<FileSearchExcelSheet[]> {
+async function readLegacyXlsSheets(
+  path: string,
+  notes: string[],
+  signal?: AbortSignal,
+): Promise<FileSearchExcelSheet[]> {
   const buffer = await withTimeout(
     readFile(path),
     READ_TIMEOUT_MS,
     `Не удалось прочитать книгу за ${Math.round(READ_TIMEOUT_MS / 1000)} с — файл слишком большой или недоступен`,
+    signal,
   );
   let workbook: XLSX.WorkBook;
   try {
@@ -250,14 +284,19 @@ function pickHeaderAndRows(rows: { rowNumber: number; values: string[] }[]): {
   };
 }
 
-async function readExcelSheets(path: string, notes: string[]): Promise<FileSearchExcelSheet[]> {
-  await assertFileReadable(path);
-  if (extname(path).toLowerCase() === '.xls') return readLegacyXlsSheets(path, notes);
+async function readExcelSheets(
+  path: string,
+  notes: string[],
+  signal?: AbortSignal,
+): Promise<FileSearchExcelSheet[]> {
+  await assertFileReadable(path, signal);
+  if (extname(path).toLowerCase() === '.xls') return readLegacyXlsSheets(path, notes, signal);
   const workbook = new ExcelJS.Workbook();
   await withTimeout(
     workbook.xlsx.readFile(path),
     READ_TIMEOUT_MS,
     `Не удалось прочитать книгу за ${Math.round(READ_TIMEOUT_MS / 1000)} с — файл слишком большой или недоступен`,
+    signal,
   );
   const sheets: FileSearchExcelSheet[] = [];
   workbook.eachSheet((worksheet) => {
@@ -284,12 +323,13 @@ async function readExcelSheets(path: string, notes: string[]): Promise<FileSearc
   return sheets;
 }
 
-async function readWordParagraphs(path: string): Promise<string[]> {
-  await assertFileReadable(path);
+async function readWordParagraphs(path: string, signal?: AbortSignal): Promise<string[]> {
+  await assertFileReadable(path, signal);
   const buffer = await withTimeout(
     readFile(path),
     READ_TIMEOUT_MS,
     `Не удалось прочитать документ за ${Math.round(READ_TIMEOUT_MS / 1000)} с — файл слишком большой или недоступен`,
+    signal,
   );
   const zip = await JSZip.loadAsync(buffer);
   const doc = zip.file('word/document.xml');
@@ -299,12 +339,13 @@ async function readWordParagraphs(path: string): Promise<string[]> {
   return text.split('\n');
 }
 
-async function readTextLines(path: string): Promise<string[]> {
-  await assertFileReadable(path);
+async function readTextLines(path: string, signal?: AbortSignal): Promise<string[]> {
+  await assertFileReadable(path, signal);
   const buffer = await withTimeout(
     readFile(path),
     READ_TIMEOUT_MS,
     `Не удалось прочитать файл за ${Math.round(READ_TIMEOUT_MS / 1000)} с — файл слишком большой или недоступен`,
+    signal,
   );
   return new TextDecoder('utf-8').decode(buffer).split(/\r?\n/);
 }
@@ -313,9 +354,10 @@ async function searchInSource(
   source: FileSearchSource,
   query: string,
   notes: string[],
+  signal?: AbortSignal,
 ): Promise<FileSearchMatch[]> {
   if (source.kind === 'excel') {
-    const sheets = await readExcelSheets(source.path, notes);
+    const sheets = await readExcelSheets(source.path, notes, signal);
     const out: FileSearchMatch[] = [];
     for (const sheet of sheets) {
       out.push(
@@ -330,10 +372,10 @@ async function searchInSource(
     return out;
   }
   if (source.kind === 'word') {
-    const paragraphs = await readWordParagraphs(source.path);
+    const paragraphs = await readWordParagraphs(source.path, signal);
     return matchWordDocument({ sourceId: source.id, sourceName: source.name, paragraphs, query });
   }
-  const lines = await readTextLines(source.path);
+  const lines = await readTextLines(source.path, signal);
   return matchWordDocument({
     sourceId: source.id,
     sourceName: source.name,
@@ -368,32 +410,66 @@ export async function readSearchContext(
 /**
  * Поиск по списку источников. Недоступный файл не роняет поиск: он уезжает в
  * `unreadable` с полным путём, остальные файлы ищутся дальше.
+ *
+ * Прогресс и отмена (промт КАРМАНА #166): оператор видит, какой файл читается
+ * сейчас, сколько файлов прочитано и сколько найдено; кнопка «Отмена»
+ * прерывает чтение (в том числе внутри файла) и отдаёт частичный результат.
  */
 export async function searchFileSources(
   sources: readonly FileSearchSource[],
   rawQuery: string,
+  options?: {
+    /** Сигнал отмены: оператор нажал «Отмена». */
+    signal?: AbortSignal;
+    /** Ход поиска: текущий файл и счётчики. */
+    onProgress?: (progress: FileSearchProgress) => void;
+  },
 ): Promise<FileSearchResult> {
   const started = Date.now();
   const query = normalizeFileSearchQuery(rawQuery);
   const matches: FileSearchMatch[] = [];
   const unreadable: FileSearchUnreadable[] = [];
   const notes: string[] = [];
+  const signal = options?.signal;
+  const onProgress = options?.onProgress;
   let scannedFiles = 0;
+  let cancelled = false;
   if (!query) {
-    return { query, matches, unreadable, scannedFiles, durationMs: Date.now() - started, notes };
+    return { query, matches, unreadable, scannedFiles, durationMs: Date.now() - started, notes, cancelled: false };
   }
   for (const source of sources) {
+    if (signal?.aborted) {
+      cancelled = true;
+      break;
+    }
+    onProgress?.({
+      current: source.name,
+      scanned: scannedFiles,
+      total: sources.length,
+      found: matches.length,
+    });
     try {
-      const found = await searchInSource(source, query, notes);
+      const found = await searchInSource(source, query, notes, signal);
       matches.push(...found);
       scannedFiles += 1;
     } catch (e) {
+      if (e instanceof SearchCancelledError || signal?.aborted) {
+        // Отмена — не поломка файла: результат частичный, поиск остановлен.
+        cancelled = true;
+        break;
+      }
       unreadable.push({
         path: source.path,
         name: source.name,
         reason: e instanceof SourceReadError ? e.message : `Файл недоступен — откройте его заново (${String(e)})`,
       });
     }
+    onProgress?.({
+      current: source.name,
+      scanned: scannedFiles,
+      total: sources.length,
+      found: matches.length,
+    });
   }
-  return { query, matches, unreadable, scannedFiles, durationMs: Date.now() - started, notes };
+  return { query, matches, unreadable, scannedFiles, durationMs: Date.now() - started, notes, cancelled };
 }
