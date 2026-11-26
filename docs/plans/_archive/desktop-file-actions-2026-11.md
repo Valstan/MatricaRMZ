@@ -228,7 +228,7 @@ DesktopAttachTargetDialog,DesktopAttachIntent}.tsx|ts`,
   двух ярлыков (Ctrl+клик) → «Файлов: 2» → **панель ВИДНА на экране** → «Прикрепить…» → выбор
   двигателя → вкладка «Фото и документы» → «Приложить (2)» → оба файла во вложениях →
   **проверка на сервере** (строка `attribute_values` по двигателю в стендовой БД) → уборка за
-  собой (ярлыки и файлы). Кадры и разбор — [`evidence/desktop-file-actions-144/`](../evidence/desktop-file-actions-144/README.md).
+  собой (ярлыки и файлы). Кадры и разбор — [`evidence/desktop-file-actions-144/`](../../evidence/desktop-file-actions-144/README.md).
 
 ### Дефект, вскрытый приёмкой: панель действий уезжала за нижний край окна
 
@@ -281,7 +281,7 @@ DesktopAttachTargetDialog,DesktopAttachIntent}.tsx|ts`,
 лежат в файлах грабель. Состояние на момент правки: `GOTCHAS.md` — 51 077 из 51 200 байт
 (запас 123), `COMPLETED.md` — 134 366 из 153 600 (ротация прошла, запас большой).
 Системная ротация индекса грабель по возрасту — **по-прежнему решение владельца**
-([`pending/indeks-grabeley-u-potolka.md`](../pending/indeks-grabeley-u-potolka.md)).
+([`pending/indeks-grabeley-u-potolka.md`](../../pending/indeks-grabeley-u-potolka.md)).
 
 Обе находки — про память репозитория, а не про эту фичу; здесь они зафиксированы, чтобы не
 потерялись (см. `docs/SESSION_HANDOFF.md`, §«Следующий шаг», п. 9).

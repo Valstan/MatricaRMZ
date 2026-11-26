@@ -4,7 +4,7 @@
 свой профиль клиента), БД `matricarmz_dev_lane1`, вход `valstan` (суперадмин).
 
 **Драйвер:** [`.claude/skills/verifier-electron/scripts/cdp-desktop-file-actions.mjs`](../../../.claude/skills/verifier-electron/scripts/cdp-desktop-file-actions.mjs)
-— сценарий §6 п.4 плана [`docs/plans/desktop-file-actions-2026-11.md`](../../plans/desktop-file-actions-2026-11.md):
+— сценарий §6 п.4 плана [`docs/plans/_archive/desktop-file-actions-2026-11.md`](../../plans/_archive/desktop-file-actions-2026-11.md):
 выделить несколько файлов на Верстаке → панель действий → «Прикрепить…» → выбрать двигатель →
 вкладка «Фото и документы» → «Приложить» → файлы во вложениях карточки **и в серверной БД**.
 
