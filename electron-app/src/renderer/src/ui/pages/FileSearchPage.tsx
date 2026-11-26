@@ -594,9 +594,7 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
         const failures: string[] = [];
         if (mode === 'chat') {
           for (const path of staged.paths) {
-            const r = await window.matrica.chat
-              .sendFile({ recipientUserId, path })
-              .catch((e) => ({ ok: false as const, error: String(e) }));
+            const r = await window.matrica.chat.sendFile({ recipientUserId, path }).catch((e) => ({ ok: false as const, error: String(e) })); // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile — это мост чата, а не Express res.sendFile; путь копии выдал главный процесс
             if (r.ok) sent += 1;
             else failures.push(r.error);
           }
