@@ -154,8 +154,21 @@ describe('гейт утиля: блокировка стоит в воронке
     const start = REPAIR_STAGE_SERVICE.indexOf('export async function saveRepairStageRow');
     const end = REPAIR_STAGE_SERVICE.indexOf('\nexport ', start + 1);
     const fn = REPAIR_STAGE_SERVICE.slice(start, end < 0 ? undefined : end);
-    expect(fn).toContain('resolveScrapStageGate');
+    // Именно ВЫЗОВ, а не упоминание в типе: `typeof resolveScrapStageGate` в аннотации
+    // остался бы, даже если вызов убрать — сторож обязан краснеть на такой откат.
+    expect(fn).toContain('resolveScrapStageGate(');
     expect(fn).toContain('scrapGate');
+  });
+
+  it('гейт спрашивается ДО записи строки — этап не пишется мимо гейта', () => {
+    const start = REPAIR_STAGE_SERVICE.indexOf('export async function saveRepairStageRow');
+    const end = REPAIR_STAGE_SERVICE.indexOf('\nexport ', start + 1);
+    const fn = REPAIR_STAGE_SERVICE.slice(start, end < 0 ? undefined : end);
+    const gateAt = fn.indexOf('resolveScrapStageGate(');
+    const writeAt = fn.indexOf('upsertOperation(');
+    expect(gateAt).toBeGreaterThan(-1);
+    expect(writeAt).toBeGreaterThan(-1);
+    expect(gateAt, 'гейт спрашивается до записи строки').toBeLessThan(writeAt);
   });
 
   it('автоматы мастеров идут через тот же путь — гейт останавливает и их', () => {
