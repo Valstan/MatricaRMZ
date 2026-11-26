@@ -4,6 +4,7 @@ import {
   DESKTOP_CELL_H,
   DESKTOP_CELL_W,
   DESKTOP_MAX_SHORTCUTS,
+  DESKTOP_TRASH_SHORTCUT_ID,
   DESKTOP_USAGE_MAX_DAYS,
   createEmptyDesktop,
   createEmptyDesktopUsage,
@@ -28,14 +29,17 @@ import {
   desktopMoveToTrashMany,
   desktopPutShortcut,
   desktopRenameShortcut,
+  desktopResetTrashPos,
   desktopRestoreFromTrash,
   desktopSelectedFileShortcuts,
   desktopSetPositions,
+  desktopSetTrashPos,
   desktopShortcutLinkKey,
   desktopSurfaceShortcuts,
   desktopTileMetrics,
   desktopToggleShortcut,
   desktopTrashShortcuts,
+  desktopTrashTile,
   desktopUsageAdd,
   desktopUsageBump,
   desktopUsageDay,
@@ -669,6 +673,130 @@ describe('пачечные действия выделения', () => {
   it('ярлык уже в этой папке — не изменение', () => {
     const d = desktopMoveToFolderMany(seeded(), ['s1'], 'f1');
     expect(desktopMoveToFolderMany(d, ['s1'], 'f1')).toBe(d);
+  });
+});
+
+describe('корзина — встроенная плитка Верстака', () => {
+  it('корзина не ярлык: её нет в списке ярлыков, в лимите 200 и на полотне', () => {
+    const d = seeded();
+    const tile = desktopTrashTile(d);
+    expect(tile.id).toBe(DESKTOP_TRASH_SHORTCUT_ID);
+    expect(d.shortcuts.some((s) => s.id === DESKTOP_TRASH_SHORTCUT_ID)).toBe(false);
+    expect(desktopSurfaceShortcuts(d).some((s) => s.id === DESKTOP_TRASH_SHORTCUT_ID)).toBe(false);
+    // Лимит живых ярлыков корзину не считает — иначе корзина сама упрётся в лимит.
+    expect(desktopLiveShortcutCount(d)).toBe(2);
+  });
+
+  it('место корзины переживает санитайзер: битая и заоблачная клетка отбрасывается', () => {
+    const good = sanitizeDesktopSection({
+      shortcuts: [],
+      folders: [],
+      layout: {},
+      trashPos: { col: 2, row: 3 },
+    })!;
+    expect(good.trashPos).toEqual({ col: 2, row: 3 });
+    const bad = sanitizeDesktopSection({
+      shortcuts: [],
+      folders: [],
+      layout: {},
+      trashPos: { col: -1, row: 9999 },
+    })!;
+    expect(bad.trashPos).toBeUndefined();
+  });
+
+  it('корзину нельзя убрать в саму себя, в папку или восстановить', () => {
+    let d = seeded();
+    d = desktopMoveToTrash(d, DESKTOP_TRASH_SHORTCUT_ID, NOW + 1);
+    expect(desktopTrashShortcuts(d)).toEqual([]);
+    expect(d.shortcuts).toHaveLength(2);
+    d = desktopMoveToTrashMany(d, [DESKTOP_TRASH_SHORTCUT_ID], NOW + 1);
+    expect(desktopTrashShortcuts(d)).toEqual([]);
+    expect(d.shortcuts).toHaveLength(2);
+    d = desktopRestoreFromTrash(d, DESKTOP_TRASH_SHORTCUT_ID);
+    expect(d.shortcuts).toHaveLength(2);
+    d = desktopMoveToFolder(d, DESKTOP_TRASH_SHORTCUT_ID, 'f1');
+    expect(desktopFolderShortcuts(d, 'f1')).toEqual([]);
+    d = desktopMoveToFolderMany(d, [DESKTOP_TRASH_SHORTCUT_ID], 'f1');
+    expect(desktopFolderShortcuts(d, 'f1')).toEqual([]);
+    // Запись координат не воображает корзине ярлык.
+    d = desktopSetPositions(d, [{ id: DESKTOP_TRASH_SHORTCUT_ID, pos: { col: 1, row: 1 } }]);
+    expect(d.shortcuts.some((s) => s.id === DESKTOP_TRASH_SHORTCUT_ID)).toBe(false);
+  });
+
+  it('очистка корзины убирает только ярлыки — сама корзина остаётся', () => {
+    let d = seeded();
+    d = desktopMoveToTrash(d, 's1', NOW + 1);
+    d = desktopEmptyTrash(d);
+    expect(d.shortcuts.map((s) => s.id)).toEqual(['s2']);
+    expect(desktopTrashTile(d).id).toBe(DESKTOP_TRASH_SHORTCUT_ID);
+  });
+
+  it('место корзины пишется и снимается отдельным полем профиля', () => {
+    let d = desktopSetTrashPos(seeded(), { col: 2, row: 1 });
+    expect(d.trashPos).toEqual({ col: 2, row: 1 });
+    expect(desktopTrashTile(d).pos).toEqual({ col: 2, row: 1 });
+    // Дроп плитки на её же место — не изменение (лишняя запись профиля ни к чему).
+    expect(desktopSetTrashPos(d, { col: 2, row: 1 })).toBe(d);
+    const back = desktopResetTrashPos(d);
+    expect(back.trashPos).toBeUndefined();
+    expect(desktopResetTrashPos(back)).toBe(back);
+  });
+
+  it('корзина встаёт в правый нижний угол полотна, а сохранённое место уважается', () => {
+    const g = desktopLayoutGrid({
+      folderIds: [],
+      shortcuts: [{ id: 'a', cells: 1, pos: { col: 0, row: 0 } }],
+      cols: 3,
+      trash: { id: 't', cells: 1 },
+    });
+    expect(g.trash).toEqual({ id: 't', col: 2, row: 0, cells: 1 });
+    const saved = desktopLayoutGrid({
+      folderIds: [],
+      shortcuts: [{ id: 'a', cells: 1, pos: { col: 0, row: 0 } }],
+      cols: 3,
+      trash: { id: 't', cells: 1, pos: { col: 1, row: 0 } },
+    });
+    expect(saved.trash).toEqual({ id: 't', col: 1, row: 0, cells: 1 });
+  });
+
+  it('занятая клетка корзины не вытесняет чужую плитку: та уезжает по потоку', () => {
+    const g = desktopLayoutGrid({
+      folderIds: [],
+      shortcuts: [{ id: 'a', cells: 1, pos: { col: 0, row: 0 } }],
+      cols: 3,
+      trash: { id: 't', cells: 1, pos: { col: 0, row: 0 } },
+    });
+    // Плитка оператора сохранила свою клетку — корзина встала рядом.
+    expect(g.shortcuts).toEqual([{ id: 'a', col: 0, row: 0, cells: 1 }]);
+    expect(g.trash).toEqual({ id: 't', col: 2, row: 0, cells: 1 });
+  });
+
+  it('сохранённая клетка корзины зарезервирована ДО потока: безымянная плитка её не займёт', () => {
+    // Иначе перестановка корзины выглядела бы как «ничего не произошло»: плитка без
+    // координаты встала бы на освободившееся место, и корзина осталась бы на старом.
+    const g = desktopLayoutGrid({
+      folderIds: [],
+      shortcuts: [{ id: 'a', cells: 1 }],
+      cols: 3,
+      trash: { id: 't', cells: 1, pos: { col: 0, row: 0 } },
+    });
+    expect(g.trash).toEqual({ id: 't', col: 0, row: 0, cells: 1 });
+    expect(g.shortcuts).toEqual([{ id: 'a', col: 1, row: 0, cells: 1 }]);
+  });
+
+  it('забитое полотно не вытесняет корзиной первую плитку: корзина встаёт в новую строку вправо', () => {
+    const g = desktopLayoutGrid({
+      folderIds: [],
+      shortcuts: [
+        { id: 'a', cells: 1, pos: { col: 0, row: 0 } },
+        { id: 'b', cells: 1, pos: { col: 1, row: 0 } },
+        { id: 'c', cells: 1, pos: { col: 2, row: 0 } },
+      ],
+      cols: 3,
+      trash: { id: 't', cells: 1 },
+    });
+    expect(g.trash).toEqual({ id: 't', col: 2, row: 1, cells: 1 });
+    expect(g.rows).toBe(2);
   });
 });
 

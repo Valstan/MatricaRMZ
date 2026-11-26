@@ -116,6 +116,7 @@ import { DesktopInboxBar } from './components/DesktopInboxBar.js';
 import { KasperskySetupDialog } from './components/KasperskySetupDialog.js';
 import { SendFileToColleagueDialog } from './components/SendFileToColleagueDialog.js';
 import { DesktopPane } from './components/DesktopPane.js';
+import { openDesktopTrash } from './components/DesktopTrashBus.js';
 import { DesktopFilesProvider } from './components/DesktopFilesContext.js';
 import { ProgramFeedbackDialog, type ProgramFeedbackKind } from './components/ProgramFeedbackDialog.js';
 import { AccountSwitchDialog } from './components/AccountSwitchDialog.js';
@@ -1476,9 +1477,6 @@ export function App() {
   const [customReportsSnap, setCustomReportsSnap] = useState<unknown[] | null>(null);
   // «Правка программы» — окно доступно с любого экрана (шапка вкладок + МЕНЮ).
   const [programFeedbackOpen, setProgramFeedbackOpen] = useState(false);
-  const [trashOpen, setTrashOpen] = useState(false);
-  const trashButtonRef = useRef<HTMLDivElement | null>(null);
-  const trashPopupRef = useRef<HTMLDivElement | null>(null);
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark' | 'warm'>('dark');
   const [cardCloseModalOpen, setCardCloseModalOpen] = useState(false);
   const [cardCloseCountdown, setCardCloseCountdown] = useState(10);
@@ -2944,7 +2942,14 @@ export function App() {
         setGlobalSearchOpen(true);
         break;
       case 'basket':
-        setTrashOpen((v) => !v);
+        // Пункт МЕНЮ «Корзина» — та же корзина, что ярлык на Верстаке.
+        //
+        // Раньше здесь был собственный `trashOpen` оболочки, который НИЧЕГО НЕ РИСОВАЛ
+        // (исторически это была «Корзина кнопок» — скрытые кнопки МЕНЮ; фичу убрали,
+        // а пункт остался). Оператор нажимал «Корзина» в меню и видел пустоту — отсюда
+        // и «корзина не работает ни на одном клиенте».
+        dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Верстак', focus: true });
+        openDesktopTrash();
         break;
       case 'column_mode':
         toggleListColumnsMode();
@@ -3373,17 +3378,6 @@ export function App() {
     dispatchTabs({ type: 'OPEN_SINGLETON', id: 'ai_chat', label: 'ИИваныч', focus: false });
   }, [authStatus.loggedIn, canAiAgent, authStatus.user?.id]);
 
-  useEffect(() => {
-    if (!trashOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (trashPopupRef.current?.contains(target)) return;
-      if (trashButtonRef.current?.contains(target)) return;
-      setTrashOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [trashOpen]);
 
   // For pending users: open chat automatically — ОДИН раз за сессию. Иначе закрытая вкладка
   // Верстака возвращалась бы сама (с 21.10.2026 её можно закрыть, плашка в рельсе остаётся).
