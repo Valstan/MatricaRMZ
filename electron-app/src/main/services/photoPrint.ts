@@ -35,7 +35,7 @@
 import { BrowserWindow } from 'electron';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { printImagesViaOsWizard } from './localImagePrint.js';
@@ -86,6 +86,22 @@ const PRINTABLE_IMAGE_EXTENSIONS = new Set([
   'tiff',
   'svg',
 ]);
+
+/**
+ * Имя файла из пути — независимо от разделителя.
+ *
+ * `basename` из `node:path` зависит от ОС: на Linux путь `D:\a\doc.pdf`
+ * остаётся целиком. Пути печати приходят с машины оператора (Windows), но общий
+ * модуль живёт в коде, который собирается и проверяется тестами на любой ОС —
+ * имя файла должно быть именем файла везде, иначе оператор увидит в списке
+ * «D:\папка\файл.pdf» вместо «файл.pdf».
+ */
+export function fileNameOf(localPath: string): string {
+  const parts = String(localPath ?? '')
+    .split(/[\\/]/)
+    .filter(Boolean);
+  return parts.length > 0 ? (parts[parts.length - 1] as string) : '';
+}
 
 /** Напечатается ли файл картинкой (а не пойдёт списком на первой странице). */
 export function isPrintableImage(localPath: string): boolean {
@@ -168,7 +184,7 @@ export function splitPrintTargets(paths: string[]): { images: string[]; skipped:
     const p = String(raw ?? '').trim();
     if (!p) continue;
     if (isPrintableImage(p)) images.push(p);
-    else skipped.push(basename(p));
+    else skipped.push(fileNameOf(p));
   }
   return { images, skipped };
 }

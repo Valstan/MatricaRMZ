@@ -248,4 +248,5 @@
 | [M233](gotchas/M233.md) | Смоук снял оверлей приветствия, а не карточку: «За работу! (Enter)» не нашлось точным сравнением |
 | [M234](gotchas/M234.md) | Нет проверок в конфликте PR: «no checks reported» ≠ зелёные |
 | [M235](gotchas/M235.md) | Печать картинок: «Invalid printer settings» (не offscreen), «Value does not fall within the expected range» (мастер), мёртвое окно мастера |
+| [M236](gotchas/M236.md) | Тест, написанный на Windows, краснеет на CI (Linux): `basename` из `node:path` зависит от ОС, а системный мастер печати — только Windows |
 

@@ -33,6 +33,15 @@ let systemPrinters: string[] = ['Canon MF3010'];
 let wizardCalls: string[][] = [];
 let wizardOk = true;
 
+/**
+ * Системный мастер печати фотографий — только Windows (`photowiz`).
+ *
+ * Гейт CI идёт на Linux, а программа печатает на Windows: проверки мастера
+ * поэтому ветвятся по ОС, а не «пропускаются молча» — вне Windows честный
+ * отказ «мастер недоступен» тоже должен быть подтверждён.
+ */
+const isWindows = process.platform === 'win32';
+
 vi.mock('electron', () => ({
   BrowserWindow: class {
     webContents = {
@@ -61,7 +70,7 @@ vi.mock('./photoPrintWizard.js', () => ({
   },
 }));
 
-import { describePrintFailure, printPhotos, splitPrintTargets } from './photoPrint.js';
+import { describePrintFailure, fileNameOf, printPhotos, splitPrintTargets } from './photoPrint.js';
 
 function src(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
@@ -79,6 +88,13 @@ describe('печать картинок: общий шаг', () => {
     const { images, skipped } = splitPrintTargets(['D:\\a\\1.jpg', 'D:\\a\\2.png', 'D:\\a\\doc.pdf', '  ']);
     expect(images).toEqual(['D:\\a\\1.jpg', 'D:\\a\\2.png']);
     expect(skipped).toEqual(['doc.pdf']);
+  });
+
+  it('имя файла — имя файла на любой ОС (гейт CI идёт на Linux, печать — на Windows)', () => {
+    expect(fileNameOf('D:\\a\\doc.pdf')).toBe('doc.pdf');
+    expect(fileNameOf('/home/op/doc.pdf')).toBe('doc.pdf');
+    expect(fileNameOf('doc.pdf')).toBe('doc.pdf');
+    expect(fileNameOf('')).toBe('');
   });
 
   it('отказ Chromium разбирается на три разные причины', () => {
@@ -106,10 +122,18 @@ describe('печать картинок: общий шаг', () => {
   it('диалог печати не работает на машине — печать уходит в системный мастер, и видна причина', async () => {
     printOutcome = { ok: false, reason: 'Invalid printer settings' };
     const res = (await printPhotos(['D:\\a\\1.jpg'])) as PrintResult;
-    expect(res.ok).toBe(true);
-    expect(res.via).toBe('os-wizard');
-    expect(res.note).toContain('Invalid printer settings');
-    expect(wizardCalls).toEqual([['D:\\a\\1.jpg']]);
+    if (isWindows) {
+      expect(res.ok).toBe(true);
+      expect(res.via).toBe('os-wizard');
+      expect(res.note).toContain('Invalid printer settings');
+      expect(wizardCalls).toEqual([['D:\\a\\1.jpg']]);
+      return;
+    }
+    // Вне Windows системного мастера нет: отказ должен быть честным и названным,
+    // а не «нажал и ничего». (Мастер — Windows-only по существу, photowiz.)
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe('wizard-unavailable');
+    expect(wizardCalls).toEqual([]);
   });
 
   it('оператор отменил печать — это не поломка и не мастер', async () => {
@@ -122,9 +146,16 @@ describe('печать картинок: общий шаг', () => {
 
   it('режим мастера идёт в системный мастер печати фотографий', async () => {
     const res = (await printPhotos(['D:\\a\\1.jpg'], { mode: 'os' })) as PrintResult;
-    expect(res.ok).toBe(true);
-    expect(res.via).toBe('os-wizard');
-    expect(wizardCalls).toEqual([['D:\\a\\1.jpg']]);
+    if (isWindows) {
+      expect(res.ok).toBe(true);
+      expect(res.via).toBe('os-wizard');
+      expect(wizardCalls).toEqual([['D:\\a\\1.jpg']]);
+      return;
+    }
+    // Мастер — только Windows; вне Windows отказ назван, а не сделан вид, что напечатано.
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe('wizard-unavailable');
+    expect(wizardCalls).toEqual([]);
   });
 
   it('нечего печатать — понятный отказ', async () => {
