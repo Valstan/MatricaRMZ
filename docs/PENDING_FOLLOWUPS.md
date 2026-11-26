@@ -197,6 +197,7 @@
 ## 🟢 Крупные фичи / решения владельца
 
 - [🟡 «Удалённое за 3 дня»: решения владельца (промт #169) 🗓 since:2026-11-26](pending/udalennoe-za-tri-dnya-resheniya-vladeltsa.md)
+- [🟡 Верстак: действия с принятыми файлами — решения владельца (промт #144) 🗓 since:2026-11-26](pending/verstatak-deystviya-s-faylam-resheniya-vladeltsa.md)
 - [🟢 Наряды РМЗ: печать и даты — решения владельца](pending/naryady-rmz-pechat-i-daty.md)
 - [🟡 «Поиск по файлам»: подсказки номера двигателя и режим «Фото двигателя» — решения владельца (промт #155) 🗓 since:2026-11-26](pending/poisk-po-fajlam-podskazki-nomera-resheniya-vladeltsa.md)
 - [🟡 Отбор заказчиков по виду договора (промт #147): фильтр сделан, ждут приёмки и решения «равен/совместим» 🗓 since:2026-11-26](pending/otbor-zakazchikov-po-vidu-dogovora.md)

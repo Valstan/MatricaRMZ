@@ -37,7 +37,15 @@ export function DesktopFileActionsPanel(props: DesktopFileActionsPanelProps) {
 
   const width = Math.max(240, rect.width - 32);
   const left = rect.left + 16;
-  const top = rect.top + rect.height + 12;
+  // Панель стоит у НИЗА полотна, но ВНУТРИ окна.
+  //
+  // Раньше она считалась как «низ полотна + 12», то есть УЖЕ ПОД полотном. На живом
+  // клиенте (живая приёмка 26.11.2026) низ полотна — это 1019 px при высоте окна
+  // 1025 px, и панель уезжала на 1031 px — ЗА нижний край окна: оператор выделял
+  // файлы и НИЧЕГО не видел (в DOM кнопки были, клик по ним срабатывал — но глазу
+  // панели не досталось). Привязка идёт к нижней кромке полотна (`bottom`), и
+  // полоса загрузки, которая поднимается над панелью (`bottom: 68`), остаётся над ней.
+  const bottom = Math.max(8, window.innerHeight - (rect.top + rect.height) + 8);
 
   return (
     <PopupLayer>
@@ -46,7 +54,7 @@ export function DesktopFileActionsPanel(props: DesktopFileActionsPanelProps) {
         style={{
           position: 'fixed',
           left,
-          top,
+          bottom,
           width,
           display: 'flex',
           // Одна строка: высота панели постоянна, и элементы под ней (корзина, полоса загрузки)
