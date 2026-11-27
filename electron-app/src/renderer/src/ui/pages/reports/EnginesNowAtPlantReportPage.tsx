@@ -20,6 +20,7 @@ import {
   engineStateLabel,
   engineStatusDate,
   currentPassRow,
+  equivalentStageCodes,
   flattenGrouped,
   formatEngineFactoryStageLabel,
   isEngineAtPlant,
@@ -27,6 +28,9 @@ import {
   isStageEntriesActive,
   migrateEngineFacetSelection,
   plantScrapGroup,
+  repairStageCodesFromSelection,
+  returnsPass,
+  stageByCode,
   stripStageDateWhenWhereNow,
   type EngineFacetSelection,
   type EngineListItem,
@@ -195,6 +199,10 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
     () => {
       const now = Date.now();
       const expand = entriesActive;
+      // Выбранные этапы ремонта (коды, без префикса) — срез отчёта. Раньше этот вопрос задавала
+      // ступень «История» (значения `stage:<код>`), теперь — «Этап ремонта» (`repair:<код>`),
+      // и отбор по этапу в отчёте должен давать ровно тот же результат (промт КАРМАНА #181).
+      const pickedCodes = repairStageCodesFromSelection((activeFacets as EngineFacetSelection).repairStage);
       return props.engines
         .filter(isEngineAtPlant)
         // «Сейчас на заводе» — срез ТЕКУЩЕГО заезда (владелец 13.11.2026): этапы прошлого
@@ -243,13 +251,53 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
               },
             }));
           }
-          // Проходов в едином списке нет (старая история, актовые этапы) — показываем
-          // двигателя одной строкой с его текущим местом. Своей строки-прохода у него нет,
-          // и отбирать его «Этапом ремонта» надо по последнему этапу двигателя.
+          // Проходов в едином списке нет (старая история, актовые этапы), но двигатель этап
+          // проходил: показываем его ОДНОЙ строкой НА ВЫБРАННЫЙ этап с датой прохождения —
+          // а не с текущим местом, которое к срезу отношения не имеет. Проход последнего
+          // этапа помечаем возвратом, как в раскрытых строках.
+          if (expand && pickedCodes.length > 0) {
+            const passed = new Set((withName.stageCodes ?? []).map((c) => String(c).trim().toLowerCase()));
+            const lastCode = String(withName.lastStageCode ?? '').trim().toLowerCase();
+            const slices = pickedCodes
+              .filter((code) => passed.has(code))
+              .map((code) => {
+                const at = withName.stageDates?.[code] ?? null;
+                const atMs = typeof at === 'number' && at > 0 ? at : null;
+                const sliceAt = atMs ?? withName.lastStageAt;
+                return {
+                  ...base,
+                  stageCodes: [code], // точный срез по этапу
+                  rowStageCode: code, // этап САМОЙ строки — ступень «Этап ремонта»
+                  stageEntries:
+                    sliceAt != null
+                      ? [{ code, name: stageByCode(code, stageTemplates)?.name ?? code, at: sliceAt, pass: code === lastCode ? returnsPass(withName) : 1 }]
+                      : [],
+                  stageDates: atMs != null ? { [code]: atMs } : {},
+                  ...(sliceAt != null ? { lastStageAt: sliceAt } : {}),
+                  id: `${withName.id}::${code}`,
+                  stage: {
+                    key: `stage:${code}`,
+                    label: stageByCode(code, stageTemplates)?.name ?? code,
+                    rank: engineFactoryStageOrder(types, stageTemplates).find((s) => s.key === `stage:${code}`)?.rank ?? 10,
+                    at: atMs,
+                    repeatPass: code === lastCode ? returnsPass(withName) : 1,
+                  },
+                };
+              });
+            if (slices.length > 0) return slices;
+            // Этап пройден под другим именем (приёмка по рекламации = приёмка, владелец
+            // 11.11.2026): двигатель остаётся строкой со своим местом, но отбор «Этапом
+            // ремонта» должен его видеть — помечаем строку выбранным этапом. Так этот
+            // срез отвечал на тот же вопрос, что и прежняя ступень «История».
+            const aliasHit = pickedCodes.find((code) => equivalentStageCodes(code).some((eq) => passed.has(eq)));
+            if (aliasHit) return [{ ...base, rowStageCode: aliasHit }];
+          }
+          // Ни проходов, ни выбранного этапа: показываем двигателя одной строкой с его
+          // текущим местом. Своей строки-прохода у него нет.
           return [base];
         });
     },
-    [props.engines, types, stageTemplates, workshopNameById, entriesActive],
+    [props.engines, types, stageTemplates, workshopNameById, entriesActive, activeFacets],
   );
 
   const columns = useMemo<Column[]>(
