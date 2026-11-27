@@ -144,6 +144,8 @@ export type ReportFilterTemplateEntry = {
   name: string;
   filters: Record<string, unknown>;
   disabled: string[];
+  /** Какие ступени шаблон включает (список двигателей, промт КАРМАНА #181). */
+  enabled?: string[];
 };
 
 export type UserUiProfileColumnLayout = {
@@ -426,7 +428,12 @@ function sanitizeReportFilterTemplatesSection(raw: unknown): Record<string, Repo
       const disabled = Array.isArray(r.disabled)
         ? r.disabled.map((x) => String(x ?? '').trim().slice(0, MAX_STR)).filter(Boolean).slice(0, 50)
         : [];
-      templates.push({ id, name, filters, disabled });
+      // Включённые ступени (список двигателей, промт КАРМАНА #181): без этого поля
+      // шаблон потерял бы половину состояния по дороге на другой компьютер.
+      const enabled = Array.isArray(r.enabled)
+        ? r.enabled.map((x) => String(x ?? '').trim().slice(0, MAX_STR)).filter(Boolean).slice(0, 100)
+        : [];
+      templates.push({ id, name, filters, disabled, ...(enabled.length > 0 ? { enabled } : {}) });
     }
     if (templates.length === 0) continue;
     out[presetId] = templates;

@@ -20,12 +20,15 @@ import {
   engineStateLabel,
   engineStatusDate,
   currentPassRow,
+  equivalentStageCodes,
   flattenGrouped,
   formatEngineFactoryStageLabel,
   isEngineAtPlant,
   isFactoryStageActive,
   isStageEntriesActive,
+  migrateEngineFacetSelection,
   plantScrapGroup,
+  repairStageCodesFromSelection,
   returnsPass,
   stageByCode,
   stripStageDateWhenWhereNow,
@@ -124,12 +127,18 @@ type ListUiState = {
 
 /**
  * Ступени отчёта — подмножество ступеней списка двигателей; порядок — как на панели.
- * Про этапы: «История» (проходил ли) + «Дата этапа» + «Текущее состояние». Ступень
- * «Последний этап» снята 07.10.2026 решением владельца — как в списке двигателей
- * (см. `engineListFacets.ts`). Бывшие тут «Последний этап работ» и «Дата этапа работ»
- * убраны раньше (владелец 01.10.2026): они отвечали на те же вопросы, но про узлы работ.
+ * Про этапы: «Дата этапа» (период — он и раскрывает отчёт в строки-проходы) + «Этап
+ * ремонта» (на каком этапе двигатель). Ступень «Последний этап» снята 07.10.2026 решением
+ * владельца — как в списке двигателей (см. `engineListFacets.ts`). Бывшие тут «Последний
+ * этап работ» и «Дата этапа работ» убраны раньше (владелец 01.10.2026): они отвечали на те
+ * же вопросы, но про узлы работ.
+ *
+ * Ступени «История» в отчёте больше нет (промт КАРМАНА #181): она несла тот же список
+ * этапов, что и «Текущее состояние», и в выпадающем списке этап выводился дважды — второй
+ * раз нерабочим. Отчёт теперь раскрывают в строки-проходы ПЕРИОДОМ («Дата этапа»), а этап
+ * строки отбирают ступенью «Этап ремонта».
  */
-const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasRepeatPass', 'hasStage', 'stageDate', 'scrap', 'reclamation', 'reclamationAccepted', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
+const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasRepeatPass', 'repairStage', 'stageDate', 'scrap', 'reclamation', 'reclamationAccepted', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
 
 const REPORT_HIDDEN_BY_DEFAULT = ['state', 'contract', 'historyAt', 'repairStartedAt', 'repairedAt', 'scrapAt'];
 
@@ -172,8 +181,14 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
 
   // Отбор с учётом гейта «Текущее состояние»: старое сохранённое состояние могло держать
   // период вместе с «где» — чистим при чтении, а не только при смене выбора.
+  // Переезд выбора этапа (промт КАРМАНА #181): этап ремонта жил в «Текущем состоянии»,
+  // теперь его ступень — «Этап ремонта», и старый выбор переезжает туда сам, чтобы
+  // список открылся с тем же отбором и теми же строками.
   const activeFacets = useMemo(
-    () => stripStageDateWhenWhereNow(ui.facets as EngineFacetSelection) as FacetSelection,
+    () =>
+      stripStageDateWhenWhereNow(
+        migrateEngineFacetSelection(ui.facets as EngineFacetSelection, { dropHistory: true }) as EngineFacetSelection,
+      ) as FacetSelection,
     [ui.facets],
   );
   const whereNowActive = isFactoryStageActive(activeFacets as EngineFacetSelection);
@@ -183,15 +198,15 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
   const rows = useMemo<Row[]>(
     () => {
       const now = Date.now();
+      // Раскрытие в строки-проходы — правило домена (`isStageEntriesActive`): выбранный
+      // этап ремонта — тоже вопрос про движение, поэтому отчёт раскрывает его так же,
+      // как прежняя ступень «История» (промт КАРМАНА #181). При активном «Текущем
+      // состоянии» ленты нет — это обстановка, а не лента.
       const expand = entriesActive;
-      // Выбранные срезы «Всех этапов» (без префикса, без «этапов нет»): строка обязана
-      // показать РОВНО их — иначе в срез «Укладка» попадают двигатели с чужим текущим
-      // этапом (жалоба владельца 14.10.2026).
-      const picked = activeFacets as EngineFacetSelection;
-      const pickedCodes = (Array.isArray(picked.hasStage) ? picked.hasStage : [])
-        .filter((v): v is string => typeof v === 'string' && v.startsWith('stage:'))
-        .map((v) => v.slice('stage:'.length).trim().toLowerCase())
-        .filter(Boolean);
+      // Выбранные этапы ремонта (коды, без префикса) — срез отчёта. Раньше этот вопрос задавала
+      // ступень «История» (значения `stage:<код>`), теперь — «Этап ремонта» (`repair:<код>`),
+      // и отбор по этапу в отчёте должен давать ровно тот же результат (промт КАРМАНА #181).
+      const pickedCodes = repairStageCodesFromSelection((activeFacets as EngineFacetSelection).repairStage);
       return props.engines
         .filter(isEngineAtPlant)
         // «Сейчас на заводе» — срез ТЕКУЩЕГО заезда (владелец 13.11.2026): этапы прошлого
@@ -212,9 +227,10 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
             stageDates: withName.stageDates ?? {},
           };
 
-          // Строка-проход несёт ТОЛЬКО свой этап (`stageCodes: [code]`): выбор «Укладка вала»
-          // в «Всех этапах» показывает один этот срез, а не все проходы двигателей, у которых
-          // укладка когда-то была (владелец 14.10.2026 — «фильтры должны быть точными»).
+          // Строка-проход несёт ТОЛЬКО свой этап (`stageCodes: [code]`, `rowStageCode`):
+          // ступень «Этап ремонта» отбирает по этапу САМОЙ строки, а не по последнему
+          // этапу двигателя (промт КАРМАНА #181) — иначе в срез «Укладка вала» попадали бы
+          // двигатели с чужим текущим этапом (жалоба владельца 14.10.2026).
           // Несколько выбранных этапов — несколько срезов; дубли двигателя в разных группах
           // допускаются. Без вопроса про движение — одна строка на двигатель с текущим местом.
           const entries = expand ? (withName.stageEntries ?? []) : [];
@@ -222,6 +238,7 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
             return entries.map((entry) => ({
               ...base,
               stageCodes: [entry.code], // для фасета hasStage — точный срез
+              rowStageCode: entry.code, // этап САМОЙ строки-прохода — ступень «Этап ремонта»
               // Строка — ровно этот проход: ступень «Дата этапа» считает по нему, а не по всему
               // движению двигателя (владелец 19.10.2026) — иначе день одного прохода вытаскивал
               // бы в отбор все остальные проходы того же двигателя.
@@ -253,9 +270,8 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
                 const sliceAt = atMs ?? withName.lastStageAt;
                 return {
                   ...base,
-                  stageCodes: [code], // для фасета hasStage — точный срез
-                  // Срез отвечает своей датой: «Дата этапа» считает по этой строке, а не по всем
-                  // проходам двигателя (владелец 19.10.2026).
+                  stageCodes: [code], // точный срез по этапу
+                  rowStageCode: code, // этап САМОЙ строки — ступень «Этап ремонта»
                   stageEntries:
                     sliceAt != null
                       ? [{ code, name: stageByCode(code, stageTemplates)?.name ?? code, at: sliceAt, pass: code === lastCode ? returnsPass(withName) : 1 }]
@@ -273,7 +289,15 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
                 };
               });
             if (slices.length > 0) return slices;
+            // Этап пройден под другим именем (приёмка по рекламации = приёмка, владелец
+            // 11.11.2026): двигатель остаётся строкой со своим местом, но отбор «Этапом
+            // ремонта» должен его видеть — помечаем строку выбранным этапом. Так этот
+            // срез отвечал на тот же вопрос, что и прежняя ступень «История».
+            const aliasHit = pickedCodes.find((code) => equivalentStageCodes(code).some((eq) => passed.has(eq)));
+            if (aliasHit) return [{ ...base, rowStageCode: aliasHit }];
           }
+          // Ни проходов, ни выбранного этапа: показываем двигателя одной строкой с его
+          // текущим местом. Своей строки-прохода у него нет.
           return [base];
         });
     },

@@ -256,6 +256,13 @@ export type EngineListItem = {
   lastStageName?: string;
   lastStageAt?: number;
   /**
+   * Этап САМОЙ строки — когда строка это проход (отчёт «Сейчас на заводе» в режиме
+   * «История»/«Этап ремонта»): у прохода свой этап, и его надо отбирать отдельно от
+   * последнего этапа двигателя (промт КАРМАНА #181). У обычной строки двигателя поля
+   * нет — тогда этап строки = последний этап двигателя.
+   */
+  rowStageCode?: string;
+  /**
    * Номер прохода последнего этапа: 1 — первый, ≥2 — возврат назад по линейке (решение
    * владельца 05.10.2026: в отчётах такие двигатели считаются ОТДЕЛЬНОЙ строкой «Возвраты»).
    * Без него повторный заход неотличим от обычного прохода по тому же коду.
@@ -1115,7 +1122,6 @@ import type {
   ReportPresetFilterTemplatesListResult,
   ReportPresetFilters,
   ReportPresetHistoryAddResult,
-  ReportPresetId,
   ReportPresetHistoryEntry,
   ReportPresetHistoryListResult,
   ReportPresetListResult,
@@ -1124,6 +1130,7 @@ import type {
   ReportPresetPreviewResult,
   ReportPresetPrintResult,
   ReportTemplateFavoritesResult,
+  FilterTemplateKey,
 } from '../domain/reports.js';
 import type { ReportCellValue, ReportColumn, ReportTotals } from '../domain/reports.js';
 import type { CustomReportAgg, CustomReportGroup, CustomReportSpecV1, CustomReportTemplate } from '../domain/customReport.js';
@@ -1876,7 +1883,7 @@ export type MatricaApi = {
     customTemplatesImport: (args: { userId?: string; templates: unknown[] }) => Promise<CustomReportTemplatesResult>;
     /** Слияние журнала отчётов, приехавшего секцией профиля с другой машины. */
     historyMerge: (args: { userId?: string; entries: unknown[] }) => Promise<ReportPresetHistoryListResult>;
-    filterTemplatesList: (args: { userId?: string; presetId: ReportPresetId }) => Promise<ReportPresetFilterTemplatesListResult>;
+    filterTemplatesList: (args: { userId?: string; presetId: FilterTemplateKey }) => Promise<ReportPresetFilterTemplatesListResult>;
     /** «Популярные настройки» фильтров пресета из локальной телеметрии ui.report_build (этап 7). */
     popularFilters: (args: { presetId: string }) => Promise<
       { ok: true; filters: Record<string, unknown> | null; builds: number } | { ok: false; error: string }
@@ -1888,12 +1895,12 @@ export type MatricaApi = {
     filterTemplatesImportAll: (args: { userId?: string; byPreset: Record<string, unknown> }) => Promise<{ ok: true } | { ok: false; error: string }>;
     filterTemplateSave: (args: {
       userId?: string;
-      presetId: ReportPresetId;
-      template: { id?: string; name: string; filters: ReportPresetFilters; disabled: string[]; description?: string };
+      presetId: FilterTemplateKey;
+      template: { id?: string; name: string; filters: ReportPresetFilters; disabled: string[]; enabled?: string[]; description?: string };
     }) => Promise<ReportPresetFilterTemplateSaveResult>;
     filterTemplateDelete: (args: {
       userId?: string;
-      presetId: ReportPresetId;
+      presetId: FilterTemplateKey;
       templateId: string;
     }) => Promise<ReportPresetFilterTemplateSaveResult>;
     // «Мои отчёты»: конструктор поверх пресетов (customReport.ts).

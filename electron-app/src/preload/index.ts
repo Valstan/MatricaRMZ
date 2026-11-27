@@ -322,7 +322,9 @@ const matricaApi = {
     filterTemplateSave: async (args: {
       userId?: string;
       presetId: string;
-      template: { id?: string; name: string; filters: Record<string, unknown>; disabled: string[]; description?: string };
+      // `enabled` — перечень включённых ступеней (список двигателей, промт КАРМАНА #181):
+      // без него шаблон потерял бы половину состояния по дороге в профиль оператора.
+      template: { id?: string; name: string; filters: Record<string, unknown>; disabled: string[]; enabled?: string[]; description?: string };
     }) => ipcRenderer.invoke('reports:filterTemplateSave', args),
     filterTemplateDelete: async (args: { userId?: string; presetId: string; templateId: string }) =>
       ipcRenderer.invoke('reports:filterTemplateDelete', args),

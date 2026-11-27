@@ -10,7 +10,6 @@ import {
   ENGINE_FACTORY_STAGE_LABELS,
   engineFactoryStage,
   engineStatusDate,
-  orderedStageTemplates,
   returnsPass,
   type EngineFactoryStageTypeRef,
 } from './engineFactoryStage.js';
@@ -22,6 +21,10 @@ import {
   stageAnsweringAliases,
   type RepairStageTemplate,
 } from './repairStages.js';
+import {
+  repairStageList,
+  repairStageValue,
+} from './repairStageList.js';
 import { COUNTDOWN_STALE_DAYS, countdownThresholds, isEngineDoneForCountdown } from './payments.js';
 import {
   activeFacetCount,
@@ -69,6 +72,7 @@ export type EngineFacetId =
   | 'repairStartedDate'
   | 'repairedDate'
   | 'hasStage'
+  | 'repairStage'
   | 'stageDate'
   | 'factoryStage'
   | 'hasRepeatPass';
@@ -159,48 +163,53 @@ const REPAIR_DEADLINE_ORDER: readonly RepairDeadlineKey[] = ['danger', 'warning'
  */
 /** Ряд значений ступеней этапов — в порядке шаблона (приоритет линейки, боковая ветка в конце), плюс «этапов нет».
  *  Служебный этап («Создание карточки двигателя») в фильтр не попадает: это отметка о
- *  заведении карточки, а не этап ремонта (решение владельца 02.11.2026). */
+ *  заведении карточки, а не этап ремонта (решение владельца 02.11.2026).
+ *
+ *  Ряд собирается ЕДИНЫМ сборщиком `repairStageList` (промт КАРМАНА #181): серверный шаблон,
+ *  при его отсутствии — статичная линейка; каждый этап — ровно один раз. Два разных сборщика
+ *  разошлись бы подписями, и при офлайне один и тот же двигатель попадал бы в разные группы. */
 export function engineStageFacetOptions(types?: readonly EngineFactoryStageTypeRef[], stageTemplates?: readonly RepairStageTemplate[]) {
   void types;
   return [
-    ...orderedStageTemplates(stageTemplates)
-      .filter((s) => !isServiceStageCode(s.code))
-      .map((s) => ({ value: `stage:${s.code}`, label: s.name })),
+    ...repairStageList(stageTemplates).map((s) => ({ value: s.historyValue, label: s.label })),
     { value: 'none', label: 'этапов нет' },
   ];
 }
 
 /**
- * Полный ряд ступени «Текущее состояние»: состояния карточки по своим местам, этапы —
- * в порядке шаблона (приоритет линейки, боковая ветка в конце), виды работ — в порядке
- * справочника. Порядок показа групп в списках задаёт ранг (`flattenGrouped`), а не этот
- * ряд: здесь только значения фильтра (владелец 14.10.2026 — «по приоритету программы»).
+ * Ряд значений ступени «Этап ремонта» — из того же сборщика `repairStageList`, что и «История»
+ * и отчёт «Сейчас на заводе» (промт КАРМАНА #181, пункт 4: этапы везде из одного источника).
+ *
+ * Значение ступени — `repair:<код>`: своё пространство имён, чтобы ступень «Этап ремонта»
+ * (двигатель СЕЙЧАС на этом этапе) не путалась со ступенью «История» (этап проходил когда-то)
+ * и с «Текущим состоянием» (место двигателя вообще).
+ */
+export function repairStageFacetOptions(stageTemplates?: readonly RepairStageTemplate[]): Array<{ value: string; label: string }> {
+  return repairStageList(stageTemplates).map((s) => ({ value: s.stepValue, label: s.label }));
+}
+
+/**
+ * Полный ряд ступени «Текущее состояние»: состояния карточки по своим местам и виды работ —
+ * в порядке справочника. Этапов ремонта здесь НЕТ: они живут в ступени «Этап ремонта»
+ * (промт КАРМАНА #181 — в «Сейчас на заводе» один и тот же этап выводился дважды: в
+ * «Текущем состоянии» и в «Истории»). Порядок показа групп в списках задаёт ранг
+ * (`flattenGrouped`), а не этот ряд: здесь только значения фильтра.
  */
 function factoryStageFilterOptions(
   types?: readonly EngineFactoryStageTypeRef[],
   stageTemplates?: readonly RepairStageTemplate[],
 ): Array<{ value: string; label: string }> {
-  const ordered = orderedStageTemplates(stageTemplates);
-  // Служебный этап («Создание карточки двигателя») — не этап ремонта: ни своей
-  // ступени в фильтре, ни группы в отчёте (решение владельца 02.11.2026).
-  const line = ordered
-    .filter((t) => t.sideBranch !== true && !isServiceStageCode(t.code))
-    .map((t) => ({ value: `stage:${t.code}`, label: t.name }));
-  const side = ordered
-    .filter((t) => t.sideBranch === true && !isServiceStageCode(t.code))
-    .map((t) => ({ value: `stage:${t.code}`, label: t.name }));
+  void stageTemplates;
   const sheets = [...(types ?? [])]
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name, 'ru'))
     .map((t) => ({ value: `sheet:${t.code}`, label: t.name }));
   return [
     { value: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap },
     { value: 'repaired', label: ENGINE_FACTORY_STAGE_LABELS.repaired },
-    ...line,
     ...sheets,
     { value: 'defect_act', label: ENGINE_FACTORY_STAGE_LABELS.defectAct },
     { value: 'completeness_act', label: ENGINE_FACTORY_STAGE_LABELS.completenessAct },
     { value: 'repair_started', label: ENGINE_FACTORY_STAGE_LABELS.repairStarted },
-    ...side,
     { value: 'arrived', label: ENGINE_FACTORY_STAGE_LABELS.arrived },
   ];
 }
@@ -228,12 +237,61 @@ export function stripStageDateWhenWhereNow(selection: EngineFacetSelection): Eng
  * Раскрывать ли двигатели в строки-проходы (владелец 14.10.2026): только вопрос про
  * движение — выбранные «История» или период «Даты этапа». Иначе (и при активном
  * «Текущем состоянии») — одна строка на двигатель с текущим местом: обстановка, а не лента.
+ *
+ * Отбор по этапу ремонта («Этап ремонта») — тоже вопрос про движение: в отчёте «Сейчас на
+ * заводе» выбранный этап раскрывает список в строки-проходы, и ступень отбирает их по
+ * этапу САМОЙ строки (промт КАРМАНА #181). Раньше этот вопрос задавала ступень «История»,
+ * и отбор по этапу в отчёте давал ровно строки-проходы выбранного этапа — столько же должен
+ * давать и «Этап ремонта». В списке двигателей ступень работает по последнему этапу
+ * двигателя (одна строка на двигатель), и раскрытия там нет.
  */
 export function isStageEntriesActive(selection: EngineFacetSelection): boolean {
   if (isFactoryStageActive(selection)) return false;
   const picked = selection?.hasStage;
   if (Array.isArray(picked) && picked.length > 0) return true;
+  const repairPicked = selection?.repairStage;
+  if (Array.isArray(repairPicked) && repairPicked.length > 0) return true;
   return facetRangeOf(SELECTION(selection), 'stageDate') != null;
+}
+
+/**
+ * Переезд выбора этапа из «Текущего состояния» в «Этап ремонта» (промт КАРМАНА #181).
+ *
+ * Раньше этап ремонта выбирался в ступени «Текущее состоянии» (вместе с видами работ и
+ * состояниями карточки), и в «Сейчас на заводе» тот же этап попадал в выпадающий список
+ * дважды. Теперь этап ремонта — отдельная ступень «Этап ремонта» (значение `repair:<код>`),
+ * а сохранённый выбор оператора переезжает туда сам: список открывается с тем же отбором
+ * и теми же строками, что и до переезда.
+ *
+ * `dropHistory` — для списков, где ступени «История» больше нет (отчёт «Сейчас на
+ * заводе»): её выбор этапов переезжает в «Этап ремонта» тем же ходом.
+ */
+export function migrateEngineFacetSelection(
+  selection: EngineFacetSelection,
+  opts?: { dropHistory?: boolean },
+): EngineFacetSelection {
+  const isStageValue = (v: unknown): v is string => typeof v === 'string' && v.startsWith('stage:');
+  const raw = Array.isArray(selection?.factoryStage) ? (selection?.factoryStage as string[]) : [];
+  const historyRaw = opts?.dropHistory && Array.isArray(selection?.hasStage) ? (selection?.hasStage as string[]) : [];
+  const stageValues = raw.filter(isStageValue);
+  const historyValues = historyRaw.filter(isStageValue);
+  if (stageValues.length === 0 && historyValues.length === 0) {
+    if (!opts?.dropHistory || selection?.hasStage == null) return selection;
+    const cleared = { ...selection };
+    delete cleared.hasStage;
+    return cleared;
+  }
+  const next: EngineFacetSelection = { ...selection };
+  if (stageValues.length > 0) {
+    const rest = raw.filter((v) => !isStageValue(v));
+    if (rest.length > 0) next.factoryStage = rest;
+    else delete next.factoryStage;
+  }
+  if (opts?.dropHistory) delete next.hasStage;
+  const current = Array.isArray(next.repairStage) ? next.repairStage : [];
+  const moved = [...stageValues, ...historyValues].map((v) => `repair:${v.slice('stage:'.length).trim().toLowerCase()}`);
+  next.repairStage = [...current, ...moved.filter((v) => !current.includes(v))];
+  return next;
 }
 
 /**
@@ -278,21 +336,29 @@ function repairDeadlineKey(e: EngineListItem, now = Date.now()): RepairDeadlineK
 }
 
 /**
- * Коды этапов, выбранные в ступени «История» (значения вида `stage:<код>`), — в нижнем
- * регистре, как они лежат в строках проходов. «этапов нет» кодом не является.
+ * Коды этапов, выбранные в ступенях этапов («История» — значения `stage:<код>`,
+ * «Этап ремонта» — `repair:<код>`), — в нижнем регистре, как они лежат в строках проходов.
+ * «этапов нет» кодом не является.
+ *
+ * Выбранный этап сужает ступень «Дата этапа»: «Сборка» + день — это «прошёл сборку в этот
+ * день», а не «когда-то прошёл сборку и в этот день был где-то ещё». Раньше это правило
+ * читало только «Историю», а «Этап ремонта» в том же отчёте отвечает на тот же вопрос про
+ * этап — значит, он сужает дату так же (промт КАРМАНА #181).
  */
 function pickedStageCodes(selection?: EngineFacetSelection): string[] {
-  const raw = selection?.hasStage;
-  if (!Array.isArray(raw)) return [];
+  const raw = [
+    ...(Array.isArray(selection?.hasStage) ? selection.hasStage : []),
+    ...(Array.isArray(selection?.repairStage) ? selection.repairStage : []),
+  ];
   const out: string[] = [];
   for (const value of raw) {
     const s = text(value);
-    if (!s.startsWith('stage:')) continue;
-    const code = s.slice('stage:'.length).trim().toLowerCase();
-    if (!code) continue;
+    const code = s.startsWith('stage:') ? s.slice('stage:'.length) : s.startsWith('repair:') ? s.slice('repair:'.length) : '';
+    const c = code.trim().toLowerCase();
+    if (!c) continue;
     // Равные этапы (приёмка по рекламации = приёмка): выбрана «приёмка» — отбор
     // ловит и приезд по рекламации (владелец 11.11.2026).
-    for (const eq of equivalentStageCodes(code)) if (!out.includes(eq)) out.push(eq);
+    for (const eq of equivalentStageCodes(c)) if (!out.includes(eq)) out.push(eq);
   }
   return out;
 }
@@ -605,25 +671,58 @@ export function engineFacets(
       kind: 'values',
       id: 'factoryStage',
       // «Текущее состояние» (бывш. «Этап на заводе» → «Где сейчас?» с 14.10.2026,
-      // переименование 19.10.2026) — один ответ из карточки и этапов работ разом
-      // (`engineFactoryStage`): побеждает поздний признак.
+      // переименование 19.10.2026) — место двигателя, КРОМЕ этапа ремонта: утиль,
+      // отремонтирован, виды работ, акты, ремонт начат, пришёл.
       // Справочник нужен и здесь: ключ этапа работ без кода (старые строки) сходится с
-      // ключом отчёта только через него, а полный ряд этапов — из него же.
+      // ключом отчёта только через него, а полный ряд видов работ — из него же.
+      //
+      // Этап ремонта отсюда убран (промт КАРМАНА #181): он жил ещё и в ступени «Этап
+      // ремонта», и в «Сейчас на заводе» один и тот же этап выводился в выпадающем
+      // списке дважды — второй раз нерабочим нулём. Теперь этап ремонта — отдельная
+      // ступень «Этап ремонта» (см. ниже), а «Текущее состояние» отвечает за остальные
+      // места. Старый выбор этапа в «Текущем состоянии» переезжает в «Этап ремонта»
+      // сам — `migrateEngineFacetSelection`.
       label: 'Текущее состояние',
       valueOf: (e) => {
         const s = engineFactoryStage(e, types, stageTemplates);
-        // Подпись — своя («по рекламации» видно), а отбор — по равному этапу:
-        // выбранная «приёмка двигателя на завод» ловит и приезд по рекламации.
-        // Раскрытие — только для этапов единого списка: ключи видов работ (`sheet:`) и
-        // состояний карточки (`scrap`, `repaired`) своей группы не имеют.
-        const stageKey = s.key.startsWith('stage:') ? s.key.slice('stage:'.length) : null;
-        return {
-          value: s.key,
-          label: s.label,
-          ...(stageKey ? { values: stageAnsweringAliases(stageKey).map((eq) => 'stage:' + eq) } : {}),
-        };
+        // Этап ремонта — ступени «Этап ремонта»: здесь его нет, иначе этап выводился бы
+        // в двух выпадающих списках сразу.
+        if (s.key.startsWith('stage:')) return NO_VALUE;
+        return { value: s.key, label: s.label };
       },
       options: factoryStageFilterOptions(types, stageTemplates),
+    },
+    {
+      kind: 'values',
+      // «Этап ремонта» (промт КАРМАНА #181) — на каком этапе ремонта двигатель СЕЙЧАС.
+      // Раньше отбора по этапу в списке двигателей не было вовсе: были «Стадия ремонта»
+      // (стадии жизненного цикла по флагам карточки) и «Срок ремонта» (дедлайн) — а этап
+      // ремонта жил только внутри «Текущего состояния» и «Истории», вперемешку с видами
+      // работ и состояниями карточки. Теперь это отдельная ступень со своим рядом
+      // значений из справочника шаблонов.
+      //
+      // Значение ступени — `repair:<код>` (своё пространство имён): «История» отвечает
+      // на другой вопрос («проходил ли этап когда-то»), и смешивать их в одном отборе
+      // нельзя. Отбор по равным этапам сохранён: выбранная «приёмка» ловит и приезд по
+      // рекламации (владелец 11.11.2026).
+      id: 'repairStage',
+      label: 'Этап ремонта',
+      valueOf: (e) => {
+        // Этап строки: у прохода отчёта «Сейчас на заводе» — свой (`rowStageCode`), у
+        // двигателя — последний этап единого списка. Служебный этап (заведение карточки)
+        // этапом ремонта не является.
+        const raw = String(e.rowStageCode ?? e.lastStageCode ?? '').trim().toLowerCase();
+        if (!raw || isServiceStageCode(raw)) return NO_VALUE;
+        const value = repairStageValue(raw);
+        if (!value) return NO_VALUE;
+        const aliases = stageAnsweringAliases(raw);
+        return {
+          value,
+          label: stageByCode(raw, stageTemplates)?.name ?? raw,
+          ...(aliases.length > 0 ? { values: aliases.map((eq) => repairStageValue(eq) ?? `repair:${eq}`) } : {}),
+        };
+      },
+      options: repairStageFacetOptions(stageTemplates),
     },
     {
       kind: 'values',

@@ -219,6 +219,31 @@ export function resolveReportPresetId(id: string): string {
   return REPORT_PRESET_ALIASES[id] ?? id;
 }
 
+/**
+ * Ключи шаблонов фильтров НЕ пресетов отчётов — списки программы (промт КАРМАНА #181).
+ *
+ * Шаблоны фильтров — ОДИН механизм на программу: именованные наборы живут в профиле
+ * пользователя, едут за оператором на другой компьютер и хранят значения фильтров и
+ * перечень отключённых фильтров. Список двигателей берёт тот же механизм, а не новую
+ * сущность: свой ключ в том же блобе шаблонов.
+ */
+export const LIST_FILTER_TEMPLATE_KEYS = ['list:engines'] as const;
+
+export type ListFilterTemplateKey = (typeof LIST_FILTER_TEMPLATE_KEYS)[number];
+
+/** Ключ шаблона фильтров: пресет отчёта или список программы. */
+export type FilterTemplateKey = ReportPresetId | ListFilterTemplateKey;
+
+/**
+ * Ключ шаблона фильтров — канонический: ключ списка программы как есть, иначе id пресета
+ * с алиасами (алиас → объединённый пресет, шаблоны под старым id продолжают видеться).
+ */
+export function resolveFilterTemplateKey(id: string): string {
+  const key = String(id ?? '').trim();
+  if ((LIST_FILTER_TEMPLATE_KEYS as readonly string[]).includes(key)) return key;
+  return resolveReportPresetId(key);
+}
+
 /** Суперсет колонок отчёта «Утиль». Порядок = канонический порядок печати. */
 export const SCRAP_REPORT_COLUMNS: ReportColumn[] = [
   { key: 'rowKind', label: 'Вид' },
@@ -570,6 +595,13 @@ export type ReportPresetFilterTemplate = {
   createdAt: number;
   filters: ReportPresetFilters;
   disabled: string[];
+  /**
+   * Какие ступени (фильтры) шаблон ВКЛЮЧАЕТ (промт КАРМАНА #181 — список двигателей):
+   * у шаблона списка рядом с значениями лежит перечень включённых ступеней и перечень
+   * отключённых, и применение восстанавливает оба. У шаблонов отчётов поле пустое —
+   * там «включено/выключено» живёт в `disabled`.
+   */
+  enabled?: string[];
   /**
    * Подпись владельца своими словами («для сверки с бухгалтерией»). Настройки витрина
    * и так расписывает именами, но зачем этот набор сохранён — знает только тот, кто его
