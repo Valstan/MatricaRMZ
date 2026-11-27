@@ -65,7 +65,9 @@
 
 ## Что ушло в pending и в план
 
-- Шесть развилок промта — одним пунктом: [`../pending/resheniya-vladeltsa-neiroset-na-kliente.md`](../pending/resheniya-vladeltsa-neiroset-na-kliente.md).
+- Шесть развилок промта — решены владельцем 27.11.2026 и записаны в план нитки
+  ([`../plans/local-agent-accounts-on-demand-2026-11.md`](../plans/local-agent-accounts-on-demand-2026-11.md) §«Решения владельца»);
+  отдельный пункт pending закрыт 27.11.2026.
 - План нитки (разрезы 2–4): [`../plans/local-agent-accounts-on-demand-2026-11.md`](../plans/local-agent-accounts-on-demand-2026-11.md).
 
 ## Передумаем, если
