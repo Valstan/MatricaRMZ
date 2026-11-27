@@ -45,7 +45,7 @@
 - Сторож страницы держит четыре вещи: действие есть в меню, запись идёт через дверь карточки,
   набор вариантов — доменный, «не задан» — `null`, и вид переносится в реплику.
 
-План — [`../plans/resheniya-vladeltsa-2026-11-27.md`](../plans/resheniya-vladeltsa-2026-11-27.md).
+План — [`../plans/_archive/resheniya-vladeltsa-2026-11-27.md`](../plans/_archive/resheniya-vladeltsa-2026-11-27.md).
 
 ## Что осталось открытым
 
@@ -69,7 +69,7 @@
 
 ## Связи
 
-- План решений: [`../plans/resheniya-vladeltsa-2026-11-27.md`](../plans/resheniya-vladeltsa-2026-11-27.md)
+- План решений: [`../plans/_archive/resheniya-vladeltsa-2026-11-27.md`](../plans/_archive/resheniya-vladeltsa-2026-11-27.md)
 - Инвентаризация списков: [`docs/ENGINE_KIND_INVENTORY.md`](../ENGINE_KIND_INVENTORY.md)
 - Правило расчёта вида: `shared/src/domain/engineKind.ts`; слой в списках:
   `shared/src/domain/engineKindList.ts`
