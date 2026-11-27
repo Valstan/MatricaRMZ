@@ -53,9 +53,8 @@
 ---
 
 ## 🟡 Техдолг и отложенное
-- [🟡 Утиль и этапы ремонта: решения владельца (промт #170) — состав главных деталей, блокировка по неглавным деталям, возврат детали из локации «утиль» 🗓 since:2026-11-26](pending/util-stage-gate-resheniya-vladeltsa.md)
-- [🟡 Потолок на одну папку при обходе папок: 30 секунд — подтвердить или поднять 🗓 since:2026-11-26](pending/potolok-odnoj-papki-pri-obhode-papok.md)
-- [🟡 Вид «ГОЗ / гражданка»: проставить его пачкой — на проде вида нет ни у одного заказчика 🗓 since:2026-11-26](pending/prostat-vid-pachkoy-zakazchikam-i-dogovoram.md)
+- [🟡 Утиль и этапы ремонта: деталь ушла в утиль, а учёт говорит «в ремонтном фонде» — обратного складского движения нет 🗓 since:2026-11-27](pending/vozvrat-detali-iz-util-raskhozhdenie.md)
+- [🟡 Вид «ГОЗ / гражданка»: проставить пачкой — действие сделано, наполнить парк — за оператором 🗓 since:2026-11-26](pending/prostat-vid-pachkoy-zakazchikam-i-dogovoram.md)
 - [🟡 Печать картинок: проверить диалог печати Chromium на живой машине парка 🗓 since:2026-11-26](pending/pechat-kartinok-dialog-pechati-na-parke.md)
 
 - [🟡 Класс «застрявшая очередь»: правки готовы, ждём выката и полевой приёмки 🗓 since:2026-11-26](pending/trevoga-ochered-zastryla-otchet-po-ustarevshey-probe.md)

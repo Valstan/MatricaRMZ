@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  COUNTERPARTY_KIND_CHOICES,
   counterpartyKindFilterNote,
   counterpartyKindHint,
+  counterpartyKindValue,
   counterpartyKindVerdict,
   ENGINE_KIND_NONE_VALUE,
   ENGINE_KIND_REQUIRED_MESSAGE,
@@ -201,5 +203,31 @@ describe('отбор заказчиков по виду договора (про
     // Вид заказчика гейтом не принимается — при заведении вид выбирает оператор.
     expect(engineKindRequirement({ counterpartyKind: 'military' } as EngineKindRequirementSources).ok).toBe(false);
     expect(engineKindRequirement({ contractKind: 'military' }).ok).toBe(true);
+  });
+});
+
+// Решение владельца 27.11.2026: вид заказчика проставляется ПАЧКОЙ (у парка вида нет
+// почти ни у кого, а отбор по виду без него пустой). Набор вариантов — общий с
+// карточкой заказчика, и «не задан» значит «вида нет» (null), а не пустая строка:
+// пустая строка в базе — это «вид был, и его снял оператором».
+describe('варианты вида для простановки пачкой', () => {
+  it('набор — два вида и «не задан»', () => {
+    expect(COUNTERPARTY_KIND_CHOICES.map((option) => option.id)).toEqual(['military', 'civil', 'none']);
+  });
+
+  it('подписи — те же, что у вида в карточке', () => {
+    expect(COUNTERPARTY_KIND_CHOICES.find((o) => o.id === 'military')?.label).toBe('ГОЗ');
+    expect(COUNTERPARTY_KIND_CHOICES.find((o) => o.id === 'civil')?.label).toBe('Гражданский');
+    expect(COUNTERPARTY_KIND_CHOICES.find((o) => o.id === 'none')?.label).toBe('Не задан');
+  });
+
+  it('выбор вида даёт его значение, «не задан» — null (вида нет)', () => {
+    expect(counterpartyKindValue('military')).toBe('military');
+    expect(counterpartyKindValue('civil')).toBe('civil');
+    expect(counterpartyKindValue('none')).toBeNull();
+  });
+
+  it('пустой строки не бывает — вид снимают как «не задан»', () => {
+    expect(COUNTERPARTY_KIND_CHOICES.map((option) => option.value)).not.toContain('');
   });
 });
