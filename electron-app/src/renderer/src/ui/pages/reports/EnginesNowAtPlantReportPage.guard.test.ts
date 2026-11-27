@@ -153,14 +153,15 @@ describe('отчёт-список «сейчас на заводе»', () => {
   it('отбор по этапу в отчёте раскрывает ленту проходов — как прежняя ступень «История»', () => {
     // Критерий приёмки #181: выбор этапа в отчёте отбирает двигателей, ПРОХОДИВШИХ этот
     // этап (как прежняя ступень «История»), а не «двигателей, которые сейчас на этом этапе».
-    // Для этого отчёт раскрывается в строки-проходы, и каждая несёт свой этап.
-    expect(PAGE, 'выбор этапа не раскрывает ленту проходов — отбор по этапу изменился').toContain(
-      'const expand = !whereNowActive && (entriesActive || pickedCodes.length > 0);',
+    // Правило раскрытия — ДОМЕННОЕ: выбранный этап ремонта считается вопросом про движение.
+    expect(PAGE, 'отчёт решает раскрытие по-своему — правило должно жить в домене').not.toContain(
+      'entriesActive || pickedCodes.length > 0',
     );
-    expect(PAGE).toContain(
-      'const pickedCodes = repairStageCodesFromSelection((activeFacets as EngineFacetSelection).repairStage);',
+    expect(PAGE).toContain('const expand = entriesActive;');
+    expect(PAGE).toContain('isStageEntriesActive(activeFacets as EngineFacetSelection)');
+    expect(SHARED_FACETS, 'домен не считает выбранный этап вопросом про движение').toContain(
+      'const repairPicked = selection?.repairStage;',
     );
-    expect(PAGE, 'при активном «Текущем состоянии» ленты быть не должно').toContain('!whereNowActive &&');
   });
 
   it('колонки-дублей нет: «Последнее событие», «Дата события», «Последний этап»', () => {
