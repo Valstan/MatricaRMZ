@@ -53,6 +53,7 @@
 ---
 
 ## 🟡 Техдолг и отложенное
+- [🟡 Список двигателей: этап ремонта, ряд этапов и шаблоны фильтров — развилки владельца (промт #181) 🗓 since:2026-11-27](pending/spisok-dvigatelej-etap-remonta-i-shablony-filtrov.md)
 - [🟡 Поиск по папкам: карта индекса дерева — шесть развилок владельца (промт #180) 🗓 since:2026-11-27](pending/resheniya-vladeltsa-indeks-papki-poisk-po-fajlam.md)
 - [🟡 Нейросеть на клиенте: шесть решений владельца по промту #176 🗓 since:2026-11-27](pending/resheniya-vladeltsa-neiroset-na-kliente.md)
 - [🟡 Утиль и этапы ремонта: деталь ушла в утиль, а учёт говорит «в ремонтном фонде» — обратного складского движения нет 🗓 since:2026-11-27](pending/vozvrat-detali-iz-util-raskhozhdenie.md)
