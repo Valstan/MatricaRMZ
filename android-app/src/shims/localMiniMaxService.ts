@@ -15,7 +15,7 @@ import type { AiChatLocalStatus } from '@matricarmz/shared';
 export function localLinkStatus(): AiChatLocalStatus {
   return {
     state: 'off',
-    detail: 'на планшете считает сервер',
+    cause: 'not_configured',
     configured: false,
   };
 }

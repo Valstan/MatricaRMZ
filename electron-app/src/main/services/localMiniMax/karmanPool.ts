@@ -18,7 +18,13 @@ export type KarmanAccount = {
 
 export type KarmanOffer = {
   account: KarmanAccount | null;
-  /** Причина пустоты: no_free_accounts | no_tokens_ready | no_handleable_accounts. */
+  /**
+   * Причина пустоты: no_free_accounts | no_tokens_ready | no_handable_accounts.
+   *
+   * Написание — как у сервера (`backend-api/src/minimaxWorker/karmanPool.ts`): своя
+   * копия словаря расходится молча, и тогда третья причина не сойдётся никогда,
+   * а оператор всё время видит «свободных аккаунтов нет» (ADR-0011).
+   */
   reason: string | null;
   /** Токен доступа аккаунта (refresh «Карман» не отдаёт никогда). */
   accessToken: string | null;

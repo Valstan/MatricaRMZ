@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { LocalMiniMaxConfig } from './config.js';
 import type { KarmanPoolClient } from './karmanPool.js';
+import { profileDirs, readCredential } from './agentProfile.js';
 import { answerQuestionLocally, getLocalLinkStatus } from './localMiniMaxEngine.js';
 
 // Оркестратор локального звена. Здесь решается, что оператор увидит: ответ
@@ -178,5 +179,250 @@ describe('локальное звено ИИваныча', () => {
     expect(renewCalls).toBe(1);
     expect(runs).toBe(2);
     expect(outcome.ok).toBe(true);
+  });
+
+  // ── Промт КАРМАНА #176: аккаунт по надобности, перебор и тишина ─────────────
+
+  it('при простое запросов к пулу нет: статус спрашивается — аккаунт не берётся', () => {
+    let availableCalls = 0;
+    const pool = fakePool({
+      available: async () => {
+        availableCalls += 1;
+        return {
+          ok: true as const,
+          value: {
+            account: { id: 67 },
+            reason: null,
+            accessToken: 'access-1',
+            expiresAtMs: Date.now() + 8 * 60 * 60 * 1000,
+          },
+        };
+      },
+    });
+    const cfg = config();
+
+    // Так панель спрашивает статус при монтировании и по таймеру: это НЕ задание.
+    getLocalLinkStatus({ config: cfg, pool });
+    getLocalLinkStatus({ config: cfg, pool });
+
+    expect(availableCalls).toBe(0);
+  });
+
+  it('аккаунт отказал — агент берёт свежий и доводит задание сам', async () => {
+    let availableCalls = 0;
+    let runs = 0;
+    const pool = fakePool({
+      available: async () => {
+        availableCalls += 1;
+        return {
+          ok: true as const,
+          value: {
+            account: { id: availableCalls === 1 ? 67 : 68 },
+            reason: null,
+            accessToken: `access-${availableCalls}`,
+            expiresAtMs: Date.now() + 8 * 60 * 60 * 1000,
+          },
+        };
+      },
+      // Свой аккаунт продлить не вышло — значит, нужен свежий.
+      renew: async () => ({ ok: false as const, reason: 'not_found' as const, message: 'продлить не вышло' }),
+    });
+
+    const outcome = await answerQuestionLocally('вопрос', {
+      config: config(),
+      pool,
+      run: async () => {
+        runs += 1;
+        if (runs === 1) {
+          return { ok: false as const, reason: 'auth', message: 'stored oauth credential record is invalid', details: {} };
+        }
+        return { ok: true as const, answer: 'ответ со вторым аккаунтом', details: {} };
+      },
+    });
+
+    expect(outcome).toEqual({ ok: true, source: 'local_minimax', answer: 'ответ со вторым аккаунтом' });
+    expect(availableCalls).toBe(2);
+    expect(runs).toBe(2);
+  });
+
+  it('перебор ограничен: два отказа подряд — дальше не крутимся', async () => {
+    let availableCalls = 0;
+    let renewCalls = 0;
+    let runs = 0;
+    const pool = fakePool({
+      available: async () => {
+        availableCalls += 1;
+        return {
+          ok: true as const,
+          value: {
+            account: { id: availableCalls === 1 ? 67 : 68 },
+            reason: null,
+            accessToken: `access-${availableCalls}`,
+            expiresAtMs: Date.now() + 8 * 60 * 60 * 1000,
+          },
+        };
+      },
+      renew: async () => {
+        renewCalls += 1;
+        return { ok: true as const, value: { accessToken: 'access-2', expiresAtMs: Date.now() + 8 * 60 * 60 * 1000 } };
+      },
+    });
+
+    const outcome = await answerQuestionLocally('вопрос', {
+      config: config(),
+      pool,
+      run: async () => {
+        runs += 1;
+        return { ok: false as const, reason: 'auth', message: 'token has expired', details: {} };
+      },
+    });
+
+    // Свой прогон → продление → свежий аккаунт → и всё: дальше крутиться нечем.
+    expect(runs).toBe(3);
+    expect(availableCalls).toBe(2);
+    expect(renewCalls).toBe(1);
+    expect(outcome.ok).toBe(false);
+  });
+
+  it('причина пустоты доезжает: «нет готовых» ≠ «нет свободных»', async () => {
+    const cfg = config();
+    const outcome = await answerQuestionLocally('вопрос', {
+      config: cfg,
+      pool: fakePool({
+        available: async () => ({
+          ok: true as const,
+          value: { account: null, reason: 'no_tokens_ready', accessToken: null, expiresAtMs: null },
+        }),
+      }),
+      run: async () => ({ ok: true as const, answer: 'не должно случиться', details: {} }),
+    });
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.reason).toBe('no_tokens_ready');
+    const status = getLocalLinkStatus({ config: cfg });
+    expect(status.state).toBe('no_accounts');
+    expect(status.cause).toBe('no_tokens_ready');
+  });
+
+  it('пул недоступен — это поломка, а не «аккаунтов нет»', async () => {
+    const cfg = config();
+    const outcome = await answerQuestionLocally('вопрос', {
+      config: cfg,
+      pool: fakePool({
+        available: async () => ({ ok: false as const, reason: 'network' as const, message: '«Карман» недоступен: fetch failed' }),
+      }),
+      run: async () => ({ ok: true as const, answer: 'не должно случиться', details: {} }),
+    });
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.reason).toBe('network');
+    const status = getLocalLinkStatus({ config: cfg });
+    expect(status.state).toBe('broken');
+    expect(status.cause).toBe('pool_unavailable');
+  });
+
+  it('в строке статуса нет служебных подробностей — только код причины', async () => {
+    const cfg = config();
+    const logged: string[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      logged.push(args.map(String).join(' '));
+    };
+    try {
+      const outcome = await answerQuestionLocally('вопрос', {
+        config: cfg,
+        pool: fakePool(),
+        run: async () => ({
+          ok: false as const,
+          reason: 'exec_failed',
+          message: 'HTTP 500: select * from erp_engines — token has expired',
+          details: {},
+        }),
+      });
+
+      expect(outcome.ok).toBe(false);
+      const status = getLocalLinkStatus({ config: cfg });
+      expect(status.state).toBe('broken');
+      expect(status.cause).toBe('module_failed');
+      // В статусе нет ни текста ошибки, ни кодов: только код причины.
+      expect(JSON.stringify(status)).not.toContain('HTTP');
+      expect(JSON.stringify(status)).not.toContain('select');
+      // Подробность не потерялась — она ушла в лог, где её и разбирают.
+      expect(logged.join('\n')).toContain('HTTP 500: select * from erp_engines');
+    } finally {
+      console.warn = warn;
+    }
+  });
+
+  it('давний отказ протухает: строка не врёт и claim оживает', async () => {
+    const cfg = config();
+    let clock = 1_000_000;
+    const now = () => clock;
+    const outcome = await answerQuestionLocally('вопрос', {
+      config: cfg,
+      pool: fakePool(),
+      run: async () => ({ ok: false as const, reason: 'exec_failed', message: 'агент упал', details: {} }),
+      now,
+    });
+    expect(outcome.ok).toBe(false);
+    expect(getLocalLinkStatus({ config: cfg, now }).state).toBe('broken');
+
+    // Через час «аккаунтов нет» уже неправда: причина протухает, «считает сервер» — нет.
+    clock += 60 * 60 * 1000;
+    const stale = getLocalLinkStatus({ config: cfg, now });
+    expect(stale.state).toBe('off');
+    expect(stale.cause).toBeNull();
+  });
+
+  it('тот же аккаунт от пула — не крутимся', async () => {
+    let availableCalls = 0;
+    let runs = 0;
+    const pool = fakePool({
+      available: async () => {
+        availableCalls += 1;
+        return {
+          ok: true as const,
+          value: {
+            account: { id: 67 },
+            reason: null,
+            accessToken: `access-${availableCalls}`,
+            expiresAtMs: Date.now() + 8 * 60 * 60 * 1000,
+          },
+        };
+      },
+    });
+
+    const outcome = await answerQuestionLocally('вопрос', {
+      config: config(),
+      pool,
+      run: async () => {
+        runs += 1;
+        return { ok: false as const, reason: 'auth', message: 'token has expired', details: {} };
+      },
+    });
+
+    // Свой прогон → продление → пул вернул тот же id → стоп.
+    expect(runs).toBe(2);
+    expect(availableCalls).toBe(2);
+    expect(outcome.ok).toBe(false);
+  });
+
+  it('отказавший вход не остаётся в профиле — следующий вопрос его не переиспользует', async () => {
+    const cfg = config();
+    await answerQuestionLocally('вопрос', {
+      config: cfg,
+      pool: fakePool({
+        renew: async () => ({ ok: false as const, reason: 'not_found' as const, message: 'продлить не вышло' }),
+        available: async () => ({
+          ok: true as const,
+          value: { account: null, reason: 'no_free_accounts', accessToken: null, expiresAtMs: null },
+        }),
+      }),
+      run: async () => ({ ok: false as const, reason: 'auth', message: 'token has expired', details: {} }),
+    });
+
+    expect(readCredential(profileDirs(cfg.profileDir))).toBeNull();
   });
 });

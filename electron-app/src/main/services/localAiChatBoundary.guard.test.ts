@@ -29,6 +29,7 @@ const IPC = readFileSync(resolve(here, '../ipc/register/aiChat.ts'), 'utf8');
 const PRELOAD = readFileSync(resolve(here, '../../preload/index.ts'), 'utf8');
 const TYPES = readFileSync(resolve(here, '../../../../shared/src/ipc/types.ts'), 'utf8');
 const PANEL = readFileSync(resolve(here, '../../renderer/src/ui/components/AiAgentChat.tsx'), 'utf8');
+const DOMAIN = readFileSync(resolve(here, '../../../../shared/src/domain/aiChatSchedule.ts'), 'utf8');
 const CLEANUP = readFileSync(resolve(here, 'opencodeTracesCleanup.ts'), 'utf8');
 const CLIENT_SCHEMA = readFileSync(resolve(here, '../database/schema.ts'), 'utf8');
 const REGISTRY = readFileSync(resolve(here, '../../../../shared/src/sync/registry.ts'), 'utf8');
@@ -42,7 +43,7 @@ describe('Ииваныч — локальное звение на клиенте
     expect(IPC).toContain("ipcMain.handle('aiChat:localStatus'");
     expect(PRELOAD).toContain("ipcRenderer.invoke('aiChat:localStatus')");
     expect(TYPES).toContain('localStatus: () => Promise<');
-    expect(PANEL).toContain('AI_CHAT_LOCAL_STATE_LABELS');
+    expect(PANEL).toContain('aiChatLocalStatusLine');
     expect(LOCAL_SERVICE).toContain('runLocalAnswer');
   });
 
@@ -65,7 +66,50 @@ describe('Ииваныч — локальное звение на клиенте
 
   it('локальный звено не молчит: пустой пул — честный отказ с причиной', () => {
     expect(LOCAL_ENGINE).toContain('no_free_accounts');
-    expect(LOCAL_ENGINE).toContain('аккаунты MiniMax кончились на сегодня');
+    // Причина пустоты доезжает до оператора своими словами, и различие видно:
+    // «нет свободных» ≠ «нет готовых» ≠ «нет пригодных» (промт КАРМАНА #176, п. 4).
+    expect(LOCAL_ENGINE).toContain('no_tokens_ready');
+    expect(LOCAL_ENGINE).toContain('no_handable_accounts');
+    expect(LOCAL_ENGINE).not.toContain('no_handleable_accounts');
+    expect(DOMAIN).toContain('AI_CHAT_LOCAL_CAUSE_TEXT');
+  });
+
+  it('аккаунт берётся только вместе с заданием — прогрева нет', () => {
+    // Единственный вход в локальное звено — создание вопроса оператором. Если
+    // появится прогрев (запрос аккаунта при старте клиента), пул будет расходоваться
+    // без работы — это ровно то, чего промт #176 требовал не допустить.
+    expect(IPC.match(/runLocalAnswer\(/g)?.length).toBe(1);
+    expect(IPC).toContain("ipcMain.handle('aiChat:create'");
+    expect(LOCAL_SERVICE.match(/answerQuestionLocally\(/g)?.length).toBe(1);
+  });
+
+  it('при отказе аккаунта агент берёт свежий и продолжает', () => {
+    // Продление своего аккаунта не помогло — берём свежий у пула и повторяем задание.
+    expect(LOCAL_ENGINE).toContain('pool.available()');
+    expect(LOCAL_ENGINE).toContain('пул вернул тот же аккаунт');
+  });
+
+  it('в строке статуса нет служебных подробностей', () => {
+    // Оператор видит слова, а не ответ сервера и не коды: подробность уходит в лог.
+    // Проверяем по коду: в setState не должна попадать сырая ошибка прогона.
+    expect(LOCAL_ENGINE).not.toMatch(/setState\([^)]*attempt\.message/);
+    expect(LOCAL_ENGINE).not.toMatch(/setState\([^)]*offer\.message/);
+    expect(LOCAL_ENGINE).toContain('console.warn');
+  });
+
+  it('причина едет машинным кодом, слова собирает домен', () => {
+    // Правило «что видит оператор» живёт в одном месте. Движок пишет коды, панель
+    // берёт готовую строку: иначе текст размножается по трём файлам, и служебные
+    // слова доезжают до экрана оператора.
+    expect(LOCAL_ENGINE).toContain('AiChatLocalCause');
+    expect(DOMAIN).toContain('aiChatLocalStatusLine');
+    expect(LOCAL_ENGINE).not.toMatch(/setState\([^)]*['"][А-Яа-яЁё]/);
+  });
+
+  it('панель не сочиняет своих строк статуса', () => {
+    expect(PANEL).toContain('aiChatLocalStatusLine');
+    expect(PANEL).toContain('AI_CHAT_ENGINE_UNAVAILABLE_LINE');
+    expect(PANEL).not.toContain('AI_CHAT_LOCAL_STATE_LABELS');
   });
 
   it('следы прежнего движка снимаются, каталог нового модуля — нет', () => {

@@ -53,6 +53,7 @@
 ---
 
 ## 🟡 Техдолг и отложенное
+- [🟡 Нейросеть на клиенте: шесть решений владельца по промту #176 🗓 since:2026-11-27](pending/resheniya-vladeltsa-neiroset-na-kliente.md)
 - [🟡 Утиль и этапы ремонта: деталь ушла в утиль, а учёт говорит «в ремонтном фонде» — обратного складского движения нет 🗓 since:2026-11-27](pending/vozvrat-detali-iz-util-raskhozhdenie.md)
 - [🟡 Вид «ГОЗ / гражданка»: проставить пачкой — действие сделано, наполнить парк — за оператором 🗓 since:2026-11-26](pending/prostat-vid-pachkoy-zakazchikam-i-dogovoram.md)
 - [🟡 Печать картинок: проверить диалог печати Chromium на живой машине парка 🗓 since:2026-11-26](pending/pechat-kartinok-dialog-pechati-na-parke.md)
