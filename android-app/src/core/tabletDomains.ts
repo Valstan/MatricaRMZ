@@ -40,7 +40,7 @@ export type TabletDomainException = {
 export const TABLET_DOMAIN_EXCEPTIONS: readonly TabletDomainException[] = [
   {
     domain: 'Files',
-    // Четыре канала вложений на планшете ЕСТЬ — но через свой узкий мост
+    // Пять каналов вложений на планшете ЕСТЬ — но через свой узкий мост
     // (filesBridge.ts, тот же REST API). Остальные — диск, диалоги, печать.
     channelPrefixes: [
       'files:assemblePdf',

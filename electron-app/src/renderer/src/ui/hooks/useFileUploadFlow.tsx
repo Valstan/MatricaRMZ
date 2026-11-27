@@ -35,6 +35,8 @@ export function useFileUploadFlow() {
     autoSelect: boolean;
     /** Откуда взялось предложенное имя — показывается над полем. */
     lead: string;
+    /** Надпись на кнопке подтверждения: «Прикрепить» или «Переименовать». */
+    submitLabel: string;
     resolve: (fileName: string | null) => void;
   } | null>(null);
   // Живой прогресс загрузки: main присылает состояние передачи по её идентификатору.
@@ -68,13 +70,14 @@ export function useFileUploadFlow() {
    * оператор отказался.
    *
    * `defaultName` — имя, которое показываем сразу: для файла с диска это его
-   * собственное имя, для скана — предложенное программой («карточка + скан +
-   * время»). `autoSelect` выделяет предложенное имя целиком, чтобы оператор
-   * печатал новое, не выделяя мышью.
+   * собственное имя, для скана и для съёмки с камеры — предложенное программой
+   * («карточка + снимок + время»). `autoSelect` выделяет предложенное имя целиком,
+   * чтобы оператор печатал новое, не выделяя мышью. `submitLabel` — смысл кнопки
+   * («Прикрепить» при загрузке, «Переименовать» при переименовании).
    */
   async function promptName(
     defaultName: string,
-    opts?: { autoSelect?: boolean; lead?: string },
+    opts?: { autoSelect?: boolean; lead?: string; submitLabel?: string },
   ): Promise<string | null> {
     return await new Promise<string | null>((resolve) => {
       const { stem, extWithDot } = splitNameAndExt(String(defaultName || '').trim() || 'file');
@@ -84,8 +87,24 @@ export function useFileUploadFlow() {
         warning: '',
         autoSelect: opts?.autoSelect === true,
         lead: opts?.lead ?? '',
+        submitLabel: opts?.submitLabel ?? 'Прикрепить',
         resolve,
       });
+    });
+  }
+
+  /**
+   * Спросить новое имя УЖЕ ПРИКРЕПЛЁННОГО файла.
+   *
+   * Отдельная функция, а не ещё один вызов `promptName`: тут кнопка означает
+   * «Переименовать», а не «Прикрепить», и имя предлагается текущим — переименовываем
+   * то, что уже названо (владелец 27.11.2026).
+   */
+  async function promptRename(currentName: string, opts?: { lead?: string }): Promise<string | null> {
+    return await promptName(currentName, {
+      autoSelect: true,
+      submitLabel: 'Переименовать',
+      lead: opts?.lead ?? 'Новое имя файла. Прежнее имя пропадёт.',
     });
   }
 
@@ -159,6 +178,7 @@ export function useFileUploadFlow() {
       warning={renameModal?.warning ?? ''}
       lead={renameModal?.lead ?? ''}
       autoSelect={renameModal?.autoSelect === true}
+      submitLabel={renameModal?.submitLabel ?? 'Прикрепить'}
       onStemChange={(value) => {
         const sanitized = sanitizeFileNameStem(value);
         setRenameModal((prev) =>
@@ -196,8 +216,10 @@ export function useFileUploadFlow() {
     progress,
     setProgress,
     buildTasks,
-    /** Спросить имя файла отдельно — для скана, где имя предлагает программа. */
+    /** Спросить имя файла отдельно — для скана и съёмки с камеры, где имя предлагает программа. */
     promptName,
+    /** Спросить новое имя уже прикреплённого файла (кнопка «Переименовать»). */
+    promptRename,
     runUploads,
     renameDialog,
     /** Жив ли ещё аппарат загрузки (для стража: прогресс не должен быть выдуманным). */

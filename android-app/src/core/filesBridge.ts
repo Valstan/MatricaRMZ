@@ -123,4 +123,23 @@ export function registerAndroidFilesIpc(ctx: IpcContext): void {
     if (!r.ok) return { ok: false, error: `delete ${formatHttpError(r)}` };
     return { ok: true };
   });
+
+  // Переименование файла (владелец 27.11.2026): меняется имя ЗАПИСИ файла на
+  // сервере — тот же PATCH, что и на десктопе. Пути на диске планшету не нужны,
+  // поэтому это один из каналов, которые работают на нём целиком.
+  ipcMain.handle('files:rename', async (_e, args: { fileId: string; name: string }) => {
+    const gate = await requirePermOrResult(ctx, 'files.upload');
+    if (!gate.ok) return gate;
+    const fileId = String(args?.fileId || '').trim();
+    const name = String(args?.name || '').trim();
+    if (!fileId) return { ok: false, error: 'fileId is empty' };
+    if (!name) return { ok: false, error: 'имя файла пустое' };
+    const r = await httpAuthed(ctx.sysDb, apiBase(), `/files/${encodeURIComponent(fileId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!r.ok) return { ok: false, error: `rename ${formatHttpError(r)}` };
+    return { ok: true, name };
+  });
 }

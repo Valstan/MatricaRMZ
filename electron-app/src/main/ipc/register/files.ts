@@ -24,6 +24,7 @@ import {
   filesOriginalGet,
   filesPreviewGet,
   filesReadPastableText,
+  filesRename,
   filesRevealForShare,
   filesStageForShare,
   filesUpload,
@@ -135,6 +136,23 @@ export function registerFilesIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'files.view');
     if (!gate.ok) return gate;
     return await filesMeta(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args?.fileId ?? '' });
+  });
+
+  /**
+   * Переименовать файл: меняется имя ЗАПИСИ файла на сервере — по нему называется
+   * скачанная копия. Список вложений карточки переименовывает сама карточка
+   * (своей обычной записью), поэтому дверь знает только про файл.
+   *
+   * Право — то же, что на загрузку: кто кладёт файлы в программу, тот и называет их.
+   */
+  ipcMain.handle('files:rename', async (_e, args: { fileId: string; name: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'files.upload');
+    if (!gate.ok) return gate;
+    return await filesRename(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+      fileId: args?.fileId ?? '',
+      name: args?.name ?? '',
+    });
   });
 
   ipcMain.handle('files:download', async (_e, args: { fileId: string; transferId?: string }) => {

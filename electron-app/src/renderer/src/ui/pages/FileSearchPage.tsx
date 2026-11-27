@@ -1701,7 +1701,14 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
         open={menuAt != null}
         at={menuAt}
         count={picked.size}
-        available={(id) => (id === 'printWizard' ? osPrintWizard : true)}
+        available={(id) => {
+          // «Переименовать» — это имя ЗАПИСИ файла на сервере (вложения карточки).
+          // Здесь файлы лежат на диске оператора: переименование файла на диске —
+          // другой механизм, его тут нет, и пункт в меню не показывается
+          // (правило промта КАРМАНА #158: показать и не сделать хуже, чем не показать).
+          if (id === 'rename') return false;
+          return id === 'printWizard' ? osPrintWizard : true;
+        }}
         onAction={(id) => void runFileAction(id)}
         onClose={() => setMenuAt(null)}
       />

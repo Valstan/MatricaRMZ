@@ -491,8 +491,8 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
 
   /**
    * Планшет. Пути к файлу у WebView нет: содержимое читаем из Blob и грузим им же.
-   * Диалог переименования тут не показываем — в цеху лишний шаг ни к чему, имя
-   * берём как есть (для камеры оно осмысленное: «Фото <дата время>.jpg»).
+   * Имя снимка оператор теперь называет сам (владелец 27.11.2026) — программа только
+   * предлагает своё («Фото <дата время>») и ждёт, пока он его поправит или оставит.
    */
   async function uploadBlobs(files: File[]) {
     if (!props.canUpload || files.length === 0) return;
@@ -522,6 +522,27 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
       setBusy(`Неуспешно: ${e instanceof Error ? e.message : String(e)}`);
       setTimeout(() => setBusy(''), 4500);
     }
+  }
+
+  /**
+   * Снимок с камеры: имя предлагает программа («Фото <дата время>»), но назвать его
+   * должен оператор — иначе в карточке лежит «Фото 27.11.2026 10-33-12.jpg» и
+   * разбираться в ней потом нечем (владелец 27.11.2026). Предложенное имя выделено
+   * целиком: печатать новое можно сразу. Отказался — не грузим ничего.
+   */
+  async function uploadCameraShots(shots: File[]) {
+    if (!props.canUpload || shots.length === 0) return;
+    const named: File[] = [];
+    for (const shot of shots) {
+      const suggested = renameCameraShot(shot).name;
+      const chosen = await uploadFlow.promptName(suggested, {
+        autoSelect: true,
+        lead: 'Программа назвала снимок по времени съёмки. Напишите своё имя — текст выделен.',
+      });
+      if (!chosen) return;
+      named.push(new File([shot], chosen, { type: shot.type }));
+    }
+    await uploadBlobs(named);
   }
 
   async function addFromDrop(dropped: FileList | null) {
@@ -776,6 +797,10 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
    * прочитает как «функцию забыли».
    */
   const actionAvailable = (id: FileActionId): boolean => {
+    // «Переименовать» — это имя ЗАПИСИ файла: работает и на планшете (файл лежит
+    // на сервере, переименовывать на диске нечего). Только один файл: имя у
+    // файла одно, пачку переименовать нельзя.
+    if (id === 'rename') return menuFiles.length === 1;
     if (isAndroid) {
       // На планшете файлов на диске нет: печать, PDF, почта, чат и ИИ работают
       // через файловый слой компьютера — тут их нет. Отправка коллеге и «на
@@ -806,6 +831,31 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     return { ok: true as const, folder: r.folder, files: r.files };
   }
 
+  /**
+   * Переименовать вложение.
+   *
+   * Имя меняется в двух местах, и оба нужны: в ЗАПИСИ файла на сервере (по нему
+   * называется скачанная копия — «filesDownload» берёт имя из карточки файла) и в
+   * СПИСКЕ карточки (её видит оператор; список уезжает в реплику и на другие
+   * машины). Одно имя в двух местах — иначе оператор переименовал, а скачалось
+   * старое.
+   */
+  async function renameFile(file: AttachmentFileRef) {
+    const chosen = await uploadFlow.promptRename(file.name);
+    if (!chosen) return;
+    const r = await window.matrica.files
+      .rename({ fileId: file.id, name: chosen })
+      .catch((e) => ({ ok: false as const, error: String(e) }));
+    if (!r.ok) {
+      setBusy(`Переименовать не вышло: ${r.error}`);
+      setTimeout(() => setBusy(''), 4500);
+      return;
+    }
+    await Promise.resolve(props.onChange(list.map((f) => (f.id === file.id ? { ...f, name: chosen } : f))));
+    setBusy(`Файл переименован: ${chosen}`);
+    setTimeout(() => setBusy(''), 2500);
+  }
+
   /** Одно действие из меню. */
   async function runFileAction(id: FileActionId) {
     const files = menuFiles;
@@ -815,6 +865,19 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
       return;
     }
     const fileIds = files.map((f) => f.id);
+
+    // Переименование — одним файлом: имя спрашивается и пишется в запись файла
+    // и в список карточки (см. renameFile).
+    if (id === 'rename') {
+      const target = files[0];
+      if (!target) {
+        setBusy('Отметьте файл — что переименовывать');
+        setTimeout(() => setBusy(''), 2500);
+        return;
+      }
+      await renameFile(target);
+      return;
+    }
 
     // Печать — та же дверь, что у кнопки «Печать…»: свой диалог (список названий
     // / содержимое изображений) и предпросмотр окна. Второй механизм печати не заводим.
@@ -1070,7 +1133,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
               onChange={(e) => {
                 const picked = Array.from(e.target.files ?? []);
                 e.target.value = '';
-                void uploadBlobs(picked.map((f) => renameCameraShot(f)));
+                void uploadCameraShots(picked);
               }}
             />
             <Button variant="ghost" title="Добавить файл: с диска или со сканера" onClick={() => setAddChoiceOpen((v) => !v)}>

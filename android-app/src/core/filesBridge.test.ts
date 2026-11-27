@@ -32,6 +32,11 @@ describe('android files bridge', () => {
         if (url.endsWith('/url')) {
           return Response.json({ ok: true, url: 'https://files.local/f-1.png' });
         }
+        // Переименование: PATCH по id файла, тело — новое имя (владелец 27.11.2026).
+        if (url.endsWith('/files/f-1') && init?.method === 'PATCH') {
+          seen.push({ url, body: JSON.parse(String(init?.body ?? '{}')) });
+          return Response.json({ ok: true, file: { id: 'f-1', name: 'Д-100.jpg', size: 3, mime: 'image/png' } });
+        }
         if (url === 'https://files.local/f-1.png') {
           return new Response(new Uint8Array([0, 0, 1]), { headers: { 'Content-Type': 'image/png' } });
         }
@@ -93,5 +98,19 @@ describe('android files bridge', () => {
     const res = await h.matrica().files.originalGet({ fileId: 'f-1' });
     expect(res.ok, `мост: ${res.ok ? '' : res.error}`).toBe(true);
     expect(res.ok ? res.dataUrl : '').toBe('data:image/png;base64,AAAB');
+  });
+
+  // 27.11.2026: переименование вложения — и на планшете: меняется имя ЗАПИСИ файла
+  // (владелец назвал это «в модуле добавления файлов»).
+  it('переименование файла на планшете меняет имя записи', async () => {
+    const res = await h.matrica().files.rename({ fileId: 'f-1', name: 'Д-100.jpg' });
+    expect(res.ok, `мост: ${res.ok ? '' : res.error}`).toBe(true);
+    expect(seen[0]?.body).toMatchObject({ name: 'Д-100.jpg' });
+  });
+
+  it('переименование без имени не ходит на сервер', async () => {
+    const res = await h.matrica().files.rename({ fileId: 'f-1', name: '   ' });
+    expect(res.ok).toBe(false);
+    expect(seen).toHaveLength(0);
   });
 });
