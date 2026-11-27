@@ -4,6 +4,7 @@ import type { FileRef } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { CardTable } from './CardTable.js';
+import { AttachmentOriginalViewer } from './AttachmentOriginalViewer.js';
 import { FileActionsMenu, type FileActionId } from './FileActionsMenu.js';
 import { Input } from './Input.js';
 import { ListCount } from './ListCount.js';
@@ -43,6 +44,20 @@ function fileExt(name: string): string {
   const dot = s.lastIndexOf('.');
   if (dot < 0) return '';
   return s.slice(dot + 1).trim().toLowerCase();
+}
+
+/** Расширения картинок — те же, что у галереи фото двигателей. */
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp']);
+
+/**
+ * Картинка ли файл: по mime, а если его нет — по расширению.
+ *
+ * Нужно, чтобы на планшете «Открыть» умел показать фото, а прочий файл назвать
+ * словами (на планшете нет программы, которая открыла бы Word или PDF).
+ */
+function isImageFile(file: { name?: string; mime?: string | null }): boolean {
+  if (typeof file.mime === 'string' && file.mime.startsWith('image/')) return true;
+  return IMAGE_EXT.has(fileExt(file.name ?? ''));
 }
 
 function extBadgeStyle(ext: string): { label: string; bg: string; fg: string } {
@@ -159,6 +174,15 @@ export function AttachmentsPanel(props: AttachmentsPanelProps) {
 function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   const { confirm } = useConfirm();
   const [busy, setBusy] = useState<string>('');
+  /**
+   * Оригинал файла, открытый В ПРОГРАММЕ (планшет).
+   *
+   * На планшете файловой системы нет: файла на диске не существует, и «Открыть»
+   * в системном приложении там невозможно (канала `files:open` на планшете нет).
+   * Но оригинал программа умеет — тем же путём, что галерея фото двигателей, —
+   * значит, фото показывается прямо здесь, а не «канал не заведён на планшете».
+   */
+  const [original, setOriginal] = useState<{ name: string; dataUrl: string } | null>(null);
   const [filterMode, setFilterMode] = useState<FileFilterMode>('all');
   const uploadFlow = useFileUploadFlow();
   const [thumbs, setThumbs] = useState<Record<string, { dataUrl: string | null; status: 'idle' | 'loading' | 'done' | 'error' }>>({});
@@ -680,6 +704,36 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
       setBusy(`Ошибка подготовки печати: ${String(e)}`);
       setTimeout(() => setBusy(''), 4000);
     }
+  }
+
+  /**
+   * «Открыть» на планшете: оригинал В ПРОГРАММЕ.
+   *
+   * На компьютере файл открывает система (как всегда). На планшете файловой
+   * системы нет, поэтому показываем оригинал здесь: фото — в полноэкранном
+   * просмотре, прочий файл — словами (открыть его на планшете нечем, и пустая
+   * кнопка хуже объяснения).
+   */
+  async function openFileOnTablet(file: AttachmentFileRef) {
+    setBusy('Открываем файл…');
+    const r = await window.matrica.files
+      .originalGet({ fileId: file.id })
+      .catch((e) => ({ ok: false as const, error: String(e) }));
+    setBusy('');
+    if (!r.ok) {
+      // Сырой ответ сервера оператору не показываем («meta HTTP 500: … select …» —
+      // это не его дело). В лог клиента — да: там разбираться инженеру.
+      console.warn('[files] оригинал вложения не открылся:', r.error);
+      setBusy('Файл не открылся. На планшете открываются фото вложений; остальное — на компьютере.');
+      setTimeout(() => setBusy(''), 6000);
+      return;
+    }
+    if (!isImageFile(file)) {
+      setBusy('На планшете открываются фото. Этот файл можно отправить коллеге или на Верстак.');
+      setTimeout(() => setBusy(''), 6000);
+      return;
+    }
+    setOriginal({ name: file.name, dataUrl: r.dataUrl });
   }
 
   // ── Действия над отмеченными файлами (промт КАРМАНА #160) ─────────────────
@@ -1446,6 +1500,13 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
                     <Button
                       variant="ghost"
                       onClick={async () => {
+                        // Планшет: файловой системы нет — «Открыть» показывает оригинал
+                        // В ПРОГРАММЕ. Канала files:open на планшете не заведено, и его
+                        // отсутствие не должно выглядеть для оператора как поломка.
+                        if (isAndroid) {
+                          await openFileOnTablet(f);
+                          return;
+                        }
                         const r = await window.matrica.files.open({ fileId: f.id });
                         if (!r.ok) setBusy(`Ошибка: ${r.error}`);
                       }}
@@ -1597,6 +1658,16 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
       </PopupLayer>
 
       {uploadFlow.renameDialog}
+
+      {/* Оригинал вложения, открытый В ПРОГРАММЕ (планшет). На компьютере файл
+          открывает система, и этот просмотр не нужен. */}
+      {original ? (
+        <AttachmentOriginalViewer
+          name={original.name}
+          dataUrl={original.dataUrl}
+          onClose={() => setOriginal(null)}
+        />
+      ) : null}
     </div>
   );
 }

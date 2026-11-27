@@ -23,6 +23,18 @@ describe('android files bridge', () => {
         if (url.endsWith('/preview')) {
           return Response.json({ ok: true, preview: { mime: 'image/png', dataBase64: 'AAAB' } });
         }
+        // Оригинал файла: сервер отдаёт карточку и подписанную ссылку, мост тянет
+        // байты и собирает data:URL — так фото показывается прямо в программе
+        // (каналы files:open на планшете нет — файловой системы нет).
+        if (url.endsWith('/meta')) {
+          return Response.json({ ok: true, file: { id: 'f-1', name: 'Фото.jpg', size: 3, mime: 'image/png' } });
+        }
+        if (url.endsWith('/url')) {
+          return Response.json({ ok: true, url: 'https://files.local/f-1.png' });
+        }
+        if (url === 'https://files.local/f-1.png') {
+          return new Response(new Uint8Array([0, 0, 1]), { headers: { 'Content-Type': 'image/png' } });
+        }
         return null;
       },
     });
@@ -73,5 +85,13 @@ describe('android files bridge', () => {
     // планшете» + почему (у планшета нет файловой системы).
     expect(pick.ok ? '' : pick.error).toContain('канал не заведён на планшете');
     expect(pick.ok ? '' : pick.error).toContain('файловой системы нет');
+  });
+
+  // 27.11.2026: «Открыть» на планшете показывает фото В ПРОГРАММЕ — значит, мост
+  // обязан отдавать оригинал как data:URL. Этот канал — единственный путь.
+  it('оригинал файла на планшете отдаётся как data:URL — фото можно показать в программе', async () => {
+    const res = await h.matrica().files.originalGet({ fileId: 'f-1' });
+    expect(res.ok, `мост: ${res.ok ? '' : res.error}`).toBe(true);
+    expect(res.ok ? res.dataUrl : '').toBe('data:image/png;base64,AAAB');
   });
 });
