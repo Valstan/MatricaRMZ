@@ -3,7 +3,7 @@
 **Откуда пункт.** Нитка КАРМАНА **#170** («Утиль: ремонт не начинаем, пока деталь не
 отремонтирована») сделана по коду (PR **#2119**). Четыре открытых вопроса решены
 27.11.2026 (решения владельца, делегированы — записи в
-[`../plans/resheniya-vladeltsa-2026-11-27.md`](../plans/resheniya-vladeltsa-2026-11-27.md)
+[`../plans/_archive/resheniya-vladeltsa-2026-11-27.md`](../plans/_archive/resheniya-vladeltsa-2026-11-27.md)
 и в `COMPLETED.md`). Из них один оставил **расхождение в учёте** — он и остаётся
 открытым здесь.
 
@@ -41,7 +41,7 @@
 
 ## Связи
 
-- План решений: [`../plans/resheniya-vladeltsa-2026-11-27.md`](../plans/resheniya-vladeltsa-2026-11-27.md)
+- План решений: [`../plans/_archive/resheniya-vladeltsa-2026-11-27.md`](../plans/_archive/resheniya-vladeltsa-2026-11-27.md)
 - План нитки #170: [`../plans/util-stage-gate-2026-11.md`](../plans/util-stage-gate-2026-11.md)
 - Код: `backend-api/src/services/defectConductService.ts` (движение в утиль),
   приход в ремонтный фонд — `warehouse:repairFund:intake`.

@@ -20,7 +20,7 @@
    `pages/CounterpartiesPage.tsx`, сторож `pages/engineKindLists.guard.test.ts`.
    Живая приёмка: CDP-смоук на стенде `lane1` — **13/13 PASS**, доказательства —
    [`docs/evidence/counterparty-kind-bulk-2026-11-27/`](evidence/counterparty-kind-bulk-2026-11-27/README.md).
-   План — [`docs/plans/resheniya-vladeltsa-2026-11-27.md`](plans/resheniya-vladeltsa-2026-11-27.md).
+   План — [`docs/plans/_archive/resheniya-vladeltsa-2026-11-27.md`](plans/_archive/resheniya-vladeltsa-2026-11-27.md).
 2. **Приёмка вскрыла дыру в общей двери и починила её:** `upsertLocal`
    (`main/ipc/register/contracts.ts`) не переносила `engine_kind` в локальную реплику, а
    список заказчиков читает именно реплику — вид появлялся в списке только после pull'а
@@ -51,9 +51,9 @@
 
 ## Контекст
 
-- **Планы ниток:** активный — [`docs/plans/resheniya-vladeltsa-2026-11-27.md`](plans/resheniya-vladeltsa-2026-11-27.md)
-  (решения владельца от 27.11.2026 + правка вида пачкой). Прочие в [`docs/plans/`](plans/) —
-  чужие линии, не трогать; архив закрытых — [`docs/plans/_archive/`](plans/_archive/).
+- **Планы ниток:** нить решений владельца от 27.11.2026 закрыта по коду — её план в архиве
+  ([`docs/plans/_archive/resheniya-vladeltsa-2026-11-27.md`](plans/_archive/resheniya-vladeltsa-2026-11-27.md)).
+  Прочие в [`docs/plans/`](plans/) — чужие линии, не трогать.
 - **Прод:** без изменений — **v3.148.0** на обоих инстансах (`/health` → `{"ok":true,"version":"3.148.0"}`),
   `latest.json` → 3.148.0, APK `MatricaRMZ-3.148.0.apk` на месте, откат-копия —
   `.deploy-backup/20261126-225745`. Миграций не было ⇒ гейт #025 не срабатывал.

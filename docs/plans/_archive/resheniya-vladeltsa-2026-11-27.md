@@ -3,13 +3,15 @@
 > Источник — делегированное решение владельца от 27.11.2026 по открытым пунктам:
 > «Вид «ГОЗ / гражданка»: проставить его пачкой», решения по нитке #170 (состав главных
 > деталей утиля) и потолок обхода папок. Пункты — в
-> [`../pending/prostat-vid-pachkoy-zakazchikam-i-dogovoram.md`](../pending/prostat-vid-pachkoy-zakazchikam-i-dogovoram.md)
+> [`../../pending/prostat-vid-pachkoy-zakazchikam-i-dogovoram.md`](../../pending/prostat-vid-pachkoy-zakazchikam-i-dogovoram.md)
 > (остался открытым), два других пункта закрыты этими решениями — см. `COMPLETED.md`.
 >
 > Промт из библиотеки — **задание владельца, а не готовое решение**: он сверён
 > с нашим кодом и уточнён ниже.
 
-**Статус:** код готов 27.11.2026 (ветка `feat/counterparty-kind-bulk-set-2026-11`).
+**Статус:** код готов и слит 27.11.2026 (PR **#2135**, squash `58357562`); живая приёмка —
+CDP-смоук 13/13 PASS. План в архиве: нить закрыта по коду, открытым остался наполнение
+парка видами (работа оператора) и полевые приёмки глазами оператора.
 **Дата:** 2026-11-27.
 
 ## Решения владельца (приняты 27.11.2026)
@@ -69,7 +71,7 @@
 | 7 | Гейты зелёные | `corepack pnpm -r typecheck`, `typecheck:test`, `lint`, `corepack pnpm -r test` | ✅ |
 
 **Живая приёмка (27.11.2026, стенд `lane1`).** CDP-смоук на живом Windows-клиенте:
-**13/13 PASS**. Доказательства — [`../evidence/counterparty-kind-bulk-2026-11-27/`](../evidence/counterparty-kind-bulk-2026-11-27/README.md).
+**13/13 PASS**. Доказательства — [`../../evidence/counterparty-kind-bulk-2026-11-27/`](../../evidence/counterparty-kind-bulk-2026-11-27/README.md).
 Драйвер (в репозитории) — `.claude/skills/verifier-electron/scripts/cdp-counterparty-kind-bulk.mjs`.
 
 **Что вскрыла приёмка.** Первые прогоны давали «проставлено, а в списке пусто» — и это была
