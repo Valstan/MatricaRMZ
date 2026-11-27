@@ -2,9 +2,8 @@
 
 🗓 since:2026-11-26 · нитка «Поиск по файлам: подсказки номера двигателя и режим „Фото двигателя“»
 (код слит: PR **#2079**; живая приёмка на стенде: PR **#2115**, CDP-смоук `PASS`; повтор приёмки на
-свежем `main` после мержа #2120 — 28/28 PASS; «показать ещё» — ветка
-`feat/file-search-suggestions-show-more-2026-11`, план
-[`../plans/file-search-suggestions-show-more-2026-11.md`](../plans/file-search-suggestions-show-more-2026-11.md))
+свежем `main` после мержа #2120 — 28/28 PASS; «показать ещё» — PR **#2133**, план в архиве —
+[`../plans/_archive/file-search-suggestions-show-more-2026-11.md`](../plans/_archive/file-search-suggestions-show-more-2026-11.md))
 
 **Что сделано кодом (PR #2079):** домен правил подсказок
 (`shared/src/domain/fileSearchEngineSuggest.ts` — «похоже на номер», вид совпадения, порядок выдачи),
@@ -43,5 +42,5 @@ IPC `fileSearch:engineNumberSuggestions` (право `engines.view`, задер�
 
 ## Куда смотреть
 
-- План правки — [`../plans/file-search-suggestions-show-more-2026-11.md`](../plans/file-search-suggestions-show-more-2026-11.md).
+- План правки — в архиве: [`../plans/_archive/file-search-suggestions-show-more-2026-11.md`](../plans/_archive/file-search-suggestions-show-more-2026-11.md).
 - Правило — `shared/src/domain/fileSearchEngineSuggest.ts` и `shared/src/domain/fileSearchFolders.ts`.

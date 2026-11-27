@@ -1,10 +1,14 @@
 # Подсказки номера: «показать ещё» до 20 (развилки владельца по нитке #155)
 
+> **Статус нитки: закрыта по коду** (PR **#2133** слит 27.11.2026, squash `01376bdf`; живая
+> приёмка 33/33 PASS). Открытым остаётся только полевой приёмки глазами оператора —
+> за владельцем.
+>
 > Источник — решения владельца от 27.11.2026 по четырём открытым развилкам нитки
 > «Поиск по файлам: подсказки номера двигателя и режим „Фото двигателя“» (промт
-> КАРМАНА #155). Пункт с решениями — [`../pending/poisk-po-fajlam-podskazki-nomera-resheniya-vladeltsa.md`](../pending/poisk-po-fajlam-podskazki-nomera-resheniya-vladeltsa.md).
-> Основной план нитки (код слит, PR #2079) — в архиве:
-> [`_archive/file-search-engine-suggestions-2026-11.md`](_archive/file-search-engine-suggestions-2026-11.md).
+> КАРМАНА #155). Пункт с решениями — [`../../pending/poisk-po-fajlam-podskazki-nomera-resheniya-vladeltsa.md`](../../pending/poisk-po-fajlam-podskazki-nomera-resheniya-vladeltsa.md).
+> Основной план нитки (код слит, PR #2079) — рядом, в архиве:
+> [`file-search-engine-suggestions-2026-11.md`](file-search-engine-suggestions-2026-11.md).
 >
 > Промт из библиотеки — **задание владельца, а не готовое решение**: он сверён
 > с нашим кодом и уточнён ниже.
@@ -58,7 +62,7 @@
 | 6 | Гейты зелёные | `corepack pnpm -r typecheck`, `typecheck:test`, `lint`, `corepack pnpm -r test` | ✅ 7583 теста |
 
 **Живая приёмка (27.11.2026, стенд `lane1`).** CDP-смоук на живом Windows-клиенте:
-**33/33 PASS**. Доказательства — [`../evidence/file-search-155/show-more-2026-11-27/`](../evidence/file-search-155/show-more-2026-11-27/README.md).
+**33/33 PASS**. Доказательства — [`../../evidence/file-search-155/show-more-2026-11-27/`](../../evidence/file-search-155/show-more-2026-11-27/README.md).
 Драйвер (в репозитории) — `.claude/skills/verifier-electron/scripts/cdp-file-search-engine-suggest.mjs`,
 расширен под новую правку: фикстур-двигателей теперь 29 (25 из них — сверх потолка
 списка, иначе кнопку «показать ещё» не увидеть).
