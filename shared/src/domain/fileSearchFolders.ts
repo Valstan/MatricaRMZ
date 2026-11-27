@@ -174,3 +174,203 @@ export function groupFolderImagesByMatch(
   }
   return out;
 }
+
+/**
+ * Картинка-находка ДО выдачи id (промт КАРМАНА #180).
+ *
+ * Раньше совпадения и картинки считались прямо в обходе папок, и тем же
+ * кодом считались дважды: один раз — обходом диска, второй — по карте
+ * индекса. Два пути давали бы разный результат на одних данных, и «поиск по
+ * индексу» было бы нечем доказать. Теперь правило одно — здесь, а обход диска
+ * и карта индекса просто подставляют в него свои записи.
+ *
+ * `absolutePath` — путь на диске: его знает только главный процесс (renderer
+ * получает id, а не путь — тот же класс защиты, что у `consumeIssuedPath`).
+ */
+export type FileSearchFolderImageCandidate = {
+  /** Ключ совпадения, в котором найдена картинка. */
+  matchKey: string;
+  name: string;
+  relativePath: string;
+  size: number | null;
+  /** Абсолютный путь на диске — только для главного процесса. */
+  absolutePath: string;
+};
+
+/** Настройки сборщика совпадений. */
+export type FileSearchFolderCollectorOptions = {
+  /** id источника-папки. */
+  sourceId: string;
+  /** Имя источника-папки (показывается в находке). */
+  sourceName: string;
+  /** Область совпадения: `folder` — только по названию папки. */
+  scope: FileSearchFolderSearchScope;
+  /** Нормализованный запрос (как его понимает `normalizeFileSearchQuery`). */
+  query: string;
+  /** Разделитель относительных путей (`\` на Windows). */
+  separator: string;
+  /** Потолок числа находок. */
+  maxMatches: number;
+  /** Потолок числа картинок в одной находке. */
+  maxImagesPerMatch: number;
+};
+
+/**
+ * Сборщик совпадений по папкам — ОДНО правило для обхода диска и для карты
+ * индекса (промт КАРМАНА #180).
+ *
+ * Считает находки ВО ВРЕМЯ обхода, а не после: оператор видит найденное
+ * сразу, и счётчик «найдено» в полосе прогресса не расходится с результатом.
+ * Поэтому сборщик наполняется по мере обхода, а не собирается в конце.
+ */
+export class FileSearchFolderMatchCollector {
+  /** Находки: папки и файлы. */
+  readonly matches: FileSearchFolderMatch[] = [];
+  /** Картинки находок (без id — id выдаёт главный процесс). */
+  readonly images: FileSearchFolderImageCandidate[] = [];
+  /** Замечания оператору: «находок больше 200», «показаны первые N из M». */
+  readonly notes: string[] = [];
+
+  private readonly lowerQuery: string;
+  private readonly allowFileMatches: boolean;
+  /** Совпавшие папки: относительный путь → находка. */
+  private readonly matchedByPath = new Map<string, FileSearchFolderMatch>();
+  /** Сколько картинок ВСЕГО внутри совпавшей папки. */
+  private readonly imageTotals = new Map<string, number>();
+  /** Сколько картинок уже показано по совпавшей папке. */
+  private readonly imageShown = new Map<string, number>();
+
+  constructor(private readonly opts: FileSearchFolderCollectorOptions) {
+    this.lowerQuery = String(opts.query ?? '').toLowerCase();
+    this.allowFileMatches = folderScopeAllowsFileMatches(opts.scope);
+  }
+
+  /**
+   * Папка: её имя может совпасть с запросом — тогда это находка целиком,
+   * вместе со всем содержимым.
+   */
+  addFolder(folder: { relativePath: string; name: string }): void {
+    if (!this.lowerQuery) return;
+    if (!folder.name.toLowerCase().includes(this.lowerQuery)) return;
+    if (this.matches.length >= this.opts.maxMatches) {
+      this.notes.push(`Находок больше ${this.opts.maxMatches} — показываем первые`);
+      return;
+    }
+    const key = folderMatchKey({
+      sourceId: this.opts.sourceId,
+      relativePath: folder.relativePath,
+      matchedBy: 'folder',
+    });
+    const match: FileSearchFolderMatch = {
+      key,
+      sourceId: this.opts.sourceId,
+      sourceName: this.opts.sourceName,
+      relativePath: folder.relativePath,
+      name: folder.name,
+      matchedBy: 'folder',
+      imageCount: 0,
+    };
+    this.matches.push(match);
+    this.matchedByPath.set(folder.relativePath, match);
+    this.imageTotals.set(folder.relativePath, 0);
+    this.imageShown.set(folder.relativePath, 0);
+  }
+
+  /**
+   * Файл: имя может совпасть с запросом (тогда это отдельная находка), а
+   * картинка попадает в каждую совпавшую папку, внутри которой она лежит.
+   */
+  addFile(file: {
+    relativePath: string;
+    name: string;
+    absolutePath: string;
+    isImage: boolean;
+    size: number | null;
+  }): void {
+    if (file.isImage) this.attachImage(file);
+    this.addFileMatch(file);
+  }
+
+  /** Итоговые примечания: «показаны первые N картинок из M». */
+  finish(): void {
+    for (const [folderPath, match] of this.matchedByPath) {
+      const total = this.imageTotals.get(folderPath) ?? 0;
+      const shown = this.imageShown.get(folderPath) ?? 0;
+      if (total > shown) {
+        this.notes.push(`«${match.name}»: показаны первые ${shown} картинок из ${total}`);
+      }
+    }
+  }
+
+  /** Картинка попадает в каждую совпавшую папку, внутри которой она лежит. */
+  private attachImage(file: {
+    relativePath: string;
+    name: string;
+    absolutePath: string;
+    size: number | null;
+  }): void {
+    for (const [folderPath, match] of this.matchedByPath) {
+      const prefix = folderPath ? folderPath + this.opts.separator : '';
+      if (!file.relativePath.startsWith(prefix)) continue;
+      this.imageTotals.set(folderPath, (this.imageTotals.get(folderPath) ?? 0) + 1);
+      const shown = this.imageShown.get(folderPath) ?? 0;
+      if (shown >= this.opts.maxImagesPerMatch) continue;
+      this.imageShown.set(folderPath, shown + 1);
+      match.imageCount = shown + 1;
+      this.images.push({
+        matchKey: match.key,
+        name: file.name,
+        relativePath: file.relativePath,
+        size: file.size,
+        absolutePath: file.absolutePath,
+      });
+    }
+  }
+
+  /**
+   * Находка по названию файла — если имя подходит и файл не внутри найденной
+   * папки (внутри найденной папки файл уже показан вместе с ней).
+   */
+  private addFileMatch(file: {
+    relativePath: string;
+    name: string;
+    absolutePath: string;
+    isImage: boolean;
+    size: number | null;
+  }): void {
+    if (!this.allowFileMatches) return;
+    if (!this.lowerQuery) return;
+    if (!file.name.toLowerCase().includes(this.lowerQuery)) return;
+    if (this.matches.length >= this.opts.maxMatches) {
+      this.notes.push(`Находок больше ${this.opts.maxMatches} — показываем первые`);
+      return;
+    }
+    for (const folderPath of this.matchedByPath.keys()) {
+      const inside = folderPath ? file.relativePath.startsWith(folderPath + this.opts.separator) : true;
+      if (inside) return;
+    }
+    const key = folderMatchKey({
+      sourceId: this.opts.sourceId,
+      relativePath: file.relativePath,
+      matchedBy: 'file',
+    });
+    this.matches.push({
+      key,
+      sourceId: this.opts.sourceId,
+      sourceName: this.opts.sourceName,
+      relativePath: file.relativePath,
+      name: file.name,
+      matchedBy: 'file',
+      imageCount: file.isImage ? 1 : 0,
+    });
+    if (file.isImage) {
+      this.images.push({
+        matchKey: key,
+        name: file.name,
+        relativePath: file.relativePath,
+        size: file.size,
+        absolutePath: file.absolutePath,
+      });
+    }
+  }
+}

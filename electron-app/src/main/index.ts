@@ -796,6 +796,9 @@ app.whenReady().then(() => {
         dbKey: dbEncryptionKey,
         workerPath: join(baseDir, 'syncWorker.js'),
         dataWorkerPath: join(baseDir, 'dataWorker.js'),
+        // Процесс индексации дерева папок (промт КАРМАНА #180): обход сетевой
+        // папки не должен замирать в главном процессе.
+        folderIndexWorkerPath: join(baseDir, 'folderIndexWorker.js'),
       }));
       logToFile('IPC registered, SQLite ready');
       configureUpdateService({ apiBaseUrl, db });

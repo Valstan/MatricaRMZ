@@ -1,4 +1,6 @@
-// Поиск по папкам для модуля «Поиск по файлам» (промт КАРМАНА #88, план #89).
+// Поиск по папкам для модуля «Поиск по файлам» (промт КАРМАНА #88, план #89;
+// разбор медленного обхода, карта индекса и фоновая индексация — промт
+// КАРМАНА #180).
 //
 // Файловую систему читает главный процесс: renderer не читает диск и не
 // держит «примитив прочитать любой файл с диска» (прецедент —
@@ -10,8 +12,28 @@
 //
 // Модуль ТОЛЬКО ЧИТАЕТ: функции записи в выбранные папки или файлы нет ни одной.
 //
+// ЧТО БЫЛО МЕДЛЕННО (промт #180, замер — `docs/evidence/folder-search-180/`).
+// Обход шёл СТРОГО ПО ОДНОЙ папке: прочитал папку — зашёл в её содержимое —
+// потом в следующую; несколько добавленных папок тоже по очереди. И на КАЖДЫЙ
+// файл делался отдельный запрос метаданных (размер и дата) со своим потолком
+// ожидания. На сетевой папке это тысячи последовательных сетевых запросов —
+// отсюда «идёт по одной папке». Индекса и кэша не было вовсе: каждый поиск —
+// полный обход с нуля, поэтому первая папка шла «тёплой», а вторая «холодной».
+// Версия «переполненный индекс» отвергнута замером: индекса в коде не было.
+//
+// ЧТО СТАЛО (промт #180).
+//  * Обход идёт с ОГРАНИЧЕННЫМ ПАРАЛЛЕЛИЗМОМ (`FOLDER_WALK_CONCURRENCY`),
+//    а не строго по одной папке.
+//  * Метаданные файла НЕ берутся там, где они не нужны: для совпадения по
+//    имени они не нужны вообще, а размер нужен только картинкам, которые
+//    попали в результат. Такие размеры добираются ОДНИМ проходом с
+//    ограниченной параллельностью, а не тысячей отдельных запросов.
+//  * Дерево папки индексируется В ФОНЕ отдельным процессом, а следующий поиск
+//    по той же папке отвечает по карте индекса (`FolderIndexLookup`).
+//
 // ПОТОЛКИ. Потолки по КОЛИЧЕСТВУ (глубина вложенности, число папок, число
-// файлов, число находок) обязательны: папок и картинок может быть много.
+// файлов, число находок и число картинок на находку) обязательны: папок и
+// картинок может быть много.
 //
 // Общего потолка по ВРЕМЕНИ на весь поиск больше нет (промт КАРМАНА #166):
 // раньше обход рвался на 30 секундах, и оператор получал «Поиск остановлен по
@@ -27,12 +49,13 @@ import { basename, join, sep } from 'node:path';
 
 import {
   fileSearchImageExtension,
-  folderMatchKey,
-  folderScopeAllowsFileMatches,
   isFileSearchImage,
   normalizeFileSearchQuery,
   normalizeFileSearchFolderScope,
+  FileSearchFolderMatchCollector,
   type FileSearchFolderImage,
+  type FileSearchFolderImageCandidate,
+  type FileSearchFolderIndex,
   type FileSearchFolderMatch,
   type FileSearchFolderResult,
   type FileSearchFolderSearchScope,
@@ -52,6 +75,23 @@ export const MAX_SCANNED_FILES = 20000;
 export const MAX_FOLDER_MATCHES = 200;
 /** Сколько картинок показываем в одной находке. */
 export const MAX_IMAGES_PER_MATCH = 200;
+/**
+ * Сколько папок читать ОДНОВРЕМЕННО (промт КАРМАНА #180).
+ *
+ * Было строго по одной: папка ждала папку, и добавленные папки тоже по очереди.
+ * Теперь обход идёт с ограниченным параллелизмом — сеть получает несколько
+ * запросов подряд вместо одного, и обход большого дерева идёт в разы быстрее.
+ * Потолок небольшой намеренно: оператор не должен чувствовать, что программа
+ * «забрала сеть себе».
+ */
+export const FOLDER_WALK_CONCURRENCY = 4;
+/**
+ * Сколько запросов метаданных идёт одновременно (промт КАРМАНА #180).
+ *
+ * Размер нужен только картинкам, попавшим в результат, и берётся одним
+ * проходом — но и он не должен выбрать сеть.
+ */
+export const FOLDER_SIZE_CONCURRENCY = 8;
 /**
  * Потолок ожидания на ОДНУ папку (не на весь поиск).
  *
@@ -81,6 +121,19 @@ export type FolderSearchProgress = {
   found: number;
   /** Всего папок в дереве (с подпапками) — растёт по ходу обхода. */
   foldersInTree: number;
+};
+
+/**
+ * Откуда берётся карта индекса (промт КАРМАНА #180).
+ *
+ * Подставляется главным процессом: в тестах — нет (тогда поиск идёт по диску,
+ * как раньше), в программе — настоящий сервис индексации.
+ */
+export type FolderIndexLookup = {
+  /** Свежая карта источника — или null (карты нет или она протухла). */
+  load: (source: FileSearchFolderSource) => Promise<FileSearchFolderIndex | null>;
+  /** Карты нет — её надо построить в фоне (не мешая оператору). */
+  requestBuild: (source: FileSearchFolderSource) => void;
 };
 
 /** Описание папки-источника для списка в модуле. */
@@ -147,21 +200,6 @@ export function clearImageRegistry(): void {
   imageRegistry.clear();
 }
 
-type ScannedFile = {
-  relativePath: string;
-  name: string;
-  absolutePath: string;
-  size: number | null;
-  modifiedAt: number | null;
-  isImage: boolean;
-};
-
-type ScannedFolder = {
-  relativePath: string;
-  name: string;
-  absolutePath: string;
-};
-
 function joinRelative(relativePath: string, name: string): string {
   return relativePath ? `${relativePath}${sep}${name}` : name;
 }
@@ -198,6 +236,56 @@ async function statWithTimeout(path: string, signal?: AbortSignal): Promise<{ si
 }
 
 /**
+ * Добираем размеры картинок, попавших в результат (промт КАРМАНА #180).
+ *
+ * Раньше размер и дата запрашивались по КАЖДОМУ файлу обхода, последовательно,
+ * каждый со своим потолком ожидания: на сетевой папке это тысячи сетевых
+ * запросов подряд. Для совпадения по имени эти данные не нужны вообще, а
+ * размер нужен только картинкам результата — их немного, и берём их одним
+ * проходом с ограниченной параллельностью.
+ */
+async function fillImageSizes(
+  images: FileSearchFolderImageCandidate[],
+  signal?: AbortSignal,
+): Promise<void> {
+  const pending = images.filter((image) => image.size == null);
+  if (pending.length === 0) return;
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (signal?.aborted) return;
+      const i = cursor;
+      cursor += 1;
+      if (i >= pending.length) return;
+      const image = pending[i];
+      if (!image) return;
+      try {
+        const st = await statWithTimeout(image.absolutePath, signal);
+        image.size = st.size;
+      } catch {
+        // Файл исчез или сеть не ответила — размер останется неизвестным:
+        // это не повод ронять поиск.
+      }
+    }
+  };
+  const workers = Math.min(FOLDER_SIZE_CONCURRENCY, pending.length);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+}
+
+/**
+ * Служебный переключатель: искать по диску, игнорируя карту индекса.
+ *
+ * Нужен для ПРОВЕРКИ СТОРОЖА (промт КАРМАНА #180): сторож падает, если поиск
+ * по папке снова пошёл обходом диска вместо карты. Чтобы убедиться, что
+ * сторож вообще ловит разницу, карту отключают этой переменной окружения —
+ * и видят, что обход диска действительно начинается. В обычной работе
+ * переменная не выставлена, и поиск идёт по карте.
+ */
+export function folderIndexDisabled(): boolean {
+  return String(process.env.MATRICA_FOLDER_SEARCH_FORCE_DISK ?? '').trim() === '1';
+}
+
+/**
  * Поиск по названиям в выбранных папках.
  *
  * Находка — папка, в названии которой есть запрос, либо файл с таким
@@ -209,6 +297,10 @@ async function statWithTimeout(path: string, signal?: AbortSignal): Promise<{ si
  *  * `folder` — режим «Фото двигателя»: совпадение ТОЛЬКО по названию папки,
  *    находка — папка целиком со всеми её фотографиями. Отдельный файл, имя
  *    которого случайно подошло, в этом режиме находкой не является.
+ *
+ * ГДЕ ИЩЕМ (промт КАРМАНА #180). Если у источника есть СВЕЖАЯ карта индекса —
+ * ищем по ней, не трогая диск (второй поиск по той же папке отвечает сразу).
+ * Карты нет или она протухла — идём по диску и просим построить карту в фоне.
  *
  * Совпадения находятся ВО ВРЕМЯ обхода, а не после: оператор видит найденное
  * сразу, а счётчик «найдено» в полосе прогресса не расходится с результатом.
@@ -226,6 +318,8 @@ export async function searchFolderSources(
     signal?: AbortSignal;
     /** Ход поиска: текущая папка и счётчики. */
     onProgress?: (progress: FolderSearchProgress) => void;
+    /** Карта индекса: где взять и когда построить (промт КАРМАНА #180). */
+    index?: FolderIndexLookup;
   },
 ): Promise<FileSearchFolderResult> {
   const started = Date.now();
@@ -238,7 +332,6 @@ export async function searchFolderSources(
   const signal = options?.signal;
   const onProgress = options?.onProgress;
   const lowerQuery = query.toLowerCase();
-  const allowFileMatches = folderScopeAllowsFileMatches(scope);
   /** Всего папок в дереве (подпапки + корень каждого источника). */
   let scannedFolders = 0;
   /** Сколько папок-источников обойдено. */
@@ -275,116 +368,96 @@ export async function searchFolderSources(
       break;
     }
 
+    /** Карта индекса источника — если есть свежая, идём по ней, а не по диску. */
+    const index = options?.index && !folderIndexDisabled() ? await options.index.load(source) : null;
+
     /** Совпавшие папки источника: относительный путь → находка. */
-    const matchedByPath = new Map<string, FileSearchFolderMatch>();
-    /** Сколько картинок ВСЕГО внутри совпавшей папки (для замечания «первые N из M»). */
-    const imageTotals = new Map<string, number>();
-    /** Сколько картинок уже зарегистрировано по совпавшей папке. */
-    const imageShown = new Map<string, number>();
+    const collector = new FileSearchFolderMatchCollector({
+      sourceId: source.id,
+      sourceName: source.name,
+      scope,
+      query: lowerQuery,
+      separator: sep,
+      maxMatches: MAX_FOLDER_MATCHES,
+      maxImagesPerMatch: MAX_IMAGES_PER_MATCH,
+    });
+
+    if (index) {
+      // ── Поиск по карте: диск не трогаем совсем. ──────────────────────────
+      for (const entry of index.entries) {
+        if (entry.kind === 'folder') {
+          collector.addFolder({ relativePath: entry.relativePath, name: entry.name });
+        } else {
+          collector.addFile({
+            relativePath: entry.relativePath,
+            name: entry.name,
+            absolutePath: join(source.path, entry.relativePath),
+            isImage: entry.isImage,
+            size: entry.size,
+          });
+        }
+      }
+      collector.finish();
+      matches.push(...collector.matches);
+      for (const image of collector.images) {
+        images.push({
+          id: registerImage(image.absolutePath, image.name),
+          matchKey: image.matchKey,
+          name: image.name,
+          relativePath: image.relativePath,
+          size: image.size,
+        });
+      }
+      unreadable.push(...(index.unreadable ?? []));
+      notes.push(...(index.notes ?? []));
+      scannedFolders += index.folderCount;
+      scannedSources += 1;
+      report(null);
+      continue;
+    }
+
+    // ── Обход диска ──────────────────────────────────────────────────────────
+    // Сама папка-источник — тоже кандидат на совпадение: оператор мог добавить
+    // сразу папку двигателя («Э06АТ0889») — тогда по её названию мы и обязаны её
+    // найти, вместе с содержимым.
+    collector.addFolder({ relativePath: '', name: source.name });
+
     let hitDepthLimit = false;
     let hitFolderLimit = false;
     let hitFileLimit = false;
     let sourceFolders = 0;
     let sourceFiles = 0;
 
-    /** Находка по названию папки — если имя подходит. */
-    const addFolderMatch = (folder: ScannedFolder): void => {
-      if (!folder.name.toLowerCase().includes(lowerQuery)) return;
-      if (matches.length >= MAX_FOLDER_MATCHES) {
-        notes.push(`Находок больше ${MAX_FOLDER_MATCHES} — показываем первые`);
-        return;
-      }
-      const key = folderMatchKey({ sourceId: source.id, relativePath: folder.relativePath, matchedBy: 'folder' });
-      const match: FileSearchFolderMatch = {
-        key,
-        sourceId: source.id,
-        sourceName: source.name,
-        relativePath: folder.relativePath,
-        name: folder.name,
-        matchedBy: 'folder',
-        imageCount: 0,
-      };
-      matches.push(match);
-      matchedByPath.set(folder.relativePath, match);
-      imageTotals.set(folder.relativePath, 0);
-      imageShown.set(folder.relativePath, 0);
+    /** Очередь папок к прочтению и число занятых рабочих мест. */
+    const queue: { dirPath: string; relativePath: string; level: number }[] = [];
+    let cursor = 0;
+    let busy = 0;
+    /** Ожидающие пробуждения рабочих: очередь пополнилась — их можно будить. */
+    const waiters: (() => void)[] = [];
+
+    const wake = () => {
+      const list = waiters.splice(0, waiters.length);
+      for (const resolve of list) resolve();
     };
 
-    /** Картинка попадает в каждую совпавшую папку, внутри которой она лежит. */
-    const attachImage = (file: ScannedFile): void => {
-      for (const [folderPath, match] of matchedByPath) {
-        const prefix = folderPath ? folderPath + sep : '';
-        if (!file.relativePath.startsWith(prefix)) continue;
-        imageTotals.set(folderPath, (imageTotals.get(folderPath) ?? 0) + 1);
-        const shown = imageShown.get(folderPath) ?? 0;
-        if (shown >= MAX_IMAGES_PER_MATCH) continue;
-        imageShown.set(folderPath, shown + 1);
-        match.imageCount = shown + 1;
-        images.push({
-          id: registerImage(file.absolutePath, file.name),
-          matchKey: match.key,
-          name: file.name,
-          relativePath: file.relativePath,
-          size: file.size,
-        });
-      }
-    };
-
-    /** Находка по названию файла — если имя подходит и файл не внутри найденной папки. */
-    const addFileMatch = (file: ScannedFile): void => {
-      if (!allowFileMatches) return;
-      if (!file.name.toLowerCase().includes(lowerQuery)) return;
-      if (matches.length >= MAX_FOLDER_MATCHES) {
-        notes.push(`Находок больше ${MAX_FOLDER_MATCHES} — показываем первые`);
-        return;
-      }
-      for (const folderPath of matchedByPath.keys()) {
-        const inside = folderPath ? file.relativePath.startsWith(folderPath + sep) : true;
-        if (inside) return;
-      }
-      const key = folderMatchKey({ sourceId: source.id, relativePath: file.relativePath, matchedBy: 'file' });
-      matches.push({
-        key,
-        sourceId: source.id,
-        sourceName: source.name,
-        relativePath: file.relativePath,
-        name: file.name,
-        matchedBy: 'file',
-        imageCount: file.isImage ? 1 : 0,
-      });
-      if (file.isImage) {
-        images.push({
-          id: registerImage(file.absolutePath, file.name),
-          matchKey: key,
-          name: file.name,
-          relativePath: file.relativePath,
-          size: file.size,
-        });
-      }
-    };
-
-    // Сама папка-источник — тоже кандидат на совпадение: оператор мог добавить
-    // сразу папку двигателя («Э06АТ0889») — тогда по её названию мы и обязаны её
-    // найти, вместе с содержимым.
-    addFolderMatch({ relativePath: '', name: source.name, absolutePath: source.path });
-
-    const walk = async (dirPath: string, relativePath: string, level: number): Promise<void> => {
+    /** Прочитать папку и разложить её содержимое: папки — в очередь, файлы — в находки. */
+    const processDir = async (task: { dirPath: string; relativePath: string; level: number }): Promise<void> => {
       if (signal?.aborted) {
         cancelled = true;
         return;
       }
-      const dirName = basename(dirPath) || source.name;
+      const dirName = basename(task.dirPath) || source.name;
       report(dirName);
       let entries: Dirent[];
       try {
-        entries = await readFolderEntries(dirPath, signal);
+        entries = await readFolderEntries(task.dirPath, signal);
       } catch (e) {
         if (signal?.aborted || e instanceof SearchCancelledError) {
           cancelled = true;
           return;
         }
         unreadable.push({
-          path: dirPath,
+          path: task.dirPath,
           name: dirName,
           reason:
             e instanceof FolderReadTimeoutError
@@ -399,21 +472,24 @@ export async function searchFolderSources(
           return;
         }
         const name = entry.name;
-        const childPath = join(dirPath, name);
-        const childRelative = joinRelative(relativePath, name);
+        const childPath = join(task.dirPath, name);
+        const childRelative = joinRelative(task.relativePath, name);
         if (entry.isDirectory()) {
           if (sourceFolders >= MAX_SCANNED_FOLDERS) {
             hitFolderLimit = true;
             continue;
           }
-          if (level + 1 > MAX_FOLDER_DEPTH) {
+          if (task.level + 1 > MAX_FOLDER_DEPTH) {
             hitDepthLimit = true;
             continue;
           }
           sourceFolders += 1;
           scannedFolders += 1;
-          addFolderMatch({ relativePath: childRelative, name, absolutePath: childPath });
-          await walk(childPath, childRelative, level + 1);
+          // Папка становится находкой СЕЙЧАС, до чтения её содержимого: иначе
+          // файл внутри неё успел бы стать отдельной находкой.
+          collector.addFolder({ relativePath: childRelative, name });
+          queue.push({ dirPath: childPath, relativePath: childRelative, level: task.level + 1 });
+          wake();
           continue;
         }
         if (!entry.isFile()) continue;
@@ -422,34 +498,50 @@ export async function searchFolderSources(
           return;
         }
         sourceFiles += 1;
-        let size: number | null = null;
-        let modifiedAt: number | null = null;
-        try {
-          const st = await statWithTimeout(childPath, signal);
-          size = st.size;
-          modifiedAt = st.mtimeMs;
-        } catch (e) {
-          if (signal?.aborted || e instanceof SearchCancelledError) {
-            cancelled = true;
-            return;
-          }
-          // Файл исчез между чтением папки и stat — пропускаем: поиск идёт дальше.
-        }
-        const file: ScannedFile = {
+        collector.addFile({
           relativePath: childRelative,
           name,
           absolutePath: childPath,
-          size,
-          modifiedAt,
           isImage: isFileSearchImage(name),
-        };
-        if (file.isImage) attachImage(file);
-        addFileMatch(file);
+          // Размер добираем потом, одним проходом: для совпадения по имени он
+          // не нужен, а по одному запросу на файл сеть не выдержит.
+          size: null,
+        });
       }
     };
 
+    /** Рабочий обхода: берёт папки из очереди, пока они есть. */
+    const workerLoop = async (): Promise<void> => {
+      for (;;) {
+        if (signal?.aborted) return;
+        if (cursor < queue.length) {
+          const task = queue[cursor];
+          cursor += 1;
+          if (!task) continue;
+          busy += 1;
+          try {
+            await processDir(task);
+          } finally {
+            busy -= 1;
+            wake();
+          }
+          continue;
+        }
+        // Очередь пуста — ждём, пока её пополнит другой рабочий.
+        if (busy === 0) return;
+        await new Promise<void>((resolve) => {
+          waiters.push(resolve);
+        });
+      }
+    };
+
+    queue.push({ dirPath: source.path, relativePath: '', level: 0 });
+    // Рабочих столько же, сколько папок читаем одновременно: параллелизм
+    // относится к ЧТЕНИЮ папок внутри одного источника, а не к числу
+    // источников (одна папка-источник — это уже дерево на сотни папок).
+    const workers = FOLDER_WALK_CONCURRENCY;
     try {
-      await walk(source.path, '', 0);
+      await Promise.all(Array.from({ length: workers }, () => workerLoop()));
     } catch (e) {
       if (signal?.aborted || e instanceof SearchCancelledError) {
         cancelled = true;
@@ -462,17 +554,24 @@ export async function searchFolderSources(
       }
     }
 
+    // Размеры картинок результата — одним проходом (см. `fillImageSizes`).
+    await fillImageSizes(collector.images, signal);
+
+    collector.finish();
+    matches.push(...collector.matches);
+    for (const image of collector.images) {
+      images.push({
+        id: registerImage(image.absolutePath, image.name),
+        matchKey: image.matchKey,
+        name: image.name,
+        relativePath: image.relativePath,
+        size: image.size,
+      });
+    }
+
     // Корень источника — тоже просмотренная папка (как было).
     scannedFolders += 1;
     scannedSources += 1;
-
-    for (const [folderPath, match] of matchedByPath) {
-      const total = imageTotals.get(folderPath) ?? 0;
-      const shown = imageShown.get(folderPath) ?? 0;
-      if (total > shown) {
-        notes.push(`«${match.name}»: показаны первые ${shown} картинок из ${total}`);
-      }
-    }
 
     if (hitDepthLimit) {
       notes.push(`Глубже ${MAX_FOLDER_DEPTH} уровней вложенности не смотрели — часть папок пропущена`);
@@ -486,6 +585,9 @@ export async function searchFolderSources(
 
     report(null);
     if (cancelled) break;
+
+    // Карты нет — строим её в фоне, чтобы следующий поиск отвечал по карте.
+    options?.index?.requestBuild(source);
   }
 
   return {
