@@ -6,6 +6,8 @@ import {
   LIST_NUMBER_COLUMN_IDS,
   LIST_NUMBER_COLUMN_LABELS,
   applyEngineFacets,
+  applyEngineListTemplatePayload,
+  buildEngineListTemplatePayload,
   currentPassRows,
   describeFacetSelectionForRows,
   engineFacetIsActive,
@@ -16,6 +18,7 @@ import {
   facetRangeOf,
   isEngineAtPlant,
   isFactoryStageActive,
+  migrateEngineFacetSelection,
   sanitizeEngineFacetSelection,
   stripStageDateWhenWhereNow,
   classifyEngineContractBinding,
@@ -55,6 +58,7 @@ import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.j
 import { SEARCH_MODE_HINT, searchModeEmptyText } from '../components/SearchModeHint.js';
 import { useSearchMode } from '../hooks/useSearchMode.js';
 import { Button } from '../components/Button.js';
+import { Input } from '../components/Input.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
 import { EngineTagPrintDialog, type EngineTagInitial } from '../components/EngineTagPrintDialog.js';
 import { ProductionProgramAddEnginesDialog } from '../components/ProductionProgramAddEnginesDialog.js';
@@ -81,6 +85,7 @@ import {
 import { openPrintPreview } from '../utils/printPreview.js';
 import { handleScrapStageResult } from '../utils/scrapStageGate.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
+import { useListFilterTemplates } from '../hooks/useListFilterTemplates.js';
 import { useWorkSheetTypeRefs } from '../hooks/useWorkSheetTypeRefs.js';
 import { resolveWorkshopName, useWorkshopNames } from '../hooks/useWorkshopNames.js';
 import { useRepairStageTemplateRefs } from '../hooks/useRepairStageTemplateRefs.js';
@@ -536,6 +541,8 @@ export function EnginesPage(props: {
    */
   canEditWorkSheets?: boolean;
   canEditOperations?: boolean;
+  /** Оператор (для шаблонов фильтров: именованные наборы живут в его профиле). */
+  userId?: string;
   /** Кнопка «Отчёт „Двигатели“» → объединённый пресет engines (разрезы/фильтры/колонки/шаблоны). */
 }) {
   const [dedupeOpen, setDedupeOpen] = React.useState(false);
@@ -585,8 +592,11 @@ export function EnginesPage(props: {
     if (customerFilter && !engineFacetIsActive(base, 'customer')) out.customer = [customerFilter];
     if (onlyReclamation && !engineFacetIsActive(base, 'reclamation')) out.reclamation = ['yes'];
     if (completenessFilter !== 'all' && !engineFacetIsActive(base, 'completenessAct')) out.completenessAct = [completenessFilter];
+    // Переезд выбора этапа из «Текущего состояния» в «Этап ремонта» (промт КАРМАНА #181):
+    // сохранённый выбор переезжает сам, и список открывается с тем же отбором.
+    const migrated = migrateEngineFacetSelection(out);
     // Старый сохранённый отбор мог держать период вместе с «Текущим состоянием» — чистим при чтении.
-    return stripStageDateWhenWhereNow(out);
+    return stripStageDateWhenWhereNow(migrated);
   }, [listState.facets, customerFilter, onlyReclamation, completenessFilter]);
   const facetFields = useMemo<EngineFacetId[]>(() => {
     const raw = Array.isArray(listState.facetFields) ? listState.facetFields : [];
@@ -600,6 +610,40 @@ export function EnginesPage(props: {
   // и период — разные вопросы. Ступень периода прячется из ряда кнопок и чистится из отбора.
   const whereNowActive = isFactoryStageActive(facets);
   const visibleFacetFields = whereNowActive ? facetFields.filter((id) => id !== 'stageDate') : facetFields;
+
+  // ШАБЛОНЫ ФИЛЬТРОВ списка (промт КАРМАНА #181): тот же механизм, что у отчётов по
+  // пресетам — именованные наборы в профиле оператора, едут на другой компьютер.
+  // В шаблон НЕ тащат выбор заказчика и договора (владелец): это данные из базы, а не
+  // параметры фильтра — по шаблону список открывается по всем заказчикам и договорам.
+  const filterTemplates = useListFilterTemplates({ userId: props.userId ?? '', key: 'list:engines' });
+  const [filterTemplateName, setFilterTemplateName] = useState('');
+  const [selectedFilterTemplateId, setSelectedFilterTemplateId] = useState('');
+  const saveFilterTemplate = async () => {
+    const payload = buildEngineListTemplatePayload(facets, ENGINE_FACETS.map((f) => f.id));
+    const ok = await filterTemplates.save(filterTemplateName, payload);
+    if (ok) setFilterTemplateName('');
+  };
+  const applyFilterTemplate = (templateId: string) => {
+    setSelectedFilterTemplateId(templateId);
+    const tpl = filterTemplates.templates.find((t) => t.id === templateId);
+    if (!tpl) return;
+    const next = applyEngineListTemplatePayload({
+      filters: (tpl.filters ?? {}) as Record<string, unknown>,
+      enabled: tpl.enabled ?? [],
+      disabled: tpl.disabled ?? [],
+    });
+    // Сортировку и видимость колонок шаблон НЕ трогает — это обстановка списка, а не фильтр.
+    patchState({
+      facets: next,
+      facetFields: Array.from(new Set([...(listState.facetFields ?? []), ...(tpl.enabled ?? [])])),
+      // Старые одиночные фильтры тулбара в шаблон не попали — снимаем и их.
+      customerFilter: '',
+      onlyReclamation: false,
+      completenessFilter: 'all',
+      page: 0,
+    });
+    filterTemplates.setStatus(`Шаблон «${tpl.name}» применён`);
+  };
 
   // Выбранный этап фильтра «История»: колонка «Дата этапа» отвечает по НЕМУ «когда
   // проходили», а не по последнему этапу (решение владельца 12.10.2026). При активном периоде
@@ -1608,6 +1652,55 @@ export function EnginesPage(props: {
         <ToolbarPin>
           <FacetPanelToggle usageKey="list:engines" />
         </ToolbarPin>
+        {/* Шаблоны фильтров списка (промт КАРМАНА #181): выбрал шаблон — список сразу
+            отфильтрован; «Сохранить» — именованный набор отбора, он едет за оператором на
+            другой компьютер (живёт в его профиле). */}
+        <ToolbarPin>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <select
+              value={selectedFilterTemplateId}
+              onChange={(e) => applyFilterTemplate(e.target.value)}
+              title="Шаблон фильтров: выбрал — список сразу отфильтрован"
+              data-engine-filter-template
+              style={{ fontSize: 13, maxWidth: 180 }}
+            >
+              <option value="">{filterTemplates.templates.length ? 'Шаблон фильтров…' : 'Шаблонов пока нет'}</option>
+              {filterTemplates.templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <Input
+              value={filterTemplateName}
+              onChange={(e) => setFilterTemplateName(e.target.value)}
+              placeholder="Название шаблона"
+              data-engine-filter-template-name
+              style={{ fontSize: 13, width: 150 }}
+            />
+            <Button
+              variant="ghost"
+              onClick={() => void saveFilterTemplate()}
+              title="Сохранить текущий отбор как шаблон: значения ступеней, включённые ступени и отключённые фильтры. Без выбранного заказчика и договора"
+              data-engine-filter-template-save
+            >
+              Сохранить шаблон
+            </Button>
+            {selectedFilterTemplateId ? (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  void filterTemplates.remove(selectedFilterTemplateId);
+                  setSelectedFilterTemplateId('');
+                }}
+                title="Удалить выбранный шаблон"
+                data-engine-filter-template-delete
+              >
+                Удалить
+              </Button>
+            ) : null}
+          </div>
+        </ToolbarPin>
         {/* Быстрый доступ к отбору по виду (промт КАРМАНА #163): панель фильтров свёрнута
             за кнопку, и до ступени «Вид» в ней ещё надо дотянуться. Кнопка пишет в то же
             состояние отбора, что и панель ступеней. */}
@@ -1724,6 +1817,11 @@ export function EnginesPage(props: {
         {whereNowActive ? (
           <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>
             «Текущее состояние» показывает место каждого двигателя — период («Дата этапа») при нём не нужен и скрыт.
+          </div>
+        ) : null}
+        {filterTemplates.status ? (
+          <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }} data-engine-filter-template-status>
+            {filterTemplates.status}
           </div>
         ) : null}
       </div>

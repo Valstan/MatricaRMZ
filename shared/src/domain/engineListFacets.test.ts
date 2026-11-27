@@ -11,6 +11,7 @@ import {
   engineFacetOptions,
   isFactoryStageActive,
   isStageEntriesActive,
+  migrateEngineFacetSelection,
   setEngineFacetDateBound,
   sanitizeEngineFacetSelection,
   stripStageDateWhenWhereNow,
@@ -356,10 +357,11 @@ describe('ступени этапов: «История» и «Дата этап
     });
   });
 
-  it('«История» и «Текущее состояние» не исключают друг друга — это разные вопросы', () => {
+  it('«История» и «Этап ремонта» не исключают друг друга — это разные вопросы', () => {
     // Прежние четыре ступени отвечали на почти один вопрос и пересекались; здесь оператор
-    // может спросить «кто проходил сборку» и «где сейчас» одним отбором.
-    expect(ids(applyEngineFacets(stageCodeRows, { hasStage: ['stage:sborka'], factoryStage: ['stage:obkatka'] }))).toEqual(['c2']);
+    // может спросить «кто проходил сборку» (История) и «на каком этапе сейчас» (Этап ремонта)
+    // одним отбором.
+    expect(ids(applyEngineFacets(stageCodeRows, { hasStage: ['stage:sborka'], repairStage: ['repair:obkatka'] }))).toEqual(['c2']);
   });
 
   it('ряд ступеней полный и в порядке шаблона: новый этап виден до того, как в нём никого нет', () => {
@@ -389,9 +391,9 @@ describe('ступени этапов: «История» и «Дата этап
     ] as unknown as EngineListItem[];
     expect(ids(applyEngineFacets(rows, { hasStage: ['stage:arrival'] }))).toEqual(['r1', 'r2']);
     expect(ids(applyEngineFacets(rows, { hasStage: ['stage:arrival_reclamation'] }))).toEqual(['r1']);
-    // И в «Текущем состоянии» так же: приезд по рекламации виден и под обычной приёмкой.
-    expect(ids(applyEngineFacets(rows, { factoryStage: ['stage:arrival'] }))).toEqual(['r1', 'r2']);
-    expect(ids(applyEngineFacets(rows, { factoryStage: ['stage:arrival_reclamation'] }))).toEqual(['r1']);
+    // И в ступени «Этап ремонта» так же: приезд по рекламации виден и под обычной приёмкой.
+    expect(ids(applyEngineFacets(rows, { repairStage: ['repair:arrival'] }))).toEqual(['r1', 'r2']);
+    expect(ids(applyEngineFacets(rows, { repairStage: ['repair:arrival_reclamation'] }))).toEqual(['r1']);
   });
 
   it('в ступенях есть «приёмка по рекламации» — счётчик считает и обычную приёмку, и рекламационную', () => {
@@ -414,7 +416,7 @@ describe('ступени этапов: «История» и «Дата этап
       { id: 'd2', lastStageCode: 'obkatka', lastStageName: 'Обкатка', lastStageAt: DAY_09, lastStagePass: 2 },
     ] as unknown as EngineListItem[];
     // Этапный отбор показывает все обкатки, включая повторную.
-    expect(ids(applyEngineFacets(rows, { factoryStage: ['stage:obkatka'] }))).toEqual(['d1', 'd2']);
+    expect(ids(applyEngineFacets(rows, { repairStage: ['repair:obkatka'] }))).toEqual(['d1', 'd2']);
     // Отдельный счётчик повторов — по всем этапам сразу.
     expect(ids(applyEngineFacets(rows, { hasRepeatPass: ['repeat'] }))).toEqual(['d2']);
     expect(ids(applyEngineFacets(rows, { hasRepeatPass: ['first'] }))).toEqual(['d1']);
@@ -481,35 +483,26 @@ const stageRows = [
 ] as unknown as EngineListItem[];
 
 describe('ступень «Текущее состояние» со справочником видов работ', () => {
-  it('предлагает ВСЕ этапы в порядке шаблона (приоритет линейки), пустые — нулём', () => {
+  it('этапов ремонта в ряду НЕТ — они живут в ступени «Этап ремонта» (промт КАРМАНА #181)', () => {
+    // Раньше этап ремонта был и здесь, и в «Истории» — в «Сейчас на заводе» один и тот же
+    // этап выводился в выпадающем списке дважды, второй раз нерабочим. Теперь ряд этапов
+    // один: ступень «Этап ремонта».
     const options = engineFacetOptions(stageRows, {}, 'factoryStage', STAGE_TYPES);
     expect(options.map((o) => o.value)).toEqual([
       'scrap',
       'repaired',
-      'stage:arrival',
-      'stage:arrival_reclamation',
-      'stage:incoming_otk',
-      'stage:disassembly_defect',
-      'stage:parts_repair',
-      'stage:ukladka',
-      'stage:faza',
-      'stage:sborka',
-      'stage:obkatka',
-      'stage:otk',
-      'stage:shipped',
-      'stage:shipped_reclamation',
-      'stage:accepted',
       'sheet:ukladka',
       'sheet:sborka',
       'sheet:obkatka',
       'defect_act',
       'completeness_act',
       'repair_started',
-      'stage:scrap_branch',
       'arrived',
     ]);
     expect(options.find((o) => o.value === 'sheet:obkatka')).toMatchObject({ label: 'Обкатка', count: 0 });
     expect(options.find((o) => o.value === 'sheet:ukladka')?.count).toBe(1);
+    // Ни одного этапа ремонта в ряду «Текущего состояния» — ни из справочника, ни из строк.
+    expect(options.some((o) => o.value.startsWith('stage:'))).toBe(false);
   });
 
   it('этап работ без кода узнаётся по имени и отбирается тем же ключом, что и в отчёте', () => {
@@ -524,11 +517,9 @@ describe('ступень «Текущее состояние» со справо
   });
 
 
-  it('без справочника постоянные этапы всё равно в ряду, этапы работ — по строкам', () => {
+  it('без справочника постоянные места всё равно в ряду, этапы работ — по строкам', () => {
     const values = engineFacetOptions(stageRows, {}, 'factoryStage').map((o) => o.value);
     expect(values.slice(0, 2)).toEqual(['scrap', 'repaired']);
-    expect(values).toContain('stage:sborka');
-    expect(values).toContain('stage:scrap_branch');
     // Этап работ без кода получает ключ по имени — со справочником он стал бы `sheet:sborka`.
     expect(values.filter((v) => v.startsWith('sheet:')).sort()).toEqual(['sheet:ukladka', 'sheet:сборка']);
   });
@@ -665,5 +656,66 @@ describe('ступень «Вид» — ГОЗ / гражданский / вид
     expect(ids(applyEngineFacets(kindRows, { kind: ['military'] }))).toEqual(['k1', 'k2']);
     expect(ids(applyEngineFacets(kindRows, { kind: ['civil'] }))).toEqual(['k3']);
     expect(ids(applyEngineFacets(kindRows, { kind: ['none'] }))).toEqual(['k4']);
+  });
+});
+
+// Промт КАРМАНА #181: в списке двигателей появилась ступень «Этап ремонта», а этап ремонта
+// ушёл из «Текущего состояния» (в «Сейчас на заводе» он выводился в выпадающем списке
+// дважды — второй раз нерабочим). Старый сохранённый выбор переезжает сам.
+describe('ступень «Этап ремонта» (промт КАРМАНА #181)', () => {
+  const stageRows2 = [
+    { id: 's1', lastStageCode: 'ukladka', lastStageName: 'Укладка вала', lastStageAt: DAY_09 },
+    { id: 's2', lastStageCode: 'sborka', lastStageName: 'Сборка двигателя', lastStageAt: DAY_09 },
+    { id: 's3', lastStageCode: 'card_created', lastStageName: 'Создание карточки двигателя', lastStageAt: DAY_09 },
+    { id: 's4' },
+  ] as unknown as EngineListItem[];
+
+  it('ступень называется «Этап ремонта» и ряд её — этапы из справочника шаблонов', () => {
+    expect(engineFacetById('repairStage')?.label).toBe('Этап ремонта');
+    const options = engineFacetOptions(stageRows2, {}, 'repairStage');
+    expect(options[0]?.value).toBe('repair:arrival');
+    expect(options.some((o) => o.value === 'repair:card_created')).toBe(false);
+    expect(options.find((o) => o.value === 'repair:ukladka')).toMatchObject({ label: 'Укладка вала', count: 1 });
+  });
+
+  it('отбирает двигатель по ТЕКУЩЕМУ этапу ремонта', () => {
+    expect(ids(applyEngineFacets(stageRows2, { repairStage: ['repair:ukladka'] }))).toEqual(['s1']);
+    expect(ids(applyEngineFacets(stageRows2, { repairStage: ['repair:sborka'] }))).toEqual(['s2']);
+  });
+
+  it('служебный этап и двигатель без этапа под отбор не попадают', () => {
+    expect(ids(applyEngineFacets(stageRows2, { repairStage: ['repair:card_created'] }))).toEqual([]);
+    expect(ids(applyEngineFacets(stageRows2, { repairStage: ['repair:ukladka'] }))).not.toContain('s4');
+  });
+
+  it('этап строки важнее последнего этапа двигателя (проход отчёта «Сейчас на заводе»)', () => {
+    const passage = [{ id: 'p1', lastStageCode: 'obkatka', rowStageCode: 'ukladka' }] as unknown as EngineListItem[];
+    expect(ids(applyEngineFacets(passage, { repairStage: ['repair:ukladka'] }))).toEqual(['p1']);
+    expect(ids(applyEngineFacets(passage, { repairStage: ['repair:obkatka'] }))).toEqual([]);
+  });
+
+  it('старый выбор этапа в «Текущем состоянии» переезжает в «Этап ремонта» сам', () => {
+    const migrated = migrateEngineFacetSelection({ factoryStage: ['stage:ukladka'] });
+    expect(migrated.factoryStage).toBeUndefined();
+    expect(migrated.repairStage).toEqual(['repair:ukladka']);
+    // Прочие места ступени не трогаются.
+    const mixed = migrateEngineFacetSelection({ factoryStage: ['scrap', 'stage:ukladka'], customer: ['c1'] });
+    expect(mixed.factoryStage).toEqual(['scrap']);
+    expect(mixed.repairStage).toEqual(['repair:ukladka']);
+    expect(mixed.customer).toEqual(['c1']);
+  });
+
+  it('в отчёте «Сейчас на заводе» ступени «История» больше нет — этап один', () => {
+    // Отчёт отдаёт ступень «Этап ремонта», а «История» убрана: один и тот же этап в
+    // выпадающем списке выводился дважды, второй раз нерабочим (жалоба владельца).
+    const dropped = migrateEngineFacetSelection({ hasStage: ['stage:ukladka'] }, { dropHistory: true });
+    expect(dropped.hasStage).toBeUndefined();
+    expect(dropped.repairStage).toEqual(['repair:ukladka']);
+  });
+
+  it('этап ремонта НЕ в ряду «Текущего состояние» — ряд этапов один', () => {
+    const options = engineFacetOptions(stageRows2, {}, 'factoryStage');
+    expect(options.some((o) => o.value.startsWith('stage:'))).toBe(false);
+    expect(options.some((o) => o.value.startsWith('repair:'))).toBe(false);
   });
 });

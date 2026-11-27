@@ -18,6 +18,7 @@ const PAGE = src('./EnginesNowAtPlantReportPage.tsx');
 const PRESET_PAGE = src('../ReportPresetPage.tsx');
 const LIST_PAGES = src('./listReportPages.ts');
 const DISPATCH = src('../../../../../main/services/reports/dispatch.ts');
+const SHARED_FACETS = src('../../../../../../../shared/src/domain/engineListFacets.ts');
 
 describe('отчёт-список «сейчас на заводе»', () => {
   it('пресет объявлен списком, приписан к теме и зарегистрирован страницей', () => {
@@ -98,18 +99,30 @@ describe('отчёт-список «сейчас на заводе»', () => {
     const facetIds = PAGE.match(/const FACET_IDS = \[([^\]]*)\]/)?.[1] ?? '';
     expect(facetIds, 'ступень «Последний этап» вернулась — путаница с «Текущим состоянием» тоже').not.toContain('lastStage');
     expect(facetIds).toContain("'factoryStage'");
-    expect(facetIds, 'ступень «История» потеряна — отбор по прохождению этапов не сделать').toContain("'hasStage'");
+    // Промт КАРМАНА #181: в отчёте этап ремонта — одна ступень «Этап ремонта». Ступени
+    // «История» в отчёте больше нет: она несла тот же список этапов, и в выпадающем списке
+    // этап выводился дважды — второй раз нерабочим нулём.
+    expect(facetIds, 'ступень «История» вернулась — этап снова задвоится в списке').not.toContain("'hasStage'");
+    expect(facetIds).toContain("'repairStage'");
     expect(PAGE).toContain("'scrap'");
     expect(PAGE, 'ступень «Дата приёмки рекламации» потеряна').toContain("'reclamationAccepted'");
   });
 
-  it('точные срезы «Истории»; «Текущее состояние» гасит период (владелец 14.10.2026)', () => {
+  it('ряд этапов в отчёте один: «Текущее состояние» этапов не предлагает (промт КАРМАНА #181)', () => {
+    // Сторож стоит на СВОЙСТВЕ: этап ремонта не должен попадать в ряд «Текущего состояния»
+    // (вместе с видами работ и состояниями карточки) — иначе он снова выведется рядом с
+    // «Этапом ремонта», то есть дважды.
+    expect(SHARED_FACETS, 'в «Текущем состоянии» снова появились этапы ремонта').toContain("if (s.key.startsWith('stage:')) return NO_VALUE;");
+    expect(SHARED_FACETS).toContain("id: 'repairStage',");
+    expect(SHARED_FACETS).toContain("label: 'Этап ремонта',");
+  });
+
+  it('проход отчёта несёт СВОЙ этап — отбор по этапу не путает проход с двигателем', () => {
     expect(PAGE, 'строка-проход снова несёт все этапы двигателя — срез неточный').toContain('stageCodes: [entry.code]');
+    expect(PAGE, 'у прохода нет своего этапа — ступень «Этап ремонта» отбирала бы по последнему этапу двигателя').toContain('rowStageCode: entry.code');
     expect(PAGE).toContain('stageDates: { [entry.code]: entry.at }');
-    // Без проходов в едином списке (старая история) двигатель с пройденным этапом
-    // показывается строкой НА ВЫБРАННЫЙ этап, а не с текущим местом.
-    expect(PAGE, 'срез снова показывает чужое текущее место вместо выбранного этапа').toContain('stageCodes: [code], // для фасета hasStage — точный срез');
-    expect(PAGE, 'раскрытие строится вопросом не про движение').toContain('isStageEntriesActive(');
+    // Раскрытие — вопрос не про движение.
+    expect(PAGE).toContain('isStageEntriesActive(');
     expect(PAGE, 'ступень периода осталась в ряду при активном «Текущем состоянии»').toContain(
       "whereNowActive ? FACET_IDS.filter((id) => id !== 'stageDate') : FACET_IDS",
     );

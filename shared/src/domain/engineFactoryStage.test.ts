@@ -357,7 +357,7 @@ describe('formatEngineFactoryStageLabel — подпись колонки (B4)',
   it('ступень «Повторный заход» считает повторы, не забирая двигатели из этапов', () => {
     const first = engine({ id: 'a', lastStageCode: 'obkatka', lastStageAt: 21 * DAY, lastStagePass: 1 });
     const repeat = engine({ id: 'b', lastStageCode: 'obkatka', lastStageAt: 21 * DAY, lastStagePass: 2 });
-    expect(ids(applyEngineFacets([first, repeat], { factoryStage: ['stage:obkatka'] }, TYPES))).toEqual(['a', 'b']);
+    expect(ids(applyEngineFacets([first, repeat], { repairStage: ['repair:obkatka'] }, TYPES))).toEqual(['a', 'b']);
     expect(ids(applyEngineFacets([first, repeat], { hasRepeatPass: ['repeat'] }, TYPES))).toEqual(['b']);
     expect(ids(applyEngineFacets([first, repeat], { hasRepeatPass: ['first'] }, TYPES))).toEqual(['a']);
   });

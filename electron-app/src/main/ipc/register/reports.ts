@@ -1,8 +1,10 @@
 import { ipcMain } from 'electron';
 import {
+  LIST_FILTER_TEMPLATE_KEYS,
   REPORT_PRESET_ALIASES,
   REPORT_PRESET_DEFINITIONS,
   reportHistorySignature,
+  resolveFilterTemplateKey,
   resolveReportPresetId,
   sanitizeCustomReportSpec,
   type CustomReportTemplate,
@@ -48,6 +50,13 @@ const VALID_PRESET_IDS = new Set<string>([
   ...REPORT_PRESET_DEFINITIONS.map((preset) => String(preset.id)),
   ...Object.keys(REPORT_PRESET_ALIASES),
 ]);
+
+/**
+ * Ключи шаблонов фильтров: пресеты отчётов И списки программы (промт КАРМАНА #181).
+ * Список двигателей берёт тот же механизм шаблонов, поэтому его ключ должен проходить
+ * ту же дверь — иначе шаблоны не доедут в профиль и не переживут другой компьютер.
+ */
+const VALID_FILTER_TEMPLATE_KEYS = new Set<string>([...VALID_PRESET_IDS, ...LIST_FILTER_TEMPLATE_KEYS]);
 const REPORT_HISTORY_LIMIT = 50;
 const REPORT_HISTORY_DEFAULT_LIMIT = 20;
 const REPORT_USER_SCOPE_FALLBACK = '__global__';
@@ -131,11 +140,16 @@ type ReportFilterTemplate = {
   createdAt: number;
   filters: Record<string, unknown>;
   disabled: string[];
+  /** Какие ступени/фильтры шаблон включает (список двигателей, промт КАРМАНА #181). */
+  enabled?: string[];
   description?: string;
 };
 
 /** Потолок описания шаблона: это подпись в одну строку, а не место для повести. */
 const FILTER_TEMPLATE_DESCRIPTION_LIMIT = 200;
+
+/** Потолок списка включённых ступеней: их число ограничено числом ступеней списка. */
+const FILTER_TEMPLATE_ENABLED_LIMIT = 100;
 
 // Blob-структура: { [userScope]: { [presetId]: ReportFilterTemplate[] } }
 function sanitizeFilterTemplates(entries: unknown): ReportFilterTemplate[] {
@@ -148,13 +162,18 @@ function sanitizeFilterTemplates(entries: unknown): ReportFilterTemplate[] {
     const createdAtRaw = Number((row as any)?.createdAt ?? 0);
     const filters = (row as any)?.filters;
     const disabledRaw = (row as any)?.disabled;
+    const enabledRaw = (row as any)?.enabled;
     const description = String((row as any)?.description ?? '').trim().slice(0, FILTER_TEMPLATE_DESCRIPTION_LIMIT);
+    const enabled = Array.isArray(enabledRaw)
+      ? enabledRaw.map((v: unknown) => String(v ?? '').trim()).filter(Boolean).slice(0, FILTER_TEMPLATE_ENABLED_LIMIT)
+      : [];
     out.push({
       id,
       name,
       createdAt: Number.isFinite(createdAtRaw) && createdAtRaw > 0 ? Math.floor(createdAtRaw) : 0,
       filters: filters && typeof filters === 'object' && !Array.isArray(filters) ? (filters as Record<string, unknown>) : {},
       disabled: Array.isArray(disabledRaw) ? disabledRaw.map((v: unknown) => String(v ?? '').trim()).filter(Boolean) : [],
+      ...(enabled.length > 0 ? { enabled } : {}),
       ...(description ? { description } : {}),
     });
     if (out.length >= FILTER_TEMPLATES_LIMIT) break;
@@ -371,8 +390,8 @@ export function registerReportsIpc(ctx: IpcContext) {
     const byScope = parseByScope<Record<string, unknown>>(raw);
     const byPreset: Record<string, ReturnType<typeof sanitizeFilterTemplates>> = {};
     for (const [presetKeyRaw, bucket] of Object.entries(byScope[scope] ?? {})) {
-      const presetKey = resolveReportPresetId(presetKeyRaw);
-      if (!VALID_PRESET_IDS.has(presetKey)) continue;
+      const presetKey = resolveFilterTemplateKey(presetKeyRaw);
+      if (!VALID_FILTER_TEMPLATE_KEYS.has(presetKey)) continue;
       const templates = sanitizeFilterTemplates(bucket);
       if (templates.length === 0) continue;
       const merged = [...(byPreset[presetKey] ?? [])];
@@ -390,8 +409,8 @@ export function registerReportsIpc(ctx: IpcContext) {
     const byScope = parseByScope<Record<string, unknown>>(raw);
     const next: Record<string, unknown> = {};
     for (const [presetKeyRaw, bucket] of Object.entries(args?.byPreset ?? {})) {
-      const presetKey = resolveReportPresetId(String(presetKeyRaw));
-      if (!VALID_PRESET_IDS.has(presetKey)) continue;
+      const presetKey = resolveFilterTemplateKey(String(presetKeyRaw));
+      if (!VALID_FILTER_TEMPLATE_KEYS.has(presetKey)) continue;
       const templates = sanitizeFilterTemplates(bucket);
       if (templates.length > 0) next[presetKey] = templates;
     }
@@ -403,8 +422,8 @@ export function registerReportsIpc(ctx: IpcContext) {
   ipcMain.handle('reports:filterTemplatesList', async (_e, args?: { userId?: string; presetId?: string }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    const presetId = resolveReportPresetId(String(args?.presetId ?? '').trim());
-    if (!presetId || !VALID_PRESET_IDS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
+    const presetId = resolveFilterTemplateKey(String(args?.presetId ?? '').trim());
+    if (!presetId || !VALID_FILTER_TEMPLATE_KEYS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
     const scope = resolveUserScope(args?.userId);
     const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportPresetFilterTemplates);
     const byScope = parseByScope<Record<string, unknown>>(raw);
@@ -427,13 +446,13 @@ export function registerReportsIpc(ctx: IpcContext) {
       args?: {
         userId?: string;
         presetId?: string;
-        template?: { id?: string; name?: string; filters?: Record<string, unknown>; disabled?: string[]; description?: string };
+        template?: { id?: string; name?: string; filters?: Record<string, unknown>; disabled?: string[]; enabled?: string[]; description?: string };
       },
     ) => {
       const gate = await requirePermOrResult(ctx, 'reports.view');
       if (!gate.ok) return gate as any;
-      const presetId = resolveReportPresetId(String(args?.presetId ?? '').trim());
-      if (!presetId || !VALID_PRESET_IDS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
+      const presetId = resolveFilterTemplateKey(String(args?.presetId ?? '').trim());
+      if (!presetId || !VALID_FILTER_TEMPLATE_KEYS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
       const name = String(args?.template?.name ?? '').trim();
       if (!name) return { ok: false as const, error: 'Пустое имя шаблона' };
       const scope = resolveUserScope(args?.userId);
@@ -448,6 +467,7 @@ export function registerReportsIpc(ctx: IpcContext) {
           createdAt: Date.now(),
           filters: args?.template?.filters ?? {},
           disabled: args?.template?.disabled ?? [],
+          enabled: args?.template?.enabled ?? [],
           description: args?.template?.description ?? '',
         },
       ])[0];
@@ -465,8 +485,8 @@ export function registerReportsIpc(ctx: IpcContext) {
     async (_e, args?: { userId?: string; presetId?: string; templateId?: string }) => {
       const gate = await requirePermOrResult(ctx, 'reports.view');
       if (!gate.ok) return gate as any;
-      const presetId = resolveReportPresetId(String(args?.presetId ?? '').trim());
-      if (!presetId || !VALID_PRESET_IDS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
+      const presetId = resolveFilterTemplateKey(String(args?.presetId ?? '').trim());
+      if (!presetId || !VALID_FILTER_TEMPLATE_KEYS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
       const templateId = String(args?.templateId ?? '').trim();
       const scope = resolveUserScope(args?.userId);
       const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportPresetFilterTemplates);

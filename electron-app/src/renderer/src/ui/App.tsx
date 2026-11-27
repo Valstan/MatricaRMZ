@@ -6179,6 +6179,8 @@ export function App() {
             canEditWorkSheets={caps.canEditWorkSheets}
             canEditOperations={caps.canEditOperations}
             onNotify={notifyOperator}
+            // Шаблоны фильтров списка живут в профиле оператора (промт КАРМАНА #181).
+            userId={authStatus.user?.id ?? ''}
             {...(caps.canCreateWorkOrders
               ? {
                   onCreateAssemblyOrder: (engine: EngineListItem) => {
