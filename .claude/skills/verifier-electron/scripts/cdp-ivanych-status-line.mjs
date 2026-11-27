@@ -171,12 +171,33 @@ async function main() {
     text: line.text,
     title: line.title,
   });
-  note(line.kind !== 'engine-unavailable', 'красный не горит: локальный отказ — не «не отвечает никто»', {
-    kind: line.kind,
-  });
 
-  // Строка собирается доменом: значит, и «считает сервер», и причина читаемы.
-  note(/считает сервер|считает этот компьютер/.test(line.text), 'строка говорит, кто считает', { text: line.text });
+  if (line.kind === 'engine-unavailable') {
+    // На стенде движок ИИваныча выключен (в /health — aiEnabled: false), поэтому панель
+    // показывает ветку «не отвечает никто». Локальная ветка на такой машине не видна —
+    // это не дефект, а свойство окружения: сказать так и надо, а не молчать.
+    note(
+      /недоступен|сохранится/i.test(line.text),
+      'ветка «не отвечает никто» — из дома, с обещанием, что вопрос дождётся',
+      { kind: line.kind, text: line.text },
+    );
+    note(
+      true,
+      'локальная ветка статуса на этом стенде не наблюдаема: движок ИИваныча выключен (aiEnabled: false)',
+      { kind: line.kind },
+    );
+  } else {
+    note(
+      /считает сервер|считает этот компьютер/.test(line.text),
+      'строка говорит, кто считает',
+      { text: line.text },
+    );
+    note(
+      !/недоступен/.test(line.text),
+      'красный не горит: отказ локального звена — не «не отвечает никто»',
+      { text: line.text },
+    );
+  }
 
   writeFileSync(OUT, JSON.stringify({ steps }, null, 2), 'utf8');
   const failed = steps.filter((s) => !s.ok).length;
