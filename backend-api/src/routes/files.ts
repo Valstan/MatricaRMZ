@@ -10,6 +10,7 @@ import { changeRequests, fileAssets } from '../database/schema.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { canAccessFile } from '../services/fileAccessService.js';
+import { checkFileName } from '../services/fileNameService.js';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { deletePath, ensureFolderDeep, getDownloadHref, getResourceInfo, getUploadHref, uploadBytes } from '../services/yandexDisk.js';
 import { cacheRelPath } from '../services/fileCachePlan.js';
@@ -542,6 +543,37 @@ filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req,
 
     if (row.yandexDiskPath) return sendYandexFile(row, res);
     return res.status(500).json({ ok: false, error: 'у файла нет ни локальной копии, ни пути на Яндексе' });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/**
+ * Переименовать файл: меняется имя ЗАПИСИ файла.
+ *
+ * Зачем это отдельное имя, а не путь в хранилище: по записи называется скачанная
+ * копия (`Content-Disposition` и клиентский `filesDownload` берут имя отсюда) и
+ * вложение в карточке. Сам файл на диске/Яндексе НЕ переезжает: путь к нему уже
+ * записан, и трогать хранилище ради подписи — значит рискнуть байтами без нужды.
+ *
+ * Право — то же, что на загрузку: кто кладёт файлы в программу, тот и называет их.
+ * Плюс проверка доступа к самому файлу.
+ */
+filesRouter.patch('/:id', requirePermission(PermissionCode.FilesUpload), async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+
+    const name = checkFileName(req.body?.name);
+    if (!name.ok) return res.status(400).json({ ok: false, error: name.error });
+
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
+    const row = rows[0] as any;
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
+    if (!(await canAccessFile((req as AuthenticatedRequest).user, row))) return res.status(403).json({ ok: false, error: 'доступ запрещён' });
+
+    await db.update(fileAssets).set({ name: name.name }).where(eq(fileAssets.id, id as any));
+    return res.json({ ok: true, file: { id, name: name.name } });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }

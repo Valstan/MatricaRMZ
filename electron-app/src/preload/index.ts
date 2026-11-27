@@ -1358,6 +1358,9 @@ const matricaApi = {
     },
     progressList: async () => ipcRenderer.invoke('files:progress:list'),
     meta: async (args: { fileId: string }) => ipcRenderer.invoke('files:meta', args),
+    // Переименование файла: меняется имя записи на сервере (скачанная копия
+    // называется по нему), список карточки правит сама карточка.
+    rename: async (args: { fileId: string; name: string }) => ipcRenderer.invoke('files:rename', args),
     pick: async () => ipcRenderer.invoke('files:pick'),
     // Путь брошенного файла умеет достать только preload (webUtils) и только у
     // настоящего File из события drop/paste — renderer произвольный путь не подсунет.

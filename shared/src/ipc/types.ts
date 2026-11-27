@@ -4333,6 +4333,10 @@ export type MatricaApi = {
     // читать нельзя. Ярлык на Верстаке прав не даёт, поэтому «взять с Верстака»
     // обязано спрашивать именно здесь, а не собирать FileRef из подписи плитки.
     meta: (args: { fileId: string }) => Promise<{ ok: true; file: FileRef } | { ok: false; error: string }>;
+    // Переименовать файл: меняется имя ЗАПИСИ файла на сервере (по нему называется
+    // скачанная копия). Список вложений карточки переименовывает сам — своей
+    // обычной записью карточки.
+    rename: (args: { fileId: string; name: string }) => Promise<{ ok: true; name: string } | { ok: false; error: string }>;
     pick: () => Promise<{ ok: true; paths: string[] } | { ok: false; error: string }>;
     // Скачивает файл в локальную папку кеша (или выбранную пользователем) и возвращает путь.
     // `transferId` — идентификатор операции для полосы прогресса.

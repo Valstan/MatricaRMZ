@@ -473,6 +473,33 @@ export async function filesMeta(
   return { ok: true, file: res.json.file as FileRef };
 }
 
+/**
+ * Переименовать файл: меняется имя ЗАПИСИ файла на сервере.
+ *
+ * По записи называется скачанная копия (`filesDownload` берёт имя из карточки
+ * файла) — поэтому переименование меняет и то, что оператор получит на диске.
+ * Сам файл в хранилище не переезжает: путь к нему уже записан, и трогать байты
+ * ради подписи — лишний риск.
+ */
+export async function filesRename(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { fileId: string; name: string },
+): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
+  const fileId = String(args?.fileId || '').trim();
+  if (!fileId) return { ok: false, error: 'fileId is empty' };
+  const name = safeFilename(String(args?.name || '').trim());
+  if (!name) return { ok: false, error: 'имя файла не может быть пустым' };
+  const res = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) return { ok: false, error: `rename ${httpFailureLine(res)}` };
+  if (!res.json?.ok) return { ok: false, error: String(res.json?.error ?? 'bad rename response') };
+  return { ok: true, name: String(res.json?.file?.name ?? name) };
+}
+
 export async function filesDownload(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

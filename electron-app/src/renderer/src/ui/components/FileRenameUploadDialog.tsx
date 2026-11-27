@@ -23,6 +23,13 @@ export function FileRenameUploadDialog(props: {
    * имя и так привычно править — там выделение не нужно.
    */
   autoSelect?: boolean;
+  /**
+   * Надпись на кнопке подтверждения.
+   *
+   * Окно одно на оба случая: загрузка (файл прикрепляется) и переименование (файл
+   * уже в карточке). Смысл кнопки разный — «Прикрепить» или «Переименовать».
+   */
+  submitLabel?: string;
   onStemChange: (value: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
@@ -95,7 +102,7 @@ export function FileRenameUploadDialog(props: {
           >
             {props.extWithDot || '(без расширения)'}
           </div>
-          <Button onClick={props.onSubmit}>Прикрепить</Button>
+          <Button onClick={props.onSubmit}>{props.submitLabel ?? 'Прикрепить'}</Button>
           <Button variant="ghost" onClick={props.onCancel}>
             Отмена
           </Button>

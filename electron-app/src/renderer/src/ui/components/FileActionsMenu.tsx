@@ -28,7 +28,8 @@ export type FileActionId =
   | 'ai'
   | 'openFolder'
   | 'desktop'
-  | 'copyPath';
+  | 'copyPath'
+  | 'rename';
 
 export type FileActionDef = {
   id: FileActionId;
@@ -107,6 +108,12 @@ export const FILE_ACTIONS: FileActionDef[] = [
     label: 'Скопировать путь',
     icon: '📋',
     hint: 'Путь(и) к отмеченным файлам — в буфер обмена',
+  },
+  {
+    id: 'rename',
+    label: 'Переименовать',
+    icon: '✏️',
+    hint: 'Дать файлу осмысленное имя (только для одного файла)',
   },
 ];
 

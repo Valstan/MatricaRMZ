@@ -24,6 +24,10 @@ const SCANNER_IPC = src('../../../../main/ipc/register/scanner.ts');
 const SCANNER_SERVICE = src('../../../../main/services/scannerService.ts');
 const RENAME_DIALOG = src('./FileRenameUploadDialog.tsx');
 const UPLOAD_FLOW = src('../hooks/useFileUploadFlow.tsx');
+const ACTION_MENU = src('./FileActionsMenu.tsx');
+const FILE_SEARCH_PAGE = src('../pages/FileSearchPage.tsx');
+const FILE_SERVICE = src('../../../../main/services/fileService.ts');
+const SERVER_FILES = src('../../../../../../backend-api/src/routes/files.ts');
 
 describe('карточка берёт с Верстака, а не Верстак пишет в карточку', () => {
   it('панель кладёт файл собственным механизмом карточки', () => {
@@ -232,8 +236,7 @@ describe('сканирование документа в объект (пром�
     expect(UPLOAD_FLOW).toContain('async function promptName(');
   });
 
-  it('скан идёт в объект тем же путём, что и файл с диска', () => {
-    // Общий шаг загрузки и записи в карточку — один на оба источника. Свой путь
+  it('скан идёт в объект тем же путём, что и файл с диска', () => {    // Общий шаг загрузки и записи в карточку — один на оба источника. Свой путь
     // у скана означал бы, что синк его не утащит.
     expect(PANEL).toContain('async function uploadTasks(');
     expect(PANEL).toContain('await uploadTasks([{ path: placed.path, fileName: placed.fileName }])');
@@ -396,5 +399,53 @@ describe('мастер печати фотографий для вложений
   it('неудача мастера называется словами, а не молчит', () => {
     // Оператор должен отличить «не открылось» от «ушло на печать».
     expect(PANEL).toContain('Мастер печати не открылся:');
+  });
+});
+
+describe('имя файла: программа предлагает, оператор правит (владелец 27.11.2026)', () => {
+  it('снимок с камеры спрашивает имя до загрузки — и предлагает своё', () => {
+    // Раньше камера молча грузила «Фото 27.11.2026 10-33-12.jpg», и в карточке лежало
+    // имя, по которому ничего не найти. Теперь имя спрашивается, предложенное
+    // выделено целиком (печатать новое можно сразу).
+    expect(PANEL).toContain('uploadCameraShots');
+    expect(PANEL).toContain('uploadFlow.promptName(suggested');
+    expect(PANEL).toContain('autoSelect: true');
+    // Имя, которое оператор написал, и есть имя файла при загрузке.
+    expect(PANEL).toContain('new File([shot], chosen');
+  });
+
+  it('переименование — в общем меню действий, одним файлом', () => {
+    // Набор действий один на все точки включения (правило промта КАРМАНА #160), и
+    // недоступное в меню НЕ показывается (правило #158).
+    expect(ACTION_MENU).toContain("'rename'");
+    expect(ACTION_MENU).toContain('Переименовать');
+    expect(PANEL).toContain("if (id === 'rename') return menuFiles.length === 1;");
+    // В выдаче «Поиска по файлам» файлы лежат на диске оператора — там это другая
+    // механика, и пункт не показывается.
+    expect(FILE_SEARCH_PAGE).toContain("if (id === 'rename') return false;");
+  });
+
+  it('имя меняется и в записи файла, и в списке карточки — одно и то же', () => {
+    // По записи на сервере называется скачанная копия, список карточки видит
+    // оператор (и он уезжает в реплику на другие машины). Одно имя в двух местах.
+    expect(PANEL).toContain('window.matrica.files');
+    expect(PANEL).toContain('.rename({ fileId: file.id, name: chosen })');
+    expect(PANEL).toContain('props.onChange(list.map((f) => (f.id === file.id ? { ...f, name: chosen } : f)))');
+  });
+
+  it('дверь переименования: право на загрузку, имя чистится, сервер проверяет доступ', () => {
+    expect(IPC).toContain("ipcMain.handle('files:rename'");
+    expect(IPC).toContain("requirePermOrResult(ctx, 'files.upload')");
+    expect(FILE_SERVICE).toContain('export async function filesRename');
+    // Сервер: имя записи меняется, а сам файл в хранилище не трогается.
+    expect(SERVER_FILES).toContain("filesRouter.patch('/:id'");
+    expect(SERVER_FILES).toContain('canAccessFile');
+  });
+
+  it('окно имени одно на оба случая — загрузка и переименование', () => {
+    // Второе окно имени было бы второй копией правила («как называется файл»).
+    expect(UPLOAD_FLOW).toContain('async function promptRename(');
+    expect(UPLOAD_FLOW).toContain("submitLabel: 'Переименовать'");
+    expect(RENAME_DIALOG).toContain('submitLabel');
   });
 });
