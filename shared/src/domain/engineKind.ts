@@ -254,3 +254,37 @@ export function engineKindRequirement(sources: EngineKindRequirementSources | nu
   if (fromCard) return { ok: true, kind: fromCard, source: 'card' };
   return { ok: false, error: ENGINE_KIND_REQUIRED_MESSAGE };
 }
+
+/**
+ * Варианты вида для простановки пачкой (список заказчиков).
+ *
+ * Набор тот же, что в карточке заказчика: два вида и «не задан». В строгую
+ * таблицу уходит значение из `value`: у «не задан» это `null` (вида нет), а
+ * пустая строка в базе означает другое — «вид был, и его снял оператор».
+ */
+export type CounterpartyKindChoice = ContractKind | 'none';
+
+export const COUNTERPARTY_KIND_CHOICES: ReadonlyArray<{
+  /** Идентификатор выбора. */
+  id: CounterpartyKindChoice;
+  /** Подпись для оператора. */
+  label: string;
+  /** Что уходит в `erp_counterparties.engine_kind`. */
+  value: 'military' | 'civil' | null;
+}> = [
+  { id: 'military', label: CONTRACT_KIND_LABELS.military, value: 'military' },
+  { id: 'civil', label: CONTRACT_KIND_LABELS.civil, value: 'civil' },
+  { id: 'none', label: 'Не задан', value: null },
+];
+
+/**
+ * Значение вида для записи из выбора оператора.
+ *
+ * Меняем вид пачкой по тем же правилам, что и карточка: выбор вида ставит его
+ * значение, «не задан» снимает вид (`null`). Пустой строки не бывает — она в
+ * базе означает «вид сняли оператором» и в выборе не выбирается.
+ */
+export function counterpartyKindValue(choice: CounterpartyKindChoice): 'military' | 'civil' | null {
+  const found = COUNTERPARTY_KIND_CHOICES.find((option) => option.id === choice);
+  return found ? found.value : null;
+}

@@ -70,6 +70,12 @@ import {
   type FacetDescriptor,
   type FacetSelection,
 } from '@matricarmz/shared';
+import {
+  counterpartyKindValue,
+  COUNTERPARTY_KIND_CHOICES,
+  type CounterpartyKindChoice,
+} from '@matricarmz/shared';
+import { CounterpartyKindSetDialog } from '../components/CounterpartyKindSetDialog.js';
 
 type Row = {
   id: string;
@@ -164,6 +170,13 @@ export function CounterpartiesPage(props: {
   const { confirm } = useConfirm();
   const [rows, setRows] = useState<Row[]>([]);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; label: string } | null>(null);
+  /**
+   * Заказчики, которым оператор проставляет вид пачкой (`null` — окно закрыто).
+   *
+   * У парка вида нет почти ни у кого, а отбор по виду без него пустой: вид
+   * проставляют пачкой, а не по одному.
+   */
+  const [kindSetTarget, setKindSetTarget] = useState<Row[] | null>(null);
   const [status, setStatus] = useState<string>('');
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const { state: listState, patchState } = useListUiState('list:counterparties', {
@@ -408,6 +421,37 @@ export function CounterpartiesPage(props: {
     );
     selection.clearSelection();
     await refresh();
+  }
+
+  /**
+   * Проставить вид пачкой заказчикам.
+   *
+   * Пишем через ту же дверь, что и карточка заказчика (`contracts:counterparty:save`):
+   * она частичный патч, другие поля не затирает, и вид ставится ровно так же,
+   * как в карточке. Ошибки считаем и называем — вид, проставленный наполовину
+   * молча, хуже честной цифры.
+   */
+  async function setKindForRows(items: Row[], choice: CounterpartyKindChoice) {
+    if (!props.canCreate || items.length === 0) return;
+    const value = counterpartyKindValue(choice);
+    const label = COUNTERPARTY_KIND_CHOICES.find((option) => option.id === choice)?.label ?? '';
+    const failedNames: string[] = [];
+    for (const row of items) {
+      const r = await window.matrica.contracts.counterparty
+        .save({ id: String(row.id), fields: { engine_kind: value } })
+        .catch(() => null);
+      if (!r || !r.ok) failedNames.push(row.displayName || String(row.id));
+    }
+    const done = items.length - failedNames.length;
+    setStatus(
+      failedNames.length > 0
+        ? `Вид «${label}» проставлен: ${done} из ${items.length}. Не проставлен: ${failedNames.length} (${failedNames
+            .slice(0, 3)
+            .join(', ')}${failedNames.length > 3 ? '…' : ''})`
+        : `Вид «${label}» проставлен: ${done}`,
+    );
+    selection.clearSelection();
+    await refresh({ silent: true });
   }
 
   type CounterpartyColumn = ColumnDescriptor & {
@@ -735,6 +779,16 @@ export function CounterpartiesPage(props: {
               listPrintAction({ available: true, print: printRows }),
               listCopyAction({ available: true, copy: copyRows }),
               listDeleteAction<Row>({ available: props.canDelete, remove: deleteRows, getId: (row) => row.id }),
+              {
+                // Проставить вид пачкой: у парка вида нет почти ни у кого, а ступень
+                // «Вид» без него пустая. Пишем через дверь карточки — вид ставится так же.
+                id: 'set-engine-kind',
+                label: 'Проставить вид…',
+                bulkLabel: 'Проставить вид выделенным',
+                available: props.canCreate,
+                scope: 'both',
+                run: (rows) => setKindSetTarget(rows),
+              },
             ],
           })}
           onClose={() => setMenu(null)}
@@ -754,6 +808,14 @@ export function CounterpartiesPage(props: {
               void refresh();
             }
           }}
+        />
+      ) : null}
+      {kindSetTarget ? (
+        <CounterpartyKindSetDialog
+          open
+          count={kindSetTarget.length}
+          onClose={() => setKindSetTarget(null)}
+          onPick={(choice) => void setKindForRows(kindSetTarget, choice)}
         />
       ) : null}
     </div>

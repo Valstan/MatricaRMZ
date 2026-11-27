@@ -29,6 +29,14 @@ type StrictRow = {
   address: string | null;
   phone: string | null;
   email: string | null;
+  /**
+   * Ручной вид двигателя по умолчанию для заказчика ('military' | 'civil' | null).
+   *
+   * Поле пришло с сервера — значит, вид надо перенести в локальную реплику: список
+   * заказчиков читает именно её, и без переноса оператор видел бы «проставлено», а в
+   * списке — старое значение (до прихода pull'а).
+   */
+  engine_kind?: string | null;
   created_at?: number;
   updated_at?: number;
 };
@@ -67,6 +75,9 @@ async function upsertLocal(
   row: StrictRow,
 ): Promise<void> {
   const now = Date.now();
+  // Поля, которого в строке не было, не затираем: вид — часть строки заказчика,
+  // и пустая строка без него (null) означала бы «вида нет».
+  const hasEngineKind = row.engine_kind !== undefined;
   const values = {
     id: String(row.id),
     name: String(row.name ?? ''),
@@ -76,6 +87,9 @@ async function upsertLocal(
     address: row.address ?? null,
     email: row.email ?? null,
     phone: row.phone ?? null,
+    // Вид заказчика — часть строки, а не отдельная правка: без него реплика отстала бы
+    // от сервера, и список показал бы старое значение (см. StrictRow).
+    engineKind: hasEngineKind ? row.engine_kind ?? null : null,
     createdAt: Number(row.created_at ?? now),
     updatedAt: Number(row.updated_at ?? now),
     lastServerSeq: null,
@@ -96,6 +110,7 @@ async function upsertLocal(
         address: values.address,
         phone: values.phone,
         email: values.email,
+        ...(hasEngineKind ? { engineKind: values.engineKind } : {}),
         updatedAt: values.updatedAt,
         lastServerSeq: values.lastServerSeq,
         deletedAt: values.deletedAt,
