@@ -20,7 +20,14 @@ export class SearchCancelledError extends Error {
  */
 export function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined | null): Promise<T> {
   if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(new SearchCancelledError());
+  if (signal.aborted) {
+    // Отменённый поиск всё равно не должен оставлять «висящий» отказ: прочитанная
+    // папка может исчезнуть (тест сносит временный каталог, оператор — переносит
+    // диск), и её поздний ENOENT стал бы необработанным отклонением — джоб CI падает
+    // при полностью зелёных тестах (грабля M242).
+    promise.catch(() => undefined);
+    return Promise.reject(new SearchCancelledError());
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(new SearchCancelledError());
     signal.addEventListener('abort', onAbort, { once: true });
