@@ -1,7 +1,7 @@
 # 🟡 Список двигателей: этап ремонта, ряд этапов и шаблоны фильтров — развилки владельца (промт #181) 🗓 since:2026-11-27
 
 🗓 since:2026-11-27 · нитка «Сейчас на заводе и список двигателей: этапы ремонта и шаблоны фильтров»
-(промт КАРМАНА **#181**; план — [`../plans/engine-list-stage-filter-templates-2026-11.md`](../plans/engine-list-stage-filter-templates-2026-11.md);
+(промт КАРМАНА **#181**; план — [`../plans/_archive/engine-list-stage-filter-templates-2026-11.md`](../plans/_archive/engine-list-stage-filter-templates-2026-11.md);
 PR **#2146**)
 
 **Что сделано кодом:** список двигателей получил ступень **«Этап ремонта»** (значения из
@@ -37,7 +37,7 @@ PR **#2146**)
 ## Куда смотреть
 
 - План и перечень разрывов между двумя списками —
-  [`../plans/engine-list-stage-filter-templates-2026-11.md`](../plans/engine-list-stage-filter-templates-2026-11.md).
+  [`../plans/_archive/engine-list-stage-filter-templates-2026-11.md`](../plans/_archive/engine-list-stage-filter-templates-2026-11.md).
 - Единый источник этапов — `shared/src/domain/repairStageList.ts`.
 - Ступень «Этап ремонта» и миграция выбора — `shared/src/domain/engineListFacets.ts`.
 - Состав шаблона списка — `shared/src/domain/engineListFilterTemplates.ts`.
