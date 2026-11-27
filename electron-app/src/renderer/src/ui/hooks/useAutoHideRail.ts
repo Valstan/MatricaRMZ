@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   RAIL_AUTO_HIDE_IDLE_MS,
   railAutoHideDecision,
+  railHoldAfterPointer,
 } from '../utils/railAutoHide.js';
 
 /**
@@ -68,12 +69,27 @@ export function useAutoHideRail(opts: { enabled: boolean; idleMs?: number }) {
     document.addEventListener('pointermove', onActivity, passive);
     document.addEventListener('keydown', onActivity);
     document.addEventListener('wheel', onActivity, passive);
+    // Палец отпущен или жест превратился в скролл — полосу больше не держат рукой.
+    // Без этого на тач-экране «палец на полосе» залипал навсегда (скролл шлёт
+    // pointercancel, а не pointerup), и полоса переставала уезжать сама.
+    const releaseHold = (event: 'up' | 'cancel') => {
+      const next = railHoldAfterPointer({ holding: holdOpenRef.current, event });
+      if (next === holdOpenRef.current) return;
+      holdOpenRef.current = next;
+      arm(true);
+    };
+    const onUp = () => releaseHold('up');
+    const onCancel = () => releaseHold('cancel');
+    document.addEventListener('pointerup', onUp, passive);
+    document.addEventListener('pointercancel', onCancel, passive);
     arm(true);
     return () => {
       document.removeEventListener('pointerdown', onActivity, passive);
       document.removeEventListener('pointermove', onActivity, passive);
       document.removeEventListener('keydown', onActivity);
       document.removeEventListener('wheel', onActivity, passive);
+      document.removeEventListener('pointerup', onUp, passive);
+      document.removeEventListener('pointercancel', onCancel, passive);
       clearTimer();
     };
   }, [arm, clearTimer, enabled]);

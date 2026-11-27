@@ -5,6 +5,7 @@ import {
   RAIL_WIDTH_PX,
   railAutoHideDecision,
   railHandleVisible,
+  railHoldAfterPointer,
   railManualHideAllowed,
 } from './railAutoHide.js';
 
@@ -39,5 +40,21 @@ describe('левое меню уезжает за край по правилу',
     expect(RAIL_AUTO_HIDE_IDLE_MS).toBeGreaterThan(1000);
     expect(RAIL_AUTO_HIDE_IDLE_MS).toBeLessThanOrEqual(30_000);
     expect(RAIL_WIDTH_PX).toBeGreaterThan(0);
+  });
+
+  // Жалоба владельца 27.11.2026: «на планшете меню перестало прятаться само».
+  // Причина — палец на полосе залипал: жест, начатый на полосе, превращается в
+  // скролл, и браузер шлёт pointercancel, а не pointerup.
+  it('палец на полосе держит её только пока он на полосе', () => {
+    expect(railHoldAfterPointer({ holding: false, event: 'down' })).toBe(true);
+    expect(railHoldAfterPointer({ holding: true, event: 'up' })).toBe(false);
+    expect(railHoldAfterPointer({ holding: true, event: 'cancel' })).toBe(false);
+  });
+
+  it('скролл отпускает полосу так же, как отпущенный палец', () => {
+    // Иначе полоса, один раз залипшая на скролле, больше не уехала бы никогда.
+    expect(railHoldAfterPointer({ holding: true, event: 'cancel' })).toBe(
+      railHoldAfterPointer({ holding: true, event: 'up' }),
+    );
   });
 });

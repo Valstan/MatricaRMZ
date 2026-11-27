@@ -705,6 +705,10 @@ export function V3TabShell(props: {
           onPointerLeave={() => railSetHoldOpen(false)}
           onPointerDown={() => railSetHoldOpen(true)}
           onPointerUp={() => railSetHoldOpen(false)}
+          // Жест, начатый на полосе, может превратиться в скролл — тогда браузер шлёт
+          // pointercancel, а не pointerup. Без этой строки «палец на полосе» залипал бы
+          // навсегда, и полоса перестала бы уезжать сама (жалоба владельца 27.11.2026).
+          onPointerCancel={() => railSetHoldOpen(false)}
         >
           <div className="v3-fav-rail-list" title="Избранные разделы">
             {favoriteCards.map((btn) => (
