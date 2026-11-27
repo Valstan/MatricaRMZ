@@ -4,7 +4,9 @@ import {
   FILE_SEARCH_ENGINE_SUGGEST_MAX_LIMIT,
   fileSearchEngineNumberMatchKind,
   fileSearchEngineQueryDigits,
+  fileSearchEngineSuggestFooter,
   isFileSearchEngineNumberLike,
+  rankAllFileSearchEngineSuggestions,
   rankFileSearchEngineSuggestions,
   type FileSearchEngineSuggestion,
 } from './fileSearchEngineSuggest.js';
@@ -82,5 +84,49 @@ describe('порядок подсказок', () => {
     expect(rankFileSearchEngineSuggestions(CANDIDATES, '0889', 1)).toHaveLength(1);
     expect(rankFileSearchEngineSuggestions(CANDIDATES, '0889', 999)).toHaveLength(3);
     expect(FILE_SEARCH_ENGINE_SUGGEST_MAX_LIMIT).toBe(20);
+  });
+});
+
+describe('вся выдача без потолка', () => {
+  const MANY: FileSearchEngineSuggestion[] = Array.from({ length: 25 }, (_, i) => ({
+    id: `e-${i}`,
+    engineNumber: `Э06АТ0889-${i}`,
+  }));
+
+  it('не режет — из неё и лимит, и «сколько всего нашлось»', () => {
+    expect(rankAllFileSearchEngineSuggestions(MANY, '0889')).toHaveLength(25);
+  });
+
+  it('порядок тот же: точное → суффикс → вхождение', () => {
+    const ranked = rankAllFileSearchEngineSuggestions(CANDIDATES, '0889');
+    expect(ranked.map((s) => s.id)).toEqual(['e-exact', 'e-suffix', 'e-substring']);
+  });
+
+  it('пустой запрос — пустая выдача', () => {
+    expect(rankAllFileSearchEngineSuggestions(MANY, '')).toEqual([]);
+  });
+});
+
+describe('подвал выпадашки подсказок', () => {
+  it('показывать нечего — подвала нет', () => {
+    expect(fileSearchEngineSuggestFooter({ total: 0, loaded: 0 }).kind).toBe('none');
+    expect(fileSearchEngineSuggestFooter({ total: 3, loaded: 3 }).kind).toBe('none');
+  });
+
+  it('нашлось больше, чем показано, — кнопка «показать ещё»', () => {
+    const footer = fileSearchEngineSuggestFooter({ total: 20, loaded: 12 });
+    expect(footer.kind).toBe('more');
+    expect(footer.kind === 'more' ? footer.label : '').toBe('Показать ещё 8');
+  });
+
+  it('дошли до потолка, а совпадений больше — честная заметка', () => {
+    const footer = fileSearchEngineSuggestFooter({ total: 27, loaded: 20 });
+    expect(footer.kind).toBe('capped');
+    expect(footer.kind === 'capped' ? footer.label : '').toBe('Показаны первые 20 из 27');
+  });
+
+  it('потолок подсказок — 20', () => {
+    const footer = fileSearchEngineSuggestFooter({ total: 100, loaded: 12 });
+    expect(footer.kind === 'more' ? footer.label : '').toBe('Показать ещё 8');
   });
 });

@@ -28,6 +28,17 @@ mkdirSync(FIXTURE_ROOT, { recursive: true });
 
 /** Номера двигателей-фикстур: покрывают все три вида совпадения с «0889». */
 const ENGINE_NUMBERS = ['0889', 'Э06АТ0889', 'Э07АТ0889', 'Э45АТ08891'];
+/**
+ * Номера СВЫШЕ потолка списка: нужны, чтобы проверить «показать ещё».
+ *
+ * Их больше двадцати, поэтому в базе 29 совпадений с «0889»: список по
+ * умолчанию — 12, раскрытый — 20, а дальше честная заметка «показаны первые
+ * 20 из 29». Без такой нагрузки кнопку «показать ещё» не увидеть.
+ */
+const EXTRA_ENGINE_NUMBERS = Array.from(
+  { length: 25 },
+  (_, i) => `Э06АТ0889-${String(i + 1).padStart(2, '0')}`,
+);
 /** Имя папки двигателя (как у оператора на диске). */
 const FOLDER_NAME = 'Э06АТ0889_41-26';
 
@@ -310,7 +321,7 @@ async function main() {
   // заведён — проверяем точным поиском и считаем, что фикстура на месте.
   const engines = await evaluate(
     ws,
-    `const numbers = ${JSON.stringify(ENGINE_NUMBERS)};
+    `const numbers = ${JSON.stringify([...ENGINE_NUMBERS, ...EXTRA_ENGINE_NUMBERS])};
      const out = [];
      for (const n of numbers) {
        try {
@@ -331,8 +342,13 @@ async function main() {
      }
      return out;`,
   );
-  const enginesOk = engines.filter((e) => e.ok).length === ENGINE_NUMBERS.length;
-  note(enginesOk, `двигатели-фикстуры заведены (${ENGINE_NUMBERS.join(', ')})`, engines);
+  const allEngineNumbers = [...ENGINE_NUMBERS, ...EXTRA_ENGINE_NUMBERS];
+  const enginesOk = engines.filter((e) => e.ok).length === allEngineNumbers.length;
+  note(
+    enginesOk,
+    `двигатели-фикстуры заведены (${ENGINE_NUMBERS.length} видов совпадения + ${EXTRA_ENGINE_NUMBERS.length} сверх потолка списка)`,
+    engines,
+  );
 
   // Папка-источник с фотографиями.
   const folderSet = await evaluate(
@@ -459,6 +475,45 @@ async function main() {
      return { ok: true, value: input?.value ?? null };`,
   );
   note(picked.ok && picked.value === 'Э06АТ0889', 'выбор подсказки подставил ПОЛНЫЙ номер в строку', picked);
+
+  // ── 3b. «Показать ещё»: по умолчанию 12, раскрыть — до 20 ──────────────────
+  // Решение владельца 27.11.2026: список по умолчанию 12, кнопка «показать ещё»
+  // раскрывает до 20, а дальше — честная заметка «показаны первые 20 из 29».
+  const more = await evaluate(
+    ws,
+    `const input = searchInput();
+     if (!input) return { ok: false, reason: 'поле поиска не найдено' };
+     input.focus();
+     setVal(input, '0889');
+     await wait(2000);
+     const popup = suggestionPopup();
+     const rowsBefore = suggestionRows().length;
+     const btn = [...(popup ? popup.querySelectorAll('button') : [])].filter(visible).find((b) => txt(b).startsWith('Показать ещё'));
+     const footerBefore = btn ? txt(btn) : '';
+     if (!btn) return { ok: false, reason: 'кнопка «показать ещё» не найдена', rowsBefore,
+                        popupTail: (popup ? txt(popup) : '').slice(-200) };
+     click(btn); await wait(2500);
+     const popupAfter = suggestionPopup();
+     const rowsAfter = suggestionRows().length;
+     const tail = popupAfter ? txt(popupAfter) : '';
+     const capNote = (tail.match(/Показаны первые \\d+ из \\d+/) ?? [''])[0];
+     const btnAfter = [...(popupAfter ? popupAfter.querySelectorAll('button') : [])].filter(visible).find((b) => txt(b).startsWith('Показать ещё'));
+     return { ok: true, rowsBefore, footerBefore, rowsAfter, capNote, buttonGone: !btnAfter };`,
+  );
+  note(more.rowsBefore === 12, 'по умолчанию в списке 12 подсказок', more);
+  note(
+    /^Показать ещё \d+$/.test(String(more.footerBefore ?? '')),
+    'под списком — кнопка «показать ещё»',
+    more,
+  );
+  note(more.rowsAfter === 20, 'после «показать ещё» — 20 подсказок (потолок)', more);
+  note(
+    /^Показаны первые 20 из \d+$/.test(String(more.capNote ?? '')),
+    'потолок показан честной заметкой, а не молча',
+    more,
+  );
+  note(more.buttonGone === true, 'после раскрытия кнопки «показать ещё» больше нет', more);
+  shotsPush(await shot(ws, 'suggestions-more'));
 
   // ── 4. Слово подсказок не даёт ───────────────────────────────────────────────
   const word = await evaluate(

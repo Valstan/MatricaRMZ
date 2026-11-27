@@ -93,17 +93,15 @@ const MATCH_KIND_ORDER: Record<FileSearchEngineNumberMatchKind, number> = {
 };
 
 /**
- * Подсказки к запросу: сначала точное совпадение, потом номер, заканчивающийся
- * набранным, потом вхождение внутрь номера. Внутри одного вида — по номеру, по
- * алфавиту: порядок предсказуем и не «прыгает» от запуска к запуску.
+ * Вся выдача по запросу, без потолка.
  *
- * Лимит — сверху: лишнее оператору не нужно, а база подсказок не должна
- * раздуваться.
+ * Нужна отдельно от `rankFileSearchEngineSuggestions`, чтобы честно сказать
+ * оператору «показаны первые 20 из 27»: сколько всего нашлось, знает только
+ * разбор без обрезки.
  */
-export function rankFileSearchEngineSuggestions(
+export function rankAllFileSearchEngineSuggestions(
   candidates: readonly FileSearchEngineSuggestion[],
   digits: string,
-  limit = FILE_SEARCH_ENGINE_SUGGEST_LIMIT,
 ): FileSearchEngineSuggestion[] {
   const q = String(digits ?? '').trim();
   if (!q) return [];
@@ -121,6 +119,63 @@ export function rankFileSearchEngineSuggestions(
     }
     return a.item.id < b.item.id ? -1 : a.item.id > b.item.id ? 1 : 0;
   });
+  return scored.map((entry) => entry.item);
+}
+
+/**
+ * Подсказки к запросу: сначала точное совпадение, потом номер, заканчивающийся
+ * набранным, потом вхождение внутрь номера. Внутри одного вида — по номеру, по
+ * алфавиту: порядок предсказуем и не «прыгает» от запуска к запуску.
+ *
+ * Лимит — сверху: лишнее оператору не нужно, а база подсказок не должна
+ * раздуваться.
+ */
+export function rankFileSearchEngineSuggestions(
+  candidates: readonly FileSearchEngineSuggestion[],
+  digits: string,
+  limit = FILE_SEARCH_ENGINE_SUGGEST_LIMIT,
+): FileSearchEngineSuggestion[] {
   const max = Math.min(Math.max(Number(limit) || 0, 0), FILE_SEARCH_ENGINE_SUGGEST_MAX_LIMIT);
-  return scored.slice(0, max).map((entry) => entry.item);
+  return rankAllFileSearchEngineSuggestions(candidates, digits).slice(0, max);
+}
+
+/**
+ * Что показать ПОД списком подсказок (решение владельца 27.11.2026).
+ *
+ * - `more` — нашлось больше, чем показано, и потолок ещё не достигнут:
+ *   кнопка «показать ещё»;
+ * - `capped` — дошли до потолка, а совпадений больше: честная заметка
+ *   «показаны первые 20 из 27» (как про потолок картинок в папке);
+ * - `none` — показывать нечего.
+ */
+export type FileSearchEngineSuggestFooter =
+  | { kind: 'none' }
+  | { kind: 'more'; label: string }
+  | { kind: 'capped'; label: string };
+
+/**
+ * Подвал выпадашки подсказок: кнопка «показать ещё» или заметка о потолке.
+ *
+ * `total` — сколько совпадений нашлось в базе, `loaded` — сколько пришло в
+ * выдачу. Оба числа нужны, чтобы подвал не врёл оператору.
+ */
+export function fileSearchEngineSuggestFooter(args: {
+  total: number;
+  loaded: number;
+  maxLimit?: number;
+}): FileSearchEngineSuggestFooter {
+  const max = Math.max(
+    1,
+    Math.trunc(Number(args.maxLimit ?? FILE_SEARCH_ENGINE_SUGGEST_MAX_LIMIT)) || FILE_SEARCH_ENGINE_SUGGEST_MAX_LIMIT,
+  );
+  const total = Math.max(0, Math.trunc(Number(args.total ?? 0)) || 0);
+  const loaded = Math.max(0, Math.trunc(Number(args.loaded ?? 0)) || 0);
+  if (total <= 0 || loaded <= 0) return { kind: 'none' };
+  if (loaded < total && loaded < max) {
+    return { kind: 'more', label: `Показать ещё ${Math.min(total, max) - loaded}` };
+  }
+  if (loaded >= max && total > loaded) {
+    return { kind: 'capped', label: `Показаны первые ${loaded} из ${total}` };
+  }
+  return { kind: 'none' };
 }

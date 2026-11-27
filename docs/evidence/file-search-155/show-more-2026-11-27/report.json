@@ -1,0 +1,539 @@
+{
+  "verdict": "PASS",
+  "stand": {
+    "cdpPort": "9223",
+    "fixtureRoot": "D:\\valstan\\REPO\\MatricaRMZ\\.claude\\worktrees\\f155\\.verifier-electron\\fixtures\\photo-engine-155",
+    "engineNumbers": [
+      "0889",
+      "Э06АТ0889",
+      "Э07АТ0889",
+      "Э45АТ08891"
+    ],
+    "engineFolder": "D:\\valstan\\REPO\\MatricaRMZ\\.claude\\worktrees\\f155\\.verifier-electron\\fixtures\\photo-engine-155\\Э06АТ0889_41-26",
+    "photos": [
+      "01.png",
+      "02.png",
+      "03.png"
+    ]
+  },
+  "steps": [
+    {
+      "ok": true,
+      "what": "вход verify на стенде",
+      "extra": {
+        "via": "bridge"
+      }
+    },
+    {
+      "ok": true,
+      "what": "после перезагрузки сессия жива (чистый лист для скриншотов)",
+      "extra": {
+        "loggedIn": true
+      }
+    },
+    {
+      "ok": true,
+      "what": "состояние синка на стенде: idle",
+      "extra": {
+        "state": "idle",
+        "lastSyncAt": 1795754010692,
+        "i": 0
+      }
+    },
+    {
+      "ok": true,
+      "what": "двигатели-фикстуры заведены (4 видов совпадения + 25 сверх потолка списка)",
+      "extra": [
+        {
+          "n": "0889",
+          "ok": true,
+          "already": true,
+          "id": "1912f61e-4841-4e7d-a631-c0477bab24f6"
+        },
+        {
+          "n": "Э06АТ0889",
+          "ok": true,
+          "already": true,
+          "id": "a090db9a-4da9-45ab-ade9-fe7b6c475ad4"
+        },
+        {
+          "n": "Э07АТ0889",
+          "ok": true,
+          "already": true,
+          "id": "98b0835f-dc2b-4dbb-9c18-bb01c622c1a0"
+        },
+        {
+          "n": "Э45АТ08891",
+          "ok": true,
+          "already": true,
+          "id": "6ad73448-b905-49da-be13-ff4bb119731f"
+        },
+        {
+          "n": "Э06АТ0889-01",
+          "ok": true,
+          "already": true,
+          "id": "69573c5f-1ffe-4f0b-a6f0-5a5dcaf78757"
+        },
+        {
+          "n": "Э06АТ0889-02",
+          "ok": true,
+          "already": true,
+          "id": "c70ef96e-7ecf-4e98-948d-42546e28eff5"
+        },
+        {
+          "n": "Э06АТ0889-03",
+          "ok": true,
+          "already": true,
+          "id": "892bd897-b007-45fc-80ae-dfad1cf26bab"
+        },
+        {
+          "n": "Э06АТ0889-04",
+          "ok": true,
+          "already": true,
+          "id": "9f41496d-9805-4ef1-be16-fec39dcf6d92"
+        },
+        {
+          "n": "Э06АТ0889-05",
+          "ok": true,
+          "already": true,
+          "id": "bb982417-df10-4506-a3bb-3e68b5c435c5"
+        },
+        {
+          "n": "Э06АТ0889-06",
+          "ok": true,
+          "already": true,
+          "id": "e7f02594-c876-412a-94a3-baf667ffcf72"
+        },
+        {
+          "n": "Э06АТ0889-07",
+          "ok": true,
+          "already": true,
+          "id": "ee558fa1-ee89-4313-b121-4014db1d97ae"
+        },
+        {
+          "n": "Э06АТ0889-08",
+          "ok": true,
+          "already": true,
+          "id": "1dab442f-6a27-4bff-ac43-6dd162aa0488"
+        },
+        {
+          "n": "Э06АТ0889-09",
+          "ok": true,
+          "already": true,
+          "id": "5bb27c28-50bc-4edc-b6b6-263058b7ec1b"
+        },
+        {
+          "n": "Э06АТ0889-10",
+          "ok": true,
+          "already": true,
+          "id": "a94d6625-7925-49c1-884a-2adf24b45da2"
+        },
+        {
+          "n": "Э06АТ0889-11",
+          "ok": true,
+          "already": true,
+          "id": "a0a0164c-2461-4d02-b228-fcbcaa779675"
+        },
+        {
+          "n": "Э06АТ0889-12",
+          "ok": true,
+          "already": true,
+          "id": "ebe86ebe-b23d-47e9-8320-f215df3ec919"
+        },
+        {
+          "n": "Э06АТ0889-13",
+          "ok": true,
+          "already": true,
+          "id": "dd47380f-d830-4e92-867e-673f8a760b50"
+        },
+        {
+          "n": "Э06АТ0889-14",
+          "ok": true,
+          "already": true,
+          "id": "b73b1e66-8e45-455f-8dca-37c1ee5283a4"
+        },
+        {
+          "n": "Э06АТ0889-15",
+          "ok": true,
+          "already": true,
+          "id": "90fb3676-81ab-4612-8858-0c72f1fab2b5"
+        },
+        {
+          "n": "Э06АТ0889-16",
+          "ok": true,
+          "already": true,
+          "id": "5a92ac88-15a4-43cc-940f-28fc28b5fbfa"
+        },
+        {
+          "n": "Э06АТ0889-17",
+          "ok": true,
+          "already": true,
+          "id": "50f620ed-cace-4f8a-a83d-0338686102d5"
+        },
+        {
+          "n": "Э06АТ0889-18",
+          "ok": true,
+          "already": true,
+          "id": "dc15ffed-47b0-4fb3-956f-fb5b1eee51d0"
+        },
+        {
+          "n": "Э06АТ0889-19",
+          "ok": true,
+          "already": true,
+          "id": "789ee0c4-12e5-4a66-8121-7b21c27594c1"
+        },
+        {
+          "n": "Э06АТ0889-20",
+          "ok": true,
+          "already": true,
+          "id": "7eb43dda-8687-44ec-ac86-d9a9466b620f"
+        },
+        {
+          "n": "Э06АТ0889-21",
+          "ok": true,
+          "already": true,
+          "id": "f3034d79-a1b3-4809-9337-2935a5834a36"
+        },
+        {
+          "n": "Э06АТ0889-22",
+          "ok": true,
+          "already": true,
+          "id": "8ec313b2-9e60-4778-a221-d346946b9e36"
+        },
+        {
+          "n": "Э06АТ0889-23",
+          "ok": true,
+          "already": true,
+          "id": "fe55884a-07b0-42bb-9f57-99147b59e7c8"
+        },
+        {
+          "n": "Э06АТ0889-24",
+          "ok": true,
+          "already": true,
+          "id": "3c49e16e-1ff7-4637-b507-a588cc267d84"
+        },
+        {
+          "n": "Э06АТ0889-25",
+          "ok": true,
+          "already": true,
+          "id": "e36f0c31-1bbe-491d-a85a-f214552f91a4"
+        }
+      ]
+    },
+    {
+      "ok": true,
+      "what": "папка с фотографиями добавлена в список источников",
+      "extra": {
+        "ok": true,
+        "error": null
+      }
+    },
+    {
+      "ok": true,
+      "what": "меню: Производство → Поиск по файлам"
+    },
+    {
+      "ok": true,
+      "what": "экран модуля открылся",
+      "extra": {
+        "module": true,
+        "folders": true
+      }
+    },
+    {
+      "ok": true,
+      "what": "три кнопки режима есть рядом со строкой поиска",
+      "extra": {
+        "all": true,
+        "modes": [
+          {
+            "label": "В файлах",
+            "bg": "rgba(0, 0, 0, 0)"
+          },
+          {
+            "label": "В папках по названию",
+            "bg": "rgba(255, 255, 255, 0.9)"
+          },
+          {
+            "label": "Фото двигателя",
+            "bg": "rgba(255, 255, 255, 0.9)"
+          }
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "what": "режим «В файлах» включается кнопкой"
+    },
+    {
+      "ok": true,
+      "what": "режим «В папках по названию» включается кнопкой"
+    },
+    {
+      "ok": true,
+      "what": "режим «Фото двигателя» включается кнопкой"
+    },
+    {
+      "ok": true,
+      "what": "в режиме «В файлах» нажата именно его кнопка (заливка отличается)",
+      "extra": {
+        "active": "rgba(0, 0, 0, 0)",
+        "others": [
+          "В папках по названию=rgba(255, 255, 255, 0.9)",
+          "Фото двигателя=rgba(255, 255, 255, 0.9)"
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "what": "в режиме «В папках по названию» нажата именно его кнопка (заливка отличается)",
+      "extra": {
+        "active": "rgba(0, 0, 0, 0)",
+        "others": [
+          "В файлах=rgba(255, 255, 255, 0.9)",
+          "Фото двигателя=rgba(255, 255, 255, 0.9)"
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "what": "в режиме «Фото двигателя» нажата именно его кнопка (заливка отличается)",
+      "extra": {
+        "active": "rgba(0, 0, 0, 0)",
+        "others": [
+          "В файлах=rgba(255, 255, 255, 0.9)",
+          "В папках по названию=rgba(255, 255, 255, 0.9)"
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "what": "у режима «Фото двигателя» своя подпись (что ищем — видно словами)",
+      "extra": {
+        "hint": "Ищем только по названию папки и открываем её целиком — со всеми фотографиями двигателя."
+      }
+    },
+    {
+      "ok": true,
+      "what": "в строке поиска набраны последние 4 цифры номера"
+    },
+    {
+      "ok": true,
+      "what": "выпадают подсказки с полными номерами двигателей",
+      "extra": {
+        "items": [
+          "0889 (RMZ2)",
+          "Э06АТ0889 (RMZ3)",
+          "Э07АТ0889 (RMZ4)",
+          "Э06АТ0889-01 (RMZ6)",
+          "Э06АТ0889-02 (RMZ7)",
+          "Э06АТ0889-03 (RMZ8)",
+          "Э06АТ0889-04 (RMZ9)",
+          "Э06АТ0889-05 (RMZ10)",
+          "Э06АТ0889-06 (RMZ11)",
+          "Э06АТ0889-07 (RMZ12)",
+          "Э06АТ0889-08 (RMZ13)",
+          "Э06АТ0889-09 (RMZ14)"
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "what": "в подсказках полные номера, а не набранные цифры",
+      "extra": {
+        "labels": [
+          "0889",
+          "Э06АТ0889",
+          "Э07АТ0889",
+          "Э06АТ0889-01",
+          "Э06АТ0889-02",
+          "Э06АТ0889-03",
+          "Э06АТ0889-04",
+          "Э06АТ0889-05",
+          "Э06АТ0889-06",
+          "Э06АТ0889-07",
+          "Э06АТ0889-08",
+          "Э06АТ0889-09"
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "what": "порядок выдачи: точное совпадение → суффикс → вхождение",
+      "extra": {
+        "labels": [
+          "0889",
+          "Э06АТ0889",
+          "Э07АТ0889",
+          "Э06АТ0889-01",
+          "Э06АТ0889-02",
+          "Э06АТ0889-03",
+          "Э06АТ0889-04",
+          "Э06АТ0889-05",
+          "Э06АТ0889-06",
+          "Э06АТ0889-07",
+          "Э06АТ0889-08",
+          "Э06АТ0889-09"
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "what": "выбор подсказки подставил ПОЛНЫЙ номер в строку",
+      "extra": {
+        "ok": true,
+        "value": "Э06АТ0889"
+      }
+    },
+    {
+      "ok": true,
+      "what": "по умолчанию в списке 12 подсказок",
+      "extra": {
+        "ok": true,
+        "rowsBefore": 12,
+        "footerBefore": "Показать ещё 8",
+        "rowsAfter": 20,
+        "capNote": "Показаны первые 20 из 29",
+        "buttonGone": true
+      }
+    },
+    {
+      "ok": true,
+      "what": "под списком — кнопка «показать ещё»",
+      "extra": {
+        "ok": true,
+        "rowsBefore": 12,
+        "footerBefore": "Показать ещё 8",
+        "rowsAfter": 20,
+        "capNote": "Показаны первые 20 из 29",
+        "buttonGone": true
+      }
+    },
+    {
+      "ok": true,
+      "what": "после «показать ещё» — 20 подсказок (потолок)",
+      "extra": {
+        "ok": true,
+        "rowsBefore": 12,
+        "footerBefore": "Показать ещё 8",
+        "rowsAfter": 20,
+        "capNote": "Показаны первые 20 из 29",
+        "buttonGone": true
+      }
+    },
+    {
+      "ok": true,
+      "what": "потолок показан честной заметкой, а не молча",
+      "extra": {
+        "ok": true,
+        "rowsBefore": 12,
+        "footerBefore": "Показать ещё 8",
+        "rowsAfter": 20,
+        "capNote": "Показаны первые 20 из 29",
+        "buttonGone": true
+      }
+    },
+    {
+      "ok": true,
+      "what": "после раскрытия кнопки «показать ещё» больше нет",
+      "extra": {
+        "ok": true,
+        "rowsBefore": 12,
+        "footerBefore": "Показать ещё 8",
+        "rowsAfter": 20,
+        "capNote": "Показаны первые 20 из 29",
+        "buttonGone": true
+      }
+    },
+    {
+      "ok": true,
+      "what": "ввод словом подсказок не даёт (выпадашка не мешает вводу)",
+      "extra": {
+        "value": "акт",
+        "items": []
+      }
+    },
+    {
+      "ok": true,
+      "what": "в режиме «Фото двигателя» ровно одна находка — папка",
+      "extra": {
+        "ok": true,
+        "count": 1,
+        "folderMarks": 1,
+        "fileMarks": 0,
+        "previews": 3,
+        "body": ""
+      }
+    },
+    {
+      "ok": true,
+      "what": "находка-файл в режиме «Фото двигателя» не появляется",
+      "extra": {
+        "ok": true,
+        "count": 1,
+        "folderMarks": 1,
+        "fileMarks": 0,
+        "previews": 3,
+        "body": ""
+      }
+    },
+    {
+      "ok": true,
+      "what": "в папке показаны все три фотографии двигателя",
+      "extra": {
+        "ok": true,
+        "count": 1,
+        "folderMarks": 1,
+        "fileMarks": 0,
+        "previews": 3,
+        "body": ""
+      }
+    },
+    {
+      "ok": true,
+      "what": "мост в области folder отдаёт одну папку со всеми фотографиями",
+      "extra": {
+        "ok": true,
+        "matches": [
+          {
+            "name": "Э06АТ0889_41-26",
+            "matchedBy": "folder",
+            "imageCount": 3
+          }
+        ],
+        "images": 3
+      }
+    },
+    {
+      "ok": true,
+      "what": "старый режим не сломан: и папка, и файл находятся как раньше",
+      "extra": {
+        "count": 2,
+        "folderMarks": 1,
+        "fileMarks": 1
+      }
+    },
+    {
+      "ok": true,
+      "what": "картинку отметили галочкой",
+      "extra": {
+        "picked": 1,
+        "tileFound": true
+      }
+    },
+    {
+      "ok": true,
+      "what": "при смене режима отбор не сброшен",
+      "extra": {
+        "picked": 1
+      }
+    }
+  ],
+  "screenshots": [
+    ".verifier-electron/cdp-fs155-suggestions.png",
+    ".verifier-electron/cdp-fs155-suggestions-more.png",
+    ".verifier-electron/cdp-fs155-photos-mode.png",
+    ".verifier-electron/cdp-fs155-folders-mode.png",
+    ".verifier-electron/cdp-fs155-selection-kept.png"
+  ]
+}

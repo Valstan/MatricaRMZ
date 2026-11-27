@@ -77,7 +77,7 @@ describe('подсказки по неполному номеру двигате
     const { sqlite, db } = makeDb();
     addEngine(sqlite, 'e-1', { engineNumber: 'Э06АТ0889' });
 
-    const suggestions = await suggestEnginesByNumberFragment(db, { q: '0889' });
+    const { suggestions } = await suggestEnginesByNumberFragment(db, { q: '0889' });
     expect(suggestions.map((s) => s.engineNumber)).toEqual(['Э06АТ0889']);
     expect(suggestions[0]?.id).toBe('e-1');
     sqlite.close();
@@ -90,7 +90,7 @@ describe('подсказки по неполному номеру двигате
     addEngine(sqlite, 'e-substring', { engineNumber: 'Э06АТ0889-12' });
     addEngine(sqlite, 'e-other', { engineNumber: 'Э06АТ0777' });
 
-    const suggestions = await suggestEnginesByNumberFragment(db, { q: '0889' });
+    const { suggestions } = await suggestEnginesByNumberFragment(db, { q: '0889' });
     expect(suggestions.map((s) => s.id)).toEqual(['e-exact', 'e-suffix', 'e-substring']);
     sqlite.close();
   });
@@ -99,9 +99,9 @@ describe('подсказки по неполному номеру двигате
     const { sqlite, db } = makeDb();
     addEngine(sqlite, 'e-1', { engineNumber: 'Э06АТ0889' });
 
-    expect(await suggestEnginesByNumberFragment(db, { q: 'акт' })).toEqual([]);
-    expect(await suggestEnginesByNumberFragment(db, { q: 'приёмка' })).toEqual([]);
-    expect(await suggestEnginesByNumberFragment(db, { q: 'Э06АТ0889' })).toEqual([]);
+    expect(await suggestEnginesByNumberFragment(db, { q: 'акт' })).toEqual({ suggestions: [], total: 0 });
+    expect(await suggestEnginesByNumberFragment(db, { q: 'приёмка' })).toEqual({ suggestions: [], total: 0 });
+    expect(await suggestEnginesByNumberFragment(db, { q: 'Э06АТ0889' })).toEqual({ suggestions: [], total: 0 });
     sqlite.close();
   });
 
@@ -109,7 +109,7 @@ describe('подсказки по неполному номеру двигате
     const { sqlite, db } = makeDb();
     addEngine(sqlite, 'e-1', { engineNumber: 'Э06АТ0889' });
 
-    expect(await suggestEnginesByNumberFragment(db, { q: '088' })).toEqual([]);
+    expect(await suggestEnginesByNumberFragment(db, { q: '088' })).toEqual({ suggestions: [], total: 0 });
     sqlite.close();
   });
 
@@ -117,7 +117,7 @@ describe('подсказки по неполному номеру двигате
     const { sqlite, db } = makeDb();
     addStrictEngine(sqlite, 'e-strict', 'Э06АТ0777');
 
-    const suggestions = await suggestEnginesByNumberFragment(db, { q: '0777' });
+    const { suggestions } = await suggestEnginesByNumberFragment(db, { q: '0777' });
     expect(suggestions.map((s) => s.engineNumber)).toEqual(['Э06АТ0777']);
     sqlite.close();
   });
@@ -129,7 +129,7 @@ describe('подсказки по неполному номеру двигате
       .prepare(`INSERT INTO erp_engine_numbers (id, seq, created_at, updated_at) VALUES (?,?,1,1)`)
       .run('e-1', 451);
 
-    const suggestions = await suggestEnginesByNumberFragment(db, { q: '0889' });
+    const { suggestions } = await suggestEnginesByNumberFragment(db, { q: '0889' });
     expect(suggestions[0]?.internalNumberFull).toBe('41/26');
     expect(suggestions[0]?.rmzCode).toBe('RMZ451');
     sqlite.close();
@@ -139,8 +139,29 @@ describe('подсказки по неполному номеру двигате
     const { sqlite, db } = makeDb();
     for (let i = 0; i < 5; i += 1) addEngine(sqlite, `e-${i}`, { engineNumber: `Э06АТ${i}0889` });
 
-    const suggestions = await suggestEnginesByNumberFragment(db, { q: '0889', limit: 2 });
+    const { suggestions } = await suggestEnginesByNumberFragment(db, { q: '0889', limit: 2 });
     expect(suggestions).toHaveLength(2);
+    sqlite.close();
+  });
+
+  // Решение владельца 27.11.2026: подвал выпадашки говорит «показать ещё» —
+  // для этого сервис должен знать, сколько нашлось ВСЕГО, а не сколько показал.
+  it('total — сколько нашлось всего, даже когда выдача обрезана лимитом', async () => {
+    const { sqlite, db } = makeDb();
+    for (let i = 0; i < 15; i += 1) addEngine(sqlite, `e-${i}`, { engineNumber: `Э06АТ${i}0889` });
+
+    const { suggestions, total } = await suggestEnginesByNumberFragment(db, { q: '0889', limit: 12 });
+    expect(suggestions).toHaveLength(12);
+    expect(total).toBe(15);
+    sqlite.close();
+  });
+
+  it('total совпадает с выдачей, когда совпадений немного', async () => {
+    const { sqlite, db } = makeDb();
+    addEngine(sqlite, 'e-1', { engineNumber: 'Э06АТ0889' });
+
+    const { suggestions, total } = await suggestEnginesByNumberFragment(db, { q: '0889' });
+    expect(total).toBe(suggestions.length);
     sqlite.close();
   });
 });

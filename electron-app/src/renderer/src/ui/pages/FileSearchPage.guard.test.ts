@@ -162,6 +162,30 @@ describe('модуль «Поиск по файлам»: сторож формы
     expect(PAGE).toContain('value: item.engineNumber');
   });
 
+  // Решение владельца 27.11.2026 (промт КАРМАНА #155): подсказок по умолчанию
+  // 12, раскрыть можно до 20 — кнопкой «показать ещё» в подвале выпадашки.
+  // Три правила, которые легко сломать правкой страницы:
+  // 1. Список по умолчанию — 12, раскрытый — до потолка 20.
+  // 2. «Показать ещё» — это НОВЫЙ запрос с бо́льшим лимитом, а не показ уже
+  //    пришедшего: сервис отдаёт первые N по порядку (точное → суффикс →
+  //    вхождение), и без нового запроса показать нечего.
+  // 3. Потолок показан честно («показаны первые 20 из 27»), а не молча.
+  it('подсказки раскрываются кнопкой «показать ещё» до потолка 20', () => {
+    expect(PAGE).toContain('FILE_SEARCH_ENGINE_SUGGEST_LIMIT');
+    expect(PAGE).toContain('FILE_SEARCH_ENGINE_SUGGEST_MAX_LIMIT');
+    expect(PAGE).toContain('loadMoreSuggestions');
+    expect(PAGE).toContain('fileSearchEngineSuggestFooter');
+    // Компонент по умолчанию режет список до 15 — страница потолок поднимает.
+    expect(PAGE).toContain('previewLimit={Math.max(1, suggestOptions.length)}');
+    expect(PAGE).toContain('footer: suggestFooter');
+  });
+
+  it('раскрытие подсказок относится к текущему вводу, а не к прошлому', () => {
+    // Ответ на «показать ещё» принимается, только если в строке то же самое.
+    expect(PAGE).toContain('prev.q === q');
+    expect(PAGE).toContain('suggestState.q === query.trim()');
+  });
+
   it('переключение режимов не сбрасывает отбор картинок', () => {
     // Смена режима — только setMode: отметки и превью остаются.
     expect(PAGE).toContain('onClick={() => setMode(item.code)}');
