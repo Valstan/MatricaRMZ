@@ -62,6 +62,20 @@ export function SuggestInput(props: {
    * для слова нет. Список пришёл — выпадашка открывается сама.
    */
   waitForOptions?: boolean;
+  /**
+   * Сколько строк показывать в списке.
+   *
+   * Исторический потолок компонента — 15: список читают глазами, длиннее
+   * выпадашка не нужна. Места, где подсказок бывает много (номер двигателя с
+   * кнопкой «показать ещё»), поднимают потолок явно.
+   */
+  previewLimit?: number;
+  /**
+   * Подвал выпадашки: «показать ещё» (кнопка) или заметка (без `onClick`).
+   *
+   * Необязательный: поведение по умолчанию прежнее — подвала нет.
+   */
+  footer?: { label: string; onClick?: () => void };
   style?: React.CSSProperties;
   // Auto-close the dropdown after this many ms without interaction
   // (typing, arrow keys, hover/scroll over the list). Typing reopens it.
@@ -69,7 +83,9 @@ export function SuggestInput(props: {
   autoHideMs?: number;
 }) {
   const disabled = props.disabled === true;
-  const previewLimit = 15;
+  const previewLimit = Math.max(1, Math.trunc(Number(props.previewLimit ?? 15)) || 15);
+  // Локальная копия: сужение `props.footer` теряется внутри обработчика клика.
+  const footer = props.footer;
   const hints = useComponentSuggestionSuppress();
   const waitForOptions = props.waitForOptions === true;
 
@@ -315,6 +331,36 @@ export function SuggestInput(props: {
                     </div>
                   );
                 })}
+                {footer ? (
+                  <div style={{ borderTop: '1px dashed var(--border)', padding: '8px 12px' }}>
+                    {footer.onClick ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Клик по подвалу — это взаимодействие: продлеваем
+                          // жизнь выпадашки. Иначе автоскрытие (3 с) гасит её
+                          // раньше, чем оператор увидит догруженный список.
+                          bumpAutoHide();
+                          footer.onClick?.();
+                        }}
+                        style={{
+                          width: '100%',
+                          textAlign: 'left',
+                          padding: '6px 8px',
+                          borderRadius: 8,
+                          border: '1px solid var(--input-border)',
+                          background: 'var(--input-bg)',
+                          color: 'var(--text)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {footer.label}
+                      </button>
+                    ) : (
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{footer.label}</div>
+                    )}
+                  </div>
+                ) : null}
                 {props.onCreate && (
                   <div style={{ borderTop: '1px dashed var(--border)', padding: '10px 12px' }}>
                     <button

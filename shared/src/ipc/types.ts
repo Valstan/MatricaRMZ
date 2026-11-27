@@ -1679,7 +1679,7 @@ export type MatricaApi = {
      * номер, подсказок не даёт.
      */
     engineNumberSuggestions: (args: { q: string; limit?: number }) => Promise<
-      { ok: true; suggestions: FileSearchEngineSuggestion[] } | { ok: false; error: string }
+      { ok: true; suggestions: FileSearchEngineSuggestion[]; total: number } | { ok: false; error: string }
     >;
     /** Крупное превью картинки — по id, который выдал главный процесс. */
     imagePreview: (args: { id: string }) => Promise<

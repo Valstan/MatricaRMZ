@@ -434,17 +434,19 @@ export function registerFileSearchIpc(ctx: IpcContext) {
   ipcMain.handle(
     'fileSearch:engineNumberSuggestions',
     async (_e, args: { q?: string; limit?: number }): Promise<
-      { ok: true; suggestions: FileSearchEngineSuggestion[] } | Err
+      { ok: true; suggestions: FileSearchEngineSuggestion[]; total: number } | Err
     > => {
       const gate = await requirePermOrResult(ctx, 'engines.view');
       if (!gate.ok) return gate as Err;
       try {
         const rawLimit = args?.limit;
-        const suggestions = await suggestEnginesByNumberFragment(ctx.dataDb(), {
+        const result = await suggestEnginesByNumberFragment(ctx.dataDb(), {
           q: String(args?.q ?? ''),
           ...(rawLimit == null ? {} : { limit: Number(rawLimit) }),
         });
-        return { ok: true, suggestions };
+        // `total` — сколько всего нашлось: по нему подвал выпадашки говорит
+        // «показать ещё» или честно предупреждает о потолке.
+        return { ok: true, suggestions: result.suggestions, total: result.total };
       } catch (e) {
         return { ok: false, error: String(e) };
       }

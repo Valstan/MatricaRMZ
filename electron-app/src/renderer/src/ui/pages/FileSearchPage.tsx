@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ENGINE_CARD_TRANSFER_TARGETS,
+  FILE_SEARCH_ENGINE_SUGGEST_LIMIT,
+  FILE_SEARCH_ENGINE_SUGGEST_MAX_LIMIT,
   buildEngineCardTransferPreview,
   compareFindingsWithCard,
   engineCardMissingCharacteristics,
+  fileSearchEngineSuggestFooter,
   groupFolderImagesByMatch,
   isFileSearchEngineNumberLike,
   parseTransferDate,
@@ -200,8 +203,17 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
    *
    * Оператор набирает «0889» — а движок в базе один, и номер у него полный.
    * Подсказка показывает полный номер; выбор подставляет его в строку.
+   *
+   * Держим вместе с запросом (`q`): и список, и подвал «показать ещё»
+   * относятся к тому, что сейчас набрано, — иначе старая выдача подмешалась бы
+   * в новую. `total` — сколько нашлось всего: по нему подвал говорит «показать
+   * ещё» или честно предупреждает о потолке.
    */
-  const [suggestions, setSuggestions] = useState<FileSearchEngineSuggestion[]>([]);
+  const [suggestState, setSuggestState] = useState<{
+    q: string;
+    suggestions: FileSearchEngineSuggestion[];
+    total: number;
+  }>({ q: '', suggestions: [], total: 0 });
 
   // ── Действия над отмеченными файлами (промт КАРМАНА #158) ─────────────────
   //
@@ -248,16 +260,23 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
   useEffect(() => {
     const q = query.trim();
     if (!isFileSearchEngineNumberLike(q)) {
-      setSuggestions([]);
+      setSuggestState({ q: '', suggestions: [], total: 0 });
       return;
     }
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const res = await window.matrica.fileSearch.engineNumberSuggestions({ q });
-        if (!cancelled) setSuggestions(res.ok ? res.suggestions : []);
+        const res = await window.matrica.fileSearch.engineNumberSuggestions({
+          q,
+          limit: FILE_SEARCH_ENGINE_SUGGEST_LIMIT,
+        });
+        if (!cancelled) {
+          setSuggestState(
+            res.ok ? { q, suggestions: res.suggestions, total: res.total } : { q, suggestions: [], total: 0 },
+          );
+        }
       } catch {
-        if (!cancelled) setSuggestions([]);
+        if (!cancelled) setSuggestState({ q, suggestions: [], total: 0 });
       }
     }, SUGGEST_DEBOUNCE_MS);
     return () => {
@@ -266,17 +285,50 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
     };
   }, [query]);
 
+  /**
+   * «Показать ещё» (решение владельца 27.11.2026): по умолчанию 12 подсказок,
+   * раскрыть можно до 20 — дальше потолок и честная заметка.
+   *
+   * Это отдельный запрос, а не показ уже пришедшего: сервис отдаёт первые N по
+   * порядку (точное → суффикс → вхождение), и без нового запроса показать
+   * нечего. Ответ принимаем, только если запрос в строке не сменился.
+   */
+  const loadMoreSuggestions = useCallback(async () => {
+    const q = query.trim();
+    if (!isFileSearchEngineNumberLike(q)) return;
+    const res = await window.matrica.fileSearch
+      .engineNumberSuggestions({ q, limit: FILE_SEARCH_ENGINE_SUGGEST_MAX_LIMIT })
+      .catch(() => null);
+    if (!res || !res.ok) return;
+    setSuggestState((prev) => (prev.q === q ? { q, suggestions: res.suggestions, total: res.total } : prev));
+  }, [query]);
+
   /** Подсказки для выпадашки: номер двигателя и чем он ещё узнаваем. */
-  const suggestOptions = useMemo(
-    () =>
-      suggestions.map((item) => {
-        const details = [item.internalNumberFull ? `внутр. ${item.internalNumberFull}` : '', item.rmzCode ?? '']
-          .filter(Boolean)
-          .join(' · ');
-        return { value: item.engineNumber, ...(details ? { description: details } : {}) };
-      }),
-    [suggestions],
-  );
+  const suggestOptions = useMemo(() => {
+    const list = suggestState.q === query.trim() ? suggestState.suggestions : [];
+    return list.map((item) => {
+      const details = [item.internalNumberFull ? `внутр. ${item.internalNumberFull}` : '', item.rmzCode ?? '']
+        .filter(Boolean)
+        .join(' · ');
+      return { value: item.engineNumber, ...(details ? { description: details } : {}) };
+    });
+  }, [suggestState, query]);
+
+  /**
+   * Подвал выпадашки подсказок: кнопка «показать ещё» или заметка «показаны
+   * первые 20 из 27». Показываем, только когда подсказки относятся к текущему
+   * вводу.
+   */
+  const suggestFooter = useMemo(() => {
+    if (suggestState.q !== query.trim()) return undefined;
+    const footer = fileSearchEngineSuggestFooter({
+      total: suggestState.total,
+      loaded: suggestState.suggestions.length,
+    });
+    if (footer.kind === 'none') return undefined;
+    if (footer.kind === 'capped') return { label: footer.label };
+    return { label: footer.label, onClick: () => void loadMoreSuggestions() };
+  }, [suggestState, query, loadMoreSuggestions]);
 
   const persistSources = useCallback(async (next: FileSearchSource[]) => {
     setSources(next);
@@ -1083,6 +1135,10 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
               onChange={setQuery}
               onSubmit={() => void (mode === 'content' ? runSearch() : runFolderSearch())}
               waitForOptions
+              // Показываем всю пришедшую выдачу: список по умолчанию — 12, но
+              // раскрытый — до 20, а компонент по умолчанию режет до 15.
+              previewLimit={Math.max(1, suggestOptions.length)}
+              {...(suggestFooter ? { footer: suggestFooter } : {})}
               placeholder={mode === 'content' ? 'Например: 41/26' : 'Например: Э06АТ0889'}
             />
           </div>

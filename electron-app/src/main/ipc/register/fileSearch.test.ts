@@ -262,9 +262,26 @@ describe('режим «Фото двигателя» и подсказки по 
     const res = (await suggest({}, { q: '0889' })) as {
       ok: boolean;
       suggestions: { id: string; engineNumber: string }[];
+      total: number;
     };
     expect(res.ok).toBe(true);
     expect(res.suggestions.map((s) => s.engineNumber)).toEqual(['Э06АТ0889']);
+    expect(res.total).toBe(1);
+  });
+
+  // Решение владельца 27.11.2026: подвал выпадашки («показать ещё») считает по
+  // `total` — сколько нашлось, а не сколько показали.
+  it('total считает все совпадения, даже когда выдача обрезана лимитом', async () => {
+    for (let i = 0; i < 4; i += 1) addEngine(sqlite, `e-${i}`, `Э06АТ${i}0889`);
+
+    const suggest = handlers.get('fileSearch:engineNumberSuggestions')!;
+    const res = (await suggest({}, { q: '0889', limit: 2 })) as {
+      ok: boolean;
+      suggestions: unknown[];
+      total: number;
+    };
+    expect(res.suggestions).toHaveLength(2);
+    expect(res.total).toBe(4);
   });
 
   it('слово подсказок не даёт', async () => {

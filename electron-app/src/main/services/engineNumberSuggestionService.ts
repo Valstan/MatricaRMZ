@@ -26,7 +26,7 @@ import {
   formatEngineInternalNumber,
   formatEngineRmzNumber,
   isFileSearchEngineNumberLike,
-  rankFileSearchEngineSuggestions,
+  rankAllFileSearchEngineSuggestions,
   type FileSearchEngineSuggestion,
 } from '@matricarmz/shared';
 
@@ -124,6 +124,20 @@ async function collectEngineNumberCandidates(
 }
 
 /**
+ * Ответ сервиса подсказок.
+ *
+ * `total` — сколько всего нашлось совпадений в базе, а не только сколько
+ * показали: иначе подвал выпадашки не может честно сказать «показаны первые
+ * 20 из 27» (решение владельца 27.11.2026).
+ */
+export type FileSearchEngineSuggestionResult = {
+  /** Подсказки к показу — по порядку выдачи, не больше лимита. */
+  suggestions: FileSearchEngineSuggestion[];
+  /** Сколько всего нашлось совпадений. */
+  total: number;
+};
+
+/**
  * Подсказки по неполному номеру двигателя.
  *
  * Порядок выдачи — доменный (точное → суффикс → вхождение), потолок — лимит.
@@ -133,17 +147,20 @@ async function collectEngineNumberCandidates(
 export async function suggestEnginesByNumberFragment(
   db: BetterSQLite3Database,
   args: { q: string; limit?: number },
-): Promise<FileSearchEngineSuggestion[]> {
+): Promise<FileSearchEngineSuggestionResult> {
   const raw = String(args?.q ?? '');
-  if (!isFileSearchEngineNumberLike(raw)) return [];
+  if (!isFileSearchEngineNumberLike(raw)) return { suggestions: [], total: 0 };
   const digits = fileSearchEngineQueryDigits(raw);
-  if (!digits) return [];
+  if (!digits) return { suggestions: [], total: 0 };
 
   const rawLimit = Number(args?.limit ?? FILE_SEARCH_ENGINE_SUGGEST_LIMIT);
   const limit = Math.min(Math.max(Math.trunc(rawLimit) || 0, 1), FILE_SEARCH_ENGINE_SUGGEST_MAX_LIMIT);
 
   const candidates = await collectEngineNumberCandidates(db, digits);
-  const ranked = rankFileSearchEngineSuggestions(candidates, digits, limit);
+  // Сначала ВСЯ выдача: из неё и лимит, и честное «всего нашлось».
+  const rankedAll = rankAllFileSearchEngineSuggestions(candidates, digits);
+  const total = rankedAll.length;
+  const ranked = rankedAll.slice(0, limit);
 
   const out: FileSearchEngineSuggestion[] = [];
   for (const item of ranked) {
@@ -164,5 +181,5 @@ export async function suggestEnginesByNumberFragment(
       ...(rmzCode ? { rmzCode } : {}),
     });
   }
-  return out;
+  return { suggestions: out, total };
 }
