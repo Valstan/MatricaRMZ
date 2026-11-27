@@ -4,6 +4,7 @@ import type { EngineListItem } from '../ipc/types.js';
 import type { RepairStageTemplate } from './repairStages.js';
 
 import {
+  ENGINE_FACETS,
   activeEngineFacetCount,
   applyEngineFacets,
   clearEngineFacet,
@@ -467,6 +468,31 @@ describe('«Текущее состояние» гасит «Дату этапа
     expect(isStageEntriesActive({ factoryStage: ['stage:ukladka'], hasStage: ['stage:sborka'] })).toBe(false);
     expect(isStageEntriesActive({ hasStage: ['stage:sborka'] })).toBe(true);
     expect(isStageEntriesActive({ stageDate: { from: '2026-10-01' } })).toBe(true);
+    // «Этап ремонта» — тоже вопрос про движение: в отчёте «Сейчас на заводе» выбранный этап
+    // раскрывает список в строки-проходы (прежде это делала ступень «История» — отбор по
+    // этапу в отчёте должен давать тот же результат, промт КАРМАНА #181).
+    expect(isStageEntriesActive({ repairStage: ['repair:sborka'] })).toBe(true);
+    expect(isStageEntriesActive({ factoryStage: ['scrap'], repairStage: ['repair:sborka'] })).toBe(false);
+  });
+
+  it('ни одна ступень не предлагает значение этапа, которое предлагает другая', () => {
+    // Задвоение этапов в выпадающем списке (жалоба владельца): один и тот же этап не должен
+    // предлагаться двумя ступенями сразу. «История» (`stage:`) и «Этап ремонта» (`repair:`)
+    // — разные вопросы и разные пространства имён, а вот «Текущее состояние» этапов ремонта
+    // не предлагает вовсе.
+    const owners = new Map<string, string[]>();
+    for (const facet of ENGINE_FACETS) {
+      if (facet.kind !== 'values') continue;
+      for (const option of facet.options ?? []) {
+        if (!option.value.startsWith('stage:') && !option.value.startsWith('repair:')) continue;
+        owners.set(option.value, [...(owners.get(option.value) ?? []), facet.id]);
+      }
+    }
+    for (const [value, ids] of owners) {
+      expect(ids, `этап «${value}» предлагают две ступени: ${ids.join(', ')}`).toHaveLength(1);
+    }
+    // Служебный этап в ряд не попадает ни в одну ступень.
+    expect([...owners.keys()].some((v) => v.endsWith('card_created'))).toBe(false);
   });
 });
 // Владелец 16.09.2026: «в фильтре этапа нет обкатки» — ни один двигатель в ней не стоял, а ряд

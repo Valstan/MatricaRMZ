@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { REPORT_PRESET_DEFINITIONS, REPORT_PRESET_THEMES, resolveReportPresetId } from '@matricarmz/shared';
+import { REPORT_PRESET_DEFINITIONS, REPORT_PRESET_THEMES, engineFacets, resolveReportPresetId } from '@matricarmz/shared';
 import { describe, expect, it } from 'vitest';
 
 import { LIST_REPORT_PAGES } from './listReportPages.js';
@@ -117,7 +117,28 @@ describe('отчёт-список «сейчас на заводе»', () => {
     expect(SHARED_FACETS).toContain("label: 'Этап ремонта',");
   });
 
-  it('проход отчёта несёт СВОЙ этап — отбор по этапу не путает проход с двигателем', () => {
+  it('этапы предлагает РОВНО одна ступень отчёта — задвоения в выпадающем списке нет', () => {
+    // Поведенческая проверка, а не сверка строки исходника: берём настоящий ряд ступеней
+    // из домена и считаем, сколько из них предлагают значения этапов. Их должен быть
+    // ровно один — иначе в выпадающем списке один и тот же этап появится дважды
+    // (жалоба владельца: «этапы задвоены»).
+    const raw = PAGE.match(/const FACET_IDS = \[([^\]]*)\]/)?.[1] ?? '';
+    const facetIds = (raw.match(/'[^']+'/g) ?? []).map((s) => s.slice(1, -1));
+    const all = engineFacets(undefined, undefined, {});
+    const stageSteps = facetIds.filter((id) => {
+      const facet = all.find((f) => f.id === id);
+      if (!facet || facet.kind !== 'values') return false;
+      return (facet.options ?? []).some((o) => o.value.startsWith('stage:') || o.value.startsWith('repair:'));
+    });
+    expect(stageSteps, 'этапы предлагают несколько ступеней — в списке они задвоятся').toEqual(['repairStage']);
+  });
+
+  it('отбор по этапу в отчёте раскрывает строки-проходы и берёт этап САМОЙ строки', () => {
+    // Прежний отбор по этапу («История») давал строки-проходы выбранного этапа. Ступень
+    // «Этап ремонта» должна давать тот же результат: раскрыть отчёт в проходы и отбирать
+    // их по своему этапу, а не по последнему этапу двигателя.
+    expect(PAGE, 'отчёт не читает выбранные этапы ремонта').toContain('repairStageCodesFromSelection(');
+    expect(PAGE, 'срез по этапу потерян — двигатель без проходов не показывается').toContain('rowStageCode: code,');
     expect(PAGE, 'строка-проход снова несёт все этапы двигателя — срез неточный').toContain('stageCodes: [entry.code]');
     expect(PAGE, 'у прохода нет своего этапа — ступень «Этап ремонта» отбирала бы по последнему этапу двигателя').toContain('rowStageCode: entry.code');
     expect(PAGE).toContain('stageDates: { [entry.code]: entry.at }');

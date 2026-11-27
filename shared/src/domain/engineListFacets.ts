@@ -238,13 +238,19 @@ export function stripStageDateWhenWhereNow(selection: EngineFacetSelection): Eng
  * движение — выбранные «История» или период «Даты этапа». Иначе (и при активном
  * «Текущем состоянии») — одна строка на двигатель с текущим местом: обстановка, а не лента.
  *
- * Отбор по этапу ремонта («Этап ремонта») раскрытия НЕ включает: он отбирает строки по
- * этапу СТРОКИ, а строки-проходы появляются от вопроса про движение (промт КАРМАНА #181).
+ * Отбор по этапу ремонта («Этап ремонта») — тоже вопрос про движение: в отчёте «Сейчас на
+ * заводе» выбранный этап раскрывает список в строки-проходы, и ступень отбирает их по
+ * этапу САМОЙ строки (промт КАРМАНА #181). Раньше этот вопрос задавала ступень «История»,
+ * и отбор по этапу в отчёте давал ровно строки-проходы выбранного этапа — столько же должен
+ * давать и «Этап ремонта». В списке двигателей ступень работает по последнему этапу
+ * двигателя (одна строка на двигатель), и раскрытия там нет.
  */
 export function isStageEntriesActive(selection: EngineFacetSelection): boolean {
   if (isFactoryStageActive(selection)) return false;
   const picked = selection?.hasStage;
   if (Array.isArray(picked) && picked.length > 0) return true;
+  const repairPicked = selection?.repairStage;
+  if (Array.isArray(repairPicked) && repairPicked.length > 0) return true;
   return facetRangeOf(SELECTION(selection), 'stageDate') != null;
 }
 
@@ -330,21 +336,29 @@ function repairDeadlineKey(e: EngineListItem, now = Date.now()): RepairDeadlineK
 }
 
 /**
- * Коды этапов, выбранные в ступени «История» (значения вида `stage:<код>`), — в нижнем
- * регистре, как они лежат в строках проходов. «этапов нет» кодом не является.
+ * Коды этапов, выбранные в ступенях этапов («История» — значения `stage:<код>`,
+ * «Этап ремонта» — `repair:<код>`), — в нижнем регистре, как они лежат в строках проходов.
+ * «этапов нет» кодом не является.
+ *
+ * Выбранный этап сужает ступень «Дата этапа»: «Сборка» + день — это «прошёл сборку в этот
+ * день», а не «когда-то прошёл сборку и в этот день был где-то ещё». Раньше это правило
+ * читало только «Историю», а «Этап ремонта» в том же отчёте отвечает на тот же вопрос про
+ * этап — значит, он сужает дату так же (промт КАРМАНА #181).
  */
 function pickedStageCodes(selection?: EngineFacetSelection): string[] {
-  const raw = selection?.hasStage;
-  if (!Array.isArray(raw)) return [];
+  const raw = [
+    ...(Array.isArray(selection?.hasStage) ? selection.hasStage : []),
+    ...(Array.isArray(selection?.repairStage) ? selection.repairStage : []),
+  ];
   const out: string[] = [];
   for (const value of raw) {
     const s = text(value);
-    if (!s.startsWith('stage:')) continue;
-    const code = s.slice('stage:'.length).trim().toLowerCase();
-    if (!code) continue;
+    const code = s.startsWith('stage:') ? s.slice('stage:'.length) : s.startsWith('repair:') ? s.slice('repair:'.length) : '';
+    const c = code.trim().toLowerCase();
+    if (!c) continue;
     // Равные этапы (приёмка по рекламации = приёмка): выбрана «приёмка» — отбор
     // ловит и приезд по рекламации (владелец 11.11.2026).
-    for (const eq of equivalentStageCodes(code)) if (!out.includes(eq)) out.push(eq);
+    for (const eq of equivalentStageCodes(c)) if (!out.includes(eq)) out.push(eq);
   }
   return out;
 }
