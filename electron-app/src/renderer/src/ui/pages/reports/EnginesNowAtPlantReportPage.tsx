@@ -198,11 +198,14 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
   const rows = useMemo<Row[]>(
     () => {
       const now = Date.now();
-      const expand = entriesActive;
       // Выбранные этапы ремонта (коды, без префикса) — срез отчёта. Раньше этот вопрос задавала
       // ступень «История» (значения `stage:<код>`), теперь — «Этап ремонта» (`repair:<код>`),
       // и отбор по этапу в отчёте должен давать ровно тот же результат (промт КАРМАНА #181).
       const pickedCodes = repairStageCodesFromSelection((activeFacets as EngineFacetSelection).repairStage);
+      // Раскрытие в строки-проходы — как раньше при ступени «История»: выбранный этап
+      // (или период) открывает ленту проходов, и «Этап ремонта» отбирает проходы этого этапа.
+      // При активном «Текущем состоянии» ленты нет — это обстановка, а не лента.
+      const expand = !whereNowActive && (entriesActive || pickedCodes.length > 0);
       return props.engines
         .filter(isEngineAtPlant)
         // «Сейчас на заводе» — срез ТЕКУЩЕГО заезда (владелец 13.11.2026): этапы прошлого
@@ -297,7 +300,7 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
           return [base];
         });
     },
-    [props.engines, types, stageTemplates, workshopNameById, entriesActive, activeFacets],
+    [props.engines, types, stageTemplates, workshopNameById, entriesActive, activeFacets, whereNowActive],
   );
 
   const columns = useMemo<Column[]>(
