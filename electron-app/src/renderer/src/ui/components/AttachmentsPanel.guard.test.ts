@@ -116,6 +116,61 @@ describe('повторное взятие не плодит дублей', () =>
   });
 });
 
+describe('«Открыть» на планшете открывает файл В ПРОГРАММЕ (27.11.2026)', () => {
+  const VIEWER = src('./AttachmentOriginalViewer.tsx');
+  const TABLET_DOMAINS = src('../../../../../../android-app/src/core/tabletDomains.ts');
+  const FILES_BRIDGE = src('../../../../../../android-app/src/core/filesBridge.ts');
+
+  it('на планшете берётся оригинал, а не файловая система', () => {
+    // Канала files:open на планшете нет (шим отвечает «канал не заведён на
+    // планшете»), и оператор видел внутренний текст вместо результата. Оригинал
+    // программа умеет — тем же путём, что галерея фото двигателей.
+    expect(PANEL).toContain('files.originalGet');
+    expect(PANEL).toContain('openFileOnTablet');
+  });
+
+  it('компьютер открывает файл в системе — как было', () => {
+    expect(PANEL).toContain('window.matrica.files.open({ fileId: f.id })');
+  });
+
+  it('просмотр оригинала рисуется порталом поверх окна', () => {
+    // На планшете `position: fixed` внутри прокручиваемого предка рисуется в слое
+    // предка — без портала просмотр уехал бы под панель.
+    expect(PANEL).toContain('AttachmentOriginalViewer');
+    expect(VIEWER).toContain('PopupLayer');
+  });
+
+  it('прочий файл на планшете объясняется словами, а не техническим отказом', () => {
+    expect(PANEL).toContain('На планшете открываются фото');
+    // Отказ оператору показывается словами: служебная приставка шима
+    // («канал не заведён на планшете: …») в экран не попадает. Сырой ответ
+    // сервера уходит в лог клиента — инженеру, а не оператору.
+    const openOnTablet = PANEL.slice(PANEL.indexOf('async function openFileOnTablet'));
+    expect(openOnTablet, 'оператору сказано словами').toContain('Файл не открылся');
+    expect(openOnTablet, 'сырой ответ сервера ушёл в лог клиента').toContain(
+      "console.warn('[files] оригинал вложения не открылся:', r.error)",
+    );
+    // В ветке отказа ответ сервера не подставляется в сообщение оператору.
+    const failBranch = openOnTablet.slice(
+      openOnTablet.indexOf('if (!r.ok)'),
+      openOnTablet.indexOf('if (!isImageFile(file))'),
+    );
+    const shown = (failBranch.match(/setBusy\(([^)]*)\)/g) ?? []).join(' ');
+    expect(shown, 'отказ на планшете показан сырым текстом шима').not.toContain('r.error');
+  });
+
+  it('канал оригинала на планшете действительно заведён', () => {
+    // Правка панели бессмысленна, если мост планшета его не отдаёт.
+    expect(FILES_BRIDGE).toContain("ipcMain.handle('files:original:get'");
+    // И если канал попал в список «каналов Files, которых на планшете нет» — шим
+    // откажет раньше, чем мост ответит. Значит, в блоке Files его быть не должно.
+    const filesBlock = TABLET_DOMAINS.split("domain: 'Files'")[1]?.split('domain:')[0] ?? '';
+    expect(filesBlock, 'files:original:get попал в список недоступных на планшете').not.toContain(
+      'files:original:get',
+    );
+  });
+});
+
 describe('прикрепление выделенного с Верстака (промт КАРМАНА #144)', () => {
   it('панель забирает намерение по своему scope — чужая карточка его не примет', () => {
     // У карточки свой `scope` (род, id, категория). Без сверки записка уехала бы в первую же
