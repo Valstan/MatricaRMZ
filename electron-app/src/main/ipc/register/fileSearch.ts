@@ -30,6 +30,11 @@ import {
   resolveImagePath,
   searchFolderSources,
 } from '../../services/fileSearchFolderService.js';
+import {
+  FOLDER_INDEX_DIR_NAME,
+  FolderIndexService,
+  type FolderIndexProgress,
+} from '../../services/folderIndexService.js';
 import { readLocalImagePreview } from '../../services/localImagePreview.js';
 import { beginSearchProgress } from '../../services/searchProgress.js';
 import { osPrintWizardAvailable } from '../../services/localImagePrint.js';
@@ -37,6 +42,7 @@ import { photosAssemblePdfLocalPaths } from '../../services/fileService.js';
 import { printPhotos } from '../../services/photoPrint.js';
 import { removeStagedFolder, stageLocalFiles } from '../../services/localFileStaging.js';
 import { resolveReferenceLabels } from '../../services/fileSearchReferenceService.js';
+import { appendMainLogLine } from '../../utils/logger.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
 
 type Err = { ok: false; error: string };
@@ -131,7 +137,58 @@ function parseFolderMap(raw: string | null): Record<string, FileSearchFolderSour
  * источникам хранятся машинно-локально (`sync_state`) — профиль роумится, а
  * путь на другой машине невалиден.
  */
-export function registerFileSearchIpc(ctx: IpcContext) {
+export function registerFileSearchIpc(
+  ctx: IpcContext,
+  opts?: {
+    /**
+     * Путь к собранному процессу индексации (`dist/main/folderIndexWorker.js`).
+     *
+     * Без него карта дерева не строится: поиск идёт по диску, как раньше.
+     * Путь приходит снаружи, потому что `import.meta.url` внутри чанка
+     * указывает на `dist/main/chunks/`, а не на `dist/main/`.
+     */
+    folderIndexWorkerPath?: string;
+  },
+) {
+  /**
+   * СЕРВИС КАРТ ДЕРЕВЬЕВ (промт КАРМАНА #180).
+   *
+   * Живёт в машинно-локальном хранилище клиента: модуль «Поиск по папкам» только
+   * читает и в папки оператора ничего не пишет, а на сетевой папке прав на
+   * запись может не быть. Индексация идёт отдельным процессом — обход большой
+   * папки не должен замирать в главном процессе.
+   */
+  const folderIndex = opts?.folderIndexWorkerPath
+    ? new FolderIndexService({
+        storageDir: join(app.getPath('userData'), FOLDER_INDEX_DIR_NAME),
+        log: (line) => {
+          try {
+            appendMainLogLine(app, line);
+          } catch {
+            // журнал не должен ронять программу
+          }
+        },
+        onProgress: (progress) => {
+          try {
+            for (const win of BrowserWindow.getAllWindows()) {
+              if (win.isDestroyed()) continue;
+              win.webContents.send('fileSearch:folderIndex:progress', progress);
+            }
+          } catch {
+            // окно могло закрыться — прогресс индексации оператору уже не нужен
+          }
+        },
+        workerPath: opts.folderIndexWorkerPath,
+      })
+    : null;
+
+  /** Карта индекса для поиска: есть свежая — идём по ней, нет — строим в фоне. */
+  const indexLookup = folderIndex
+    ? {
+        load: (source: FileSearchFolderSource) => folderIndex.load(source),
+        requestBuild: (source: FileSearchFolderSource) => folderIndex.requestBuild(source),
+      }
+    : undefined;
   ipcMain.handle('fileSearch:pick', async () => {
     try {
       const parent = BrowserWindow.getFocusedWindow();
@@ -356,7 +413,60 @@ export function registerFileSearchIpc(ctx: IpcContext) {
         const all = parseFolderMap(raw);
         all[userId] = folders;
         await settingsSetString(ctx.sysDb, SettingsKey.FileSearchFolders, JSON.stringify(all));
+        // Добавленная папка индексируется В ФОНЕ (промт КАРМАНА #180): оператор
+        // не ждёт, а следующий поиск по этой папке уже отвечает по карте.
+        // Уже готовую карту не перестраиваем — иначе добавление одной папки
+        // переобходило бы заново все остальные.
+        for (const folder of folders) {
+          const fresh = await folderIndex?.load(folder);
+          if (fresh) continue;
+          folderIndex?.requestBuild(folder);
+        }
         return { ok: true };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+  );
+
+  /**
+   * Состояния индексации папок — для полосы на экране поиска по папкам.
+   *
+   * Окно могло открыться посреди индексации — поэтому состояние запрашивается
+   * отдельно, а не только приходит событием.
+   */
+  ipcMain.handle('fileSearch:folderIndex:status', async (): Promise<
+    { ok: true; jobs: FolderIndexProgress[] } | Err
+  > => {
+    try {
+      return { ok: true, jobs: folderIndex?.list() ?? [] };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  });
+
+  /**
+   * Построить карту дерева папки — по просьбе оператора.
+   *
+   * Отдельная кнопка нужна на сетевой папке: построение карты стоит как один
+   * полный обход, и выигрыш появляется со второго поиска (развилка владельца).
+   */
+  ipcMain.handle(
+    'fileSearch:folderIndex:build',
+    async (_e, args: { sourceIds?: string[] }): Promise<{ ok: true; queued: number } | Err> => {
+      try {
+        if (!folderIndex) return { ok: false, error: 'Индексация недоступна' };
+        const userId = (await ctx.currentActor()) || 'local';
+        const raw = await settingsGetString(ctx.sysDb, SettingsKey.FileSearchFolders);
+        const folders = parseFolderMap(raw)[userId] ?? [];
+        const wanted = new Set((Array.isArray(args?.sourceIds) ? args.sourceIds : []).map((id) => String(id)));
+        let queued = 0;
+        for (const folder of folders) {
+          if (wanted.size > 0 && !wanted.has(folder.id)) continue;
+          folderIndex.requestBuild(folder);
+          queued += 1;
+        }
+        return { ok: true, queued };
       } catch (e) {
         return { ok: false, error: String(e) };
       }
@@ -388,6 +498,7 @@ export function registerFileSearchIpc(ctx: IpcContext) {
         if (!query || folders.length === 0) {
           const result = await searchFolderSources(folders, query, {
             scope: normalizeFileSearchFolderScope(args?.scope),
+            ...(indexLookup ? { index: indexLookup } : {}),
           });
           return { ok: true, result };
         }
@@ -408,6 +519,9 @@ export function registerFileSearchIpc(ctx: IpcContext) {
                 found: p.found,
                 detail: `В дереве папок: ${p.foldersInTree}`,
               }),
+            // Карта индекса: есть свежая — идём по ней, нет — строим в фоне
+            // (промт КАРМАНА #180).
+            ...(indexLookup ? { index: indexLookup } : {}),
           });
           progress.finish({ state: result.cancelled ? 'cancelled' : 'done' });
           return { ok: true, result };

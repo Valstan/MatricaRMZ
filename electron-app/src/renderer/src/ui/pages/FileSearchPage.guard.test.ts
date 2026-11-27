@@ -217,4 +217,31 @@ describe('модуль «Поиск по файлам»: сторож формы
     expect(PAGE).toContain('fileSearch.stageForShare');
     expect(PAGE).toContain('fileSearch.copyPaths');
   });
+
+  // Промт КАРМАНА #180: карта дерева папки строится в фоне, и оператор должен
+  // ВИДЕТЬ, что идёт: сколько папок и файлов просмотрено, закончилось ли, а если
+  // индексация не завершилась — предупреждение, а не молчание.
+  // Три правила, которые легко сломать правкой страницы:
+  // 1. Прогресс индексации виден на экране поиска по папкам (полоса + счётчики).
+  // 2. Незавершённая индексация видна как предупреждение с причиной.
+  // 3. Общая полоса ПРОГРЕССА ПОИСКА не подменяется полосой индексации: индексация
+  //    фоновая, это разные вещи (см. `searchProgress.ts`).
+  it('прогресс индексации папок виден оператору', () => {
+    expect(PAGE).toContain('data-folder-index-bar');
+    expect(PAGE).toContain('Индексируется:');
+    expect(PAGE).toContain('папок:');
+    expect(PAGE).toContain('файлов:');
+  });
+
+  it('незавершённая индексация видна как предупреждение, а не как молчание', () => {
+    expect(PAGE).toContain('data-folder-index-warning');
+    expect(PAGE).toContain('indexWarnings');
+    expect(PAGE).toContain('не завершилось');
+  });
+
+  it('индексация приходит из главного процесса, а не из renderer', () => {
+    expect(PAGE).toContain('fileSearch.folderIndex');
+    expect(PAGE).toContain('onProgress');
+    expect(PAGE).toContain('Построить индекс');
+  });
 });

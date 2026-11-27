@@ -23,6 +23,7 @@ import {
   type FileSearchResult,
   type FileSearchSource,
   type FileSearchWordMatch,
+  type FolderIndexProgress,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -185,6 +186,14 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
   const [mode, setMode] = useState<FileSearchMode>('content');
   const [folders, setFolders] = useState<FileSearchFolderSource[]>([]);
   const [folderResult, setFolderResult] = useState<FileSearchFolderResult | null>(null);
+  /**
+   * Состояния индексации папок (промт КАРМАНА #180).
+   *
+   * Оператор должен видеть: идёт ли индекс, сколько папок и файлов просмотрено,
+   * закончил ли он — и не завис ли. Поэтому это своя полоса рядом со списком
+   * папок, а не молчание в фоне.
+   */
+  const [folderIndexJobs, setFolderIndexJobs] = useState<FolderIndexProgress[]>([]);
   /** Отмеченные галочками картинки — по id, который выдал главный процесс. */
   const [picked, setPicked] = useState<Set<string>>(new Set());
   /** Крупные превью картинок: id → data-URL. */
@@ -247,6 +256,38 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
       const caps = await window.matrica.fileSearch.printCapabilities().catch(() => null);
       if (caps?.ok) setOsPrintWizard(caps.osPrintWizard);
     })();
+  }, []);
+
+  /**
+   * Прогресс индексации папок (промт КАРМАНА #180).
+   *
+   * Подписка одна на страницу: события идут из главного процесса, а окно могло
+   * открыться посреди индексации — поэтому состояние ещё и запрашивается.
+   */
+  useEffect(() => {
+    let alive = true;
+    const api = window.matrica.fileSearch.folderIndex;
+    const off = api?.onProgress?.((progress: FolderIndexProgress) => {
+      if (!alive) return;
+      setFolderIndexJobs((prev) => {
+        const next = prev.filter((job) => job.sourceId !== progress.sourceId);
+        next.push(progress);
+        return next;
+      });
+    });
+    void api
+      ?.status?.()
+      .then((res) => {
+        if (!alive || !res?.ok) return;
+        setFolderIndexJobs(res.jobs ?? []);
+      })
+      .catch(() => {
+        // Канала нет (старая сборка) — просто без полосы индексации.
+      });
+    return () => {
+      alive = false;
+      off?.();
+    };
   }, []);
 
   /**
@@ -379,6 +420,22 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
   }, [folders, persistFolders]);
 
   /**
+   * Построить карту дерева папок — по просьбе оператора.
+   *
+   * Индексация идёт в фоне отдельным процессом: оператор жмёт и сразу видит
+   * полосу. Построение карты большой папки стоит как один полный обход, поэтому
+   * выигрыш появляется со второго поиска.
+   */
+  const buildFolderIndexes = useCallback(async () => {
+    const res = await window.matrica.fileSearch.folderIndex.build({}).catch(() => null);
+    if (!res?.ok) {
+      setStatus(res?.error ? `Не удалось построить индекс: ${res.error}` : 'Не удалось построить индекс');
+      return;
+    }
+    setStatus(`Индекс папок строится в фоне: в очереди ${res.queued}.`);
+  }, []);
+
+  /**
    * Поиск по названию в папках.
    *
    * Сброс отметок и превью — старые id относятся к прошлому поиску, печатать их
@@ -428,6 +485,25 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
   const imagesByMatch = useMemo(
     () => groupFolderImagesByMatch(folderResult?.images ?? []),
     [folderResult],
+  );
+
+  /** Состояние индексации по каждой папке — по id источника. */
+  const indexJobByFolder = useMemo(() => {
+    const out = new Map<string, FolderIndexProgress>();
+    for (const job of folderIndexJobs) out.set(job.sourceId, job);
+    return out;
+  }, [folderIndexJobs]);
+
+  /** Идёт ли индексация прямо сейчас — по ней рисуется полоса. */
+  const indexingNow = useMemo(
+    () => folderIndexJobs.filter((job) => job.state === 'running'),
+    [folderIndexJobs],
+  );
+
+  /** Не завершилось ли индексирование — оператор должен это видеть. */
+  const indexWarnings = useMemo(
+    () => folderIndexJobs.filter((job) => job.state === 'timeout' || job.state === 'error'),
+    [folderIndexJobs],
   );
 
   useEffect(() => {
@@ -1080,35 +1156,116 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
           <Button variant="primary" onClick={() => void addFolders()} disabled={busy}>
             Добавить папки
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => void buildFolderIndexes()}
+            disabled={busy || folders.length === 0}
+            title="Построить карту дерева папок в фоне: после этого поиск идёт по карте, а не по диску"
+          >
+            Построить индекс
+          </Button>
           <span style={{ color: 'var(--muted)', fontSize: 12 }}>
             {folders.length === 0 ? 'Папки не выбраны' : `Папок: ${folders.length}`}
           </span>
         </div>
+        {indexWarnings.length > 0 ? (
+          <div
+            data-folder-index-warning=""
+            style={{
+              color: 'var(--danger, #b00)',
+              fontSize: 12,
+              marginBottom: 8,
+              padding: '6px 8px',
+              border: '1px solid rgba(176, 0, 0, 0.35)',
+              borderRadius: 8,
+              background: 'rgba(176, 0, 0, 0.06)',
+            }}
+          >
+            {indexWarnings
+              .map((job) => `«${job.sourceName}»: ${job.message ?? 'индексация не удалась'}`)
+              .join('; ')}
+          </div>
+        ) : null}
+        {indexingNow.length > 0 ? (
+          <div data-folder-index-bar="" style={{ marginBottom: 8 }}>
+            {indexingNow.map((job) => (
+              <div key={job.sourceId} style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text, inherit)' }}>
+                    Индексируется: {job.sourceName}
+                  </span>
+                  <span>
+                    папок: {job.folders}, файлов: {job.files}
+                    {job.current ? ` · сейчас: ${job.current}` : ''}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    position: 'relative',
+                    height: 6,
+                    borderRadius: 999,
+                    background: 'rgba(15, 23, 42, 0.12)',
+                    overflow: 'hidden',
+                    marginTop: 3,
+                  }}
+                >
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      width: '100%',
+                      background: 'var(--button-primary-bg, #2563eb)',
+                      opacity: 0.45,
+                      transition: 'opacity 0.6s ease',
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {folders.length > 0 ? (
           <table className="table" style={{ width: '100%' }}>
             <thead>
               <tr>
                 <th>Папка</th>
                 <th>Путь</th>
+                <th>Индекс</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {folders.map((folder) => (
-                <tr key={folder.id}>
-                  <td>{folder.name}</td>
-                  <td style={{ color: 'var(--muted)', fontSize: 12, wordBreak: 'break-all' }}>{folder.path}</td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void persistFolders(folders.filter((f) => f.id !== folder.id))}
-                    >
-                      Убрать
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+              {folders.map((folder) => {
+                const job = indexJobByFolder.get(folder.id);
+                return (
+                  <tr key={folder.id}>
+                    <td>{folder.name}</td>
+                    <td style={{ color: 'var(--muted)', fontSize: 12, wordBreak: 'break-all' }}>{folder.path}</td>
+                    <td style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      {job?.state === 'running'
+                        ? `строится: папок ${job.folders}, файлов ${job.files}`
+                        : job?.state === 'done'
+                          ? `готов: папок ${job.folders}, файлов ${job.files}`
+                          : job?.state === 'timeout'
+                            ? `не завершилось: ${job.message ?? 'процесс остановлен'}`
+                            : job?.state === 'error'
+                              ? `не удалось: ${job.message ?? 'ошибка'}`
+                              : job?.state === 'idle'
+                                ? 'в очереди'
+                                : 'не построен'}
+                    </td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void persistFolders(folders.filter((f) => f.id !== folder.id))}
+                      >
+                        Убрать
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         ) : null}

@@ -11,6 +11,7 @@ export * from './domain/fileStorage.js';
 export * from './domain/fileSearch.js';
 export * from './domain/fileSearchCompare.js';
 export * from './domain/fileSearchFolders.js';
+export * from './domain/fileSearchFolderIndex.js';
 export * from './domain/fileSearchEngineSuggest.js';
 export * from './domain/searchProgress.js';
 export * from './domain/repairChecklist.js';

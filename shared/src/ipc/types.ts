@@ -40,6 +40,7 @@ import type {
 } from '../domain/orgGifts.js';
 import type { FileSearchResult, FileSearchSource } from '../domain/fileSearch.js';
 import type { FileSearchFolderResult, FileSearchFolderSearchScope, FileSearchFolderSource } from '../domain/fileSearchFolders.js';
+import type { FolderIndexProgress } from '../domain/fileSearchFolderIndex.js';
 import type { FileSearchEngineSuggestion } from '../domain/fileSearchEngineSuggest.js';
 import type { SearchProgressEvent } from '../domain/searchProgress.js';
 import type { PrintTemplateRow } from '../domain/printTemplate.js';
@@ -1734,6 +1735,19 @@ export type MatricaApi = {
         { ok: true; userId: string; folders: FileSearchFolderSource[] } | { ok: false; error: string }
       >;
       set: (args: { folders: FileSearchFolderSource[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    };
+    /**
+     * Карта дерева папки (промт КАРМАНА #180): индекс строится в фоне отдельным
+     * процессом, а поиск по этой папке потом отвечает по карте.
+     *
+     * `status` — состояния индексаций (полоса на экране поиска по папкам);
+     * `build` — построить карту по просьбе оператора; `onProgress` — событие
+     * из главного процесса (идёт / закончилось / не завершилось).
+     */
+    folderIndex: {
+      status: () => Promise<{ ok: true; jobs: FolderIndexProgress[] } | { ok: false; error: string }>;
+      build: (args: { sourceIds?: string[] }) => Promise<{ ok: true; queued: number } | { ok: false; error: string }>;
+      onProgress: (handler: (progress: FolderIndexProgress) => void) => () => void;
     };
   };
   /** Передача файлов между Верстаками: отправка коллеге и разбор входящих. */

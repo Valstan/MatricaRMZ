@@ -84,6 +84,8 @@ export function registerIpc(
     workerPath: string;
     /** Воркер чтений (`dist/main/dataWorker.js`): список двигателей собирается там. */
     dataWorkerPath: string;
+    /** Воркер индексации папок (`dist/main/folderIndexWorker.js`): карта дерева папки. */
+    folderIndexWorkerPath: string;
   },
 ) {
   function emitSyncProgress(payload: unknown) {
@@ -241,7 +243,7 @@ export function registerIpc(
   registerUpdateIpc(ctx);
   registerFilesIpc(ctx);
   registerScannerIpc(ctx);
-  registerFileSearchIpc(ctx);
+  registerFileSearchIpc(ctx, { folderIndexWorkerPath: opts.folderIndexWorkerPath });
   registerSearchProgressIpc(ctx);
   registerExportsIpc(ctx);
   registerMailIpc(ctx);

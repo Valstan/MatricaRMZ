@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import type { CardExportSpec, ChatDeepLinkPayload, EngineBulkIntakeApplyInput, FileSearchFolderSearchScope, FileSearchFolderSource, FileSearchSource, ListExportFormat, ListExportSpec, PartMetadata, SearchProgressEvent } from '@matricarmz/shared';
+import type { CardExportSpec, ChatDeepLinkPayload, EngineBulkIntakeApplyInput, FileSearchFolderSearchScope, FileSearchFolderSource, FileSearchSource, FolderIndexProgress, ListExportFormat, ListExportSpec, PartMetadata, SearchProgressEvent } from '@matricarmz/shared';
 import type { MailAttachmentSpec } from '../main/services/mailService.js';
 
 // Нативный сканер QR ставит сюда планшет (android-app/src/platform/qrScan.ts) до
@@ -182,6 +182,16 @@ const matricaApi = {
     folders: {
       get: async () => ipcRenderer.invoke('fileSearch:folders:get'),
       set: async (args: { folders: FileSearchFolderSource[] }) => ipcRenderer.invoke('fileSearch:folders:set', args),
+    },
+    /** Карта дерева папки: индекс в фоне, прогресс — оператору (промт КАРМАНА #180). */
+    folderIndex: {
+      status: async () => ipcRenderer.invoke('fileSearch:folderIndex:status'),
+      build: async (args: { sourceIds?: string[] }) => ipcRenderer.invoke('fileSearch:folderIndex:build', args),
+      onProgress: (handler: (progress: FolderIndexProgress) => void) => {
+        const wrapped = (_e: Electron.IpcRendererEvent, payload: FolderIndexProgress) => handler(payload);
+        ipcRenderer.on('fileSearch:folderIndex:progress', wrapped);
+        return () => ipcRenderer.removeListener('fileSearch:folderIndex:progress', wrapped);
+      },
     },
   },
   desktopTransfer: {
