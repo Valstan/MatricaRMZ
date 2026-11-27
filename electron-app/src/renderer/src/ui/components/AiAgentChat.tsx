@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 
 import type { AiAgentContext, AiAgentEvent, AiChatLocalStatus, AiChatRequestItem, AiChatTemplate, FileRef } from '@matricarmz/shared';
-import { AI_CHAT_LOCAL_STATE_LABELS, AI_CHAT_MAX_QUESTIONS_PER_HOUR, AI_CHAT_STATUS_LABELS, formatAiChatAnswerSourceLabel, isAiChatInFlight } from '@matricarmz/shared';
+import { AI_CHAT_ENGINE_UNAVAILABLE_LINE, AI_CHAT_MAX_QUESTIONS_PER_HOUR, AI_CHAT_STATUS_LABELS, aiChatLocalStatusLine, formatAiChatAnswerSourceLabel, isAiChatInFlight } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { IvanychFigure } from './IvanychFigure.js';
@@ -140,6 +140,15 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   const [engineReady, setEngineReady] = useState<boolean | null>(null);
   // Кто считает вопрос: этот компьютер (локальный модуль MiniMax) или сервер.
   const [localStatus, setLocalStatus] = useState<AiChatLocalStatus | null>(null);
+  // Строку статуса собирает ДОМ: у панели своих слов нет (иначе правило «что видит
+  // оператор» размножается по трём местам, а служебные слова доезжают до экрана).
+  const localLine = useMemo(
+    () =>
+      localStatus
+        ? aiChatLocalStatusLine(localStatus)
+        : aiChatLocalStatusLine({ state: 'off', cause: null, configured: false }),
+    [localStatus],
+  );
   const [me, setMe] = useState<{ id: string; role: string } | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [activeHints, setActiveHints] = useState<string[]>([]);
@@ -631,17 +640,12 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         }}
       >
         {engineReady === false ? (
-          <span title="Сервер не может принять вопрос прямо сейчас — вопрос сохранится и будет обработан позже">
-            🔴 ИИваныч сейчас недоступен: <b>вопрос сохранится и будет обработан позже</b>
-          </span>
-        ) : localStatus?.configured ? (
-          <span title={localStatus.detail}>
-            {AI_CHAT_LOCAL_STATE_LABELS[localStatus.state]}{' '}
-            <b>{localStatus.state === 'ready' ? 'ИИваныч на связи' : localStatus.detail}</b>
+          <span data-ivanych-status-line="engine-unavailable" title={AI_CHAT_ENGINE_UNAVAILABLE_LINE.title}>
+            {AI_CHAT_ENGINE_UNAVAILABLE_LINE.label}: <b>{AI_CHAT_ENGINE_UNAVAILABLE_LINE.text}</b>
           </span>
         ) : (
-          <span title="Считает движок завода на сервере — на этом компьютере ничего не запускается">
-            🟢 ИИваныч на связи: <b>считает сервер</b>
+          <span data-ivanych-status-line="local" title={localLine.title}>
+            {localLine.label}: <b>{localLine.text}</b>
           </span>
         )}
       </div>

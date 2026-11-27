@@ -84,13 +84,37 @@ export function formatAiChatAnswerSourceLabel(item: Pick<AiChatRequestItem, 'ser
  * - `working` — модуль сейчас считает ответ;
  * - `no_accounts` — пул аккаунтов исчерпан (это ёмкость, а не поломка);
  * - `broken` — модуль настроен, но не работает (сломан рантайм/профиль).
+ *
+ * Красный в этой строке НЕ значит «ИИваныч недоступен»: красный — это «не отвечает
+ * никто» (см. `AI_CHAT_ENGINE_UNAVAILABLE_LINE`). Отказ локального звена — синяя
+ * строка «считает сервер»: вопрос отпускается в очередь, и его считает сервер.
  */
 export type AiChatLocalLinkState = 'off' | 'ready' | 'working' | 'no_accounts' | 'broken';
 
+/**
+ * Причина, по которой считает сервер, — МАШИННЫМ КОДОМ.
+ *
+ * Слова оператору живут здесь (`AI_CHAT_LOCAL_CAUSE_TEXT`), а не в движке и не в
+ * панели: иначе текст размножается по трём местам, и служебные слова («агент»,
+ * «Карман», «токен») доезжают до экрана оператора (промт КАРМАНА #176, пп. 3–4).
+ *
+ * Коды пустоты совпадают с тем, что шлёт «Карман»: `no_free_accounts` ·
+ * `no_tokens_ready` · `no_handable_accounts`. Своя копия словаря расходится молча,
+ * и тогда третья причина не сойдётся никогда, а оператор всё время видит «свободных
+ * аккаунтов нет» (ADR-0011).
+ */
+export type AiChatLocalCause =
+  | 'not_configured'
+  | 'no_free_accounts'
+  | 'no_tokens_ready'
+  | 'no_handable_accounts'
+  | 'pool_unavailable'
+  | 'module_failed';
+
 export type AiChatLocalStatus = {
   state: AiChatLocalLinkState;
-  /** Человекочитаемая причина — одной строкой, без технических кодов. */
-  detail: string;
+  /** Причина машинным кодом; null — причина неизвестна или уже неактуальна. */
+  cause: AiChatLocalCause | null;
   /** Токен комнаты «Кармана» на месте — иначе звено не включится. */
   configured: boolean;
 };
@@ -99,8 +123,66 @@ export const AI_CHAT_LOCAL_STATE_LABELS: Record<AiChatLocalLinkState, string> = 
   off: '🔵 считает сервер',
   ready: '🟢 считает этот компьютер',
   working: '🟡 считает этот компьютер',
-  no_accounts: '🟠 аккаунты кончились — считает сервер',
-  broken: '🔴 локальный модуль не работает — считает сервер',
+  no_accounts: '🟠 считает сервер',
+  broken: '🔵 считает сервер',
+};
+
+/** Слова оператору по причине — одной строкой, без кодов и служебных слов. */
+export const AI_CHAT_LOCAL_CAUSE_TEXT: Record<AiChatLocalCause, string> = {
+  not_configured: 'расчёт на этом компьютере не настроен',
+  no_free_accounts: 'бесплатных аккаунтов не осталось',
+  no_tokens_ready: 'аккаунты есть, но входы в них ещё не готовы — подождите',
+  no_handable_accounts: 'подходящих аккаунтов не нашлось — попробуем позже',
+  pool_unavailable: 'сервис аккаунтов недоступен',
+  module_failed: 'расчёт на этом компьютере не работает',
+};
+
+/** Слова оператору, когда причина неизвестна или протухла. */
+export const AI_CHAT_LOCAL_STATE_TEXT: Record<AiChatLocalLinkState, string> = {
+  off: 'этот компьютер сейчас не считает',
+  ready: 'ИИваныч на связи',
+  working: 'считает ответ',
+  no_accounts: 'бесплатных аккаунтов не осталось',
+  broken: 'расчёт на этом компьютере не работает',
+};
+
+/** Подсказка (title) по причине — тоже из дома. */
+const AI_CHAT_LOCAL_CAUSE_TITLE: Record<AiChatLocalCause, string> = {
+  not_configured: 'Отвечает сервер — этот компьютер считать не умеет',
+  no_free_accounts: 'Аккаунты закончились, новых пока нет',
+  no_tokens_ready: 'Аккаунты есть, но входы в них ещё не готовы — подождите',
+  no_handable_accounts: 'Подходящих аккаунтов не нашлось — попробуем позже',
+  pool_unavailable: 'Отвечает сервер',
+  module_failed: 'Отвечает сервер',
+};
+
+/** Строка статуса: кто считает + чем это кончилось, если кончилось. */
+export type AiChatLocalLine = { label: string; text: string; title: string };
+
+/**
+ * Строка статуса собирается ТОЛЬКО здесь: панель не сочиняет своих слов (устав
+ * «не второй экземпляр правила»). Внутренних подробностей в строке нет по
+ * устройству — причину несёт код, а не текст.
+ */
+export function aiChatLocalStatusLine(status: AiChatLocalStatus): AiChatLocalLine {
+  const label = AI_CHAT_LOCAL_STATE_LABELS[status.state];
+  if (status.state === 'ready') {
+    return { label, text: AI_CHAT_LOCAL_STATE_TEXT.ready, title: '' };
+  }
+  if (status.state === 'working') {
+    return { label, text: AI_CHAT_LOCAL_STATE_TEXT.working, title: 'Отвечает этот компьютер' };
+  }
+  const cause = status.cause;
+  const text = cause ? AI_CHAT_LOCAL_CAUSE_TEXT[cause] : AI_CHAT_LOCAL_STATE_TEXT[status.state];
+  const title = cause ? AI_CHAT_LOCAL_CAUSE_TITLE[cause] : '';
+  return { label, text, title };
+}
+
+/** Строка «не отвечает никто» — единственное честное красное в панели. */
+export const AI_CHAT_ENGINE_UNAVAILABLE_LINE: AiChatLocalLine = {
+  label: '🔴 ИИваныч сейчас недоступен',
+  text: 'вопрос сохранится и будет обработан позже',
+  title: 'Сервер не может принять вопрос прямо сейчас — вопрос сохранится и будет обработан позже',
 };
 
 /** Состояние движка ИИваныча, как его видит сервер (роут `/ai-chat/meta`). */
