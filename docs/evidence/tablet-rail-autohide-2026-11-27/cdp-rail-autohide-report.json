@@ -1,0 +1,67 @@
+{
+  "steps": [
+    {
+      "ok": true,
+      "what": "вход verify на стенде",
+      "extra": {
+        "ok": true
+      }
+    },
+    {
+      "ok": true,
+      "what": "левая полоса разделов на месте",
+      "extra": {
+        "rail": true,
+        "hidden": true,
+        "collapse": true,
+        "platform": "android",
+        "stored": "false"
+      }
+    },
+    {
+      "ok": true,
+      "what": "приложение поднялось в планшетном режиме",
+      "extra": {
+        "rail": true,
+        "hidden": true,
+        "collapse": true,
+        "platform": "android",
+        "stored": "false"
+      }
+    },
+    {
+      "ok": true,
+      "what": "кнопка «Меню» (свернуть полосу вручную) есть",
+      "extra": {
+        "rail": true,
+        "hidden": true,
+        "collapse": true,
+        "platform": "android",
+        "stored": "false"
+      }
+    },
+    {
+      "ok": true,
+      "what": "полоса сама уехала за край после паузы",
+      "extra": {
+        "hidden": true,
+        "handle": true
+      }
+    },
+    {
+      "ok": true,
+      "what": "ручка возврата появилась — меню можно вернуть пальцем",
+      "extra": {
+        "hidden": true,
+        "handle": true
+      }
+    },
+    {
+      "ok": true,
+      "what": "тап по ручке вернул меню",
+      "extra": {
+        "ok": true
+      }
+    }
+  ]
+}

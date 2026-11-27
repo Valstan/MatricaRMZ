@@ -55,8 +55,22 @@ describe('левое меню планшета уезжает за край', ()
     expect(CSS).toMatch(/\.v3-rail-collapse\s*\{/);
   });
 
-  it('на десктопе полоса не едет: флаг снимается планшетным режимом', () => {
-    expect(APP).toContain('railAutoHide={tabletActive}');
+  it('на десктопе полоса не едет: флаг берётся с машины, а не с режима размеров', () => {
+    // Авто-уезд — свойство ЭКРАНА (полоса отнимает ~11 % маленького экрана), а не
+    // режима размеров. Раньше флаг брался из `tabletActive` (машина И размер
+    // интерфейса), и переключение «Обычный (как на ПК)» молча гасило авто-уезд —
+    // владелец 27.11.2026: «на планшете меню перестало прятаться само».
+    expect(APP).toContain('railAutoHide={isTabletDevice}');
+    expect(APP).not.toContain('railAutoHide={tabletActive}');
     expect(SHELL).toContain("props.railAutoHide === true");
+  });
+
+  it('палец на полосе не залипает: скролл отпускает её так же, как палец', () => {
+    // Жест, начатый на полосе, превращается в скролл — браузер шлёт pointercancel,
+    // а не pointerup. Без обработки «палец на полосе» залипал навсегда, и полоса
+    // переставала уезжать сама (жалоба владельца 27.11.2026).
+    expect(HOOK).toContain('railHoldAfterPointer');
+    expect(HOOK).toContain("document.addEventListener('pointercancel'");
+    expect(SHELL).toContain('onPointerCancel');
   });
 });

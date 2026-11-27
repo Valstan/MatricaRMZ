@@ -5,7 +5,7 @@ import { DEFAULT_LIST_BEHAVIOR_SETTINGS, UI_PRESET_IDS, UI_PRESET_LABELS, format
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { SearchSelect } from '../components/SearchSelect.js';
-import { useTabletDevice, type UiMode } from '../hooks/useUiMode.js';
+import { useTabletDevice, UI_MODE_LABELS, type UiMode } from '../hooks/useUiMode.js';
 import { useOperatorMenuPreset } from '../hooks/useOperatorMenuPreset.js';
 import { isAndroidPlatform } from '../platform.js';
 import { readChromeAutoHidePref, writeChromeAutoHidePref } from '../shell/ChromeVisibilityContext.js';
@@ -762,9 +762,13 @@ export function SettingsPage(props: {
               <>
                 <div style={{ color: 'var(--muted)' }}>Режим планшета</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <Button variant={props.tabletActive ? 'primary' : 'ghost'} onClick={() => props.onTabletToggle?.()}>
-                    {props.tabletActive ? 'Включён (коснись для выкл)' : 'Выключен (коснись для вкл)'}
+                  <Button variant="ghost" onClick={() => props.onTabletToggle?.()}>
+                    Сейчас: {props.uiMode ? UI_MODE_LABELS[props.uiMode] : '—'} ⇄
                   </Button>
+                </div>
+                <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                  Переключает по кругу: крупно → мелко → как на ПК. Точный размер выбирается
+                  кнопками ниже.
                 </div>
               </>
             )}
@@ -772,15 +776,15 @@ export function SettingsPage(props: {
               <>
                 <div style={{ color: 'var(--muted)' }}>Размер интерфейса на планшете</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <Button variant={props.uiMode === 'tablet' ? 'primary' : 'ghost'} onClick={() => props.onUiModeChange?.('tablet')}>
-                    Крупно (под палец)
-                  </Button>
-                  <Button variant={props.uiMode === 'compact' ? 'primary' : 'ghost'} onClick={() => props.onUiModeChange?.('compact')}>
-                    Мелко (под стилус)
-                  </Button>
-                  <Button variant={props.uiMode === 'comp' ? 'primary' : 'ghost'} onClick={() => props.onUiModeChange?.('comp')}>
-                    Обычный (как на ПК)
-                  </Button>
+                  {(['tablet', 'compact', 'comp'] as const).map((mode) => (
+                    <Button
+                      key={mode}
+                      variant={props.uiMode === mode ? 'primary' : 'ghost'}
+                      onClick={() => props.onUiModeChange?.(mode)}
+                    >
+                      {UI_MODE_LABELS[mode]}
+                    </Button>
+                  ))}
                 </div>
                 <div style={{ color: 'var(--muted)', fontSize: 12 }}>
                   «Мелко» — интерфейс под стилус: кнопки и строки меньше, на экране планшета

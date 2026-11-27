@@ -7585,7 +7585,13 @@ export function App() {
               tabletOperatorMenu={operatorPresetOn}
               // Планшетный режим: левое меню уезжает за край после паузы
               // (владелец 23.11.2026). На десктопе полоса постоянна.
-              railAutoHide={tabletActive}
+              //
+              // Привязка — к МАШИНЕ, а не к режиму размеров: полоса отнимает ~11 %
+              // маленького экрана, и это свойство экрана, а не шрифтов. Раньше флаг
+              // брался из `tabletActive` (машина И размер интерфейса), и переключение
+              // «Обычный (как на ПК)» молча выключало авто-уезд — владелец 27.11.2026
+              // и пожаловался, что на планшете меню перестало прятаться само.
+              railAutoHide={isTabletDevice}
               menuLabels={menuLabels}
               buttonLayout={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2.buttonLayout}
               onButtonLayoutChange={(next) => updateV2Prefs({ ...(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2, buttonLayout: next })}
