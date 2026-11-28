@@ -1,6 +1,8 @@
 import React, { useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
@@ -283,6 +285,11 @@ export function StockInventoryPage(props: {
           </span>
         </label>
         {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «Иваныча» с вопросом, в котором едет контекст раздела «Инвентаризация». */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <AiSectionButton section="stock_inventory" />
+        </div>
         {props.canEdit ? (
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="ghost" onClick={() => void loadBalances()}>

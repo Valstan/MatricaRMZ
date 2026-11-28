@@ -100,6 +100,9 @@ import {
 } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
+// Кнопка «Нейросеть» в разделах (промт КАРМАНА #176, разрез 4): открывает ту же
+// вкладку «ИИваныч» с вопросом, в котором едет контекст раздела.
+import { AiChatLauncherProvider } from './ai/AiChatLauncherContext.js';
 import { type MenuTabId, type TabId, type TabsLayoutPrefs, MENU_TAB_LABELS, TABLET_OPERATOR_TABS, TAB_VISUALS } from './layout/Tabs.js';
 import { useChromeVisibility } from './shell/ChromeVisibilityContext.js';
 import { SHELL_NOTICE_MS, type ShellNotice, type ShellNoticeTone } from './shell/shellNotice.js';
@@ -6080,7 +6083,6 @@ export function App() {
             canEditStages={caps.canEditWorkSheets}
             canEditSignatureTemplates={caps.canEditProductionProgramSignatureTemplates}
             onOpenEngine={(id: string) => void openEngine(id)}
-            onOpenAiChat={openAiChatWith}
           />
         )}
         {t === 'work_sheet' && selectedWorkSheetId && (
@@ -7278,6 +7280,10 @@ export function App() {
   return (
     <ErrorBoundary onError={(error, info) => recordFatalError(error, info)}>
       <DesktopFilesProvider value={desktopFiles}>
+      {/* Открытие чата «ИИваныча» с вопросом — один на всю программу: кнопка «Нейросеть»
+          в разделе говорит «вот раздел», а как открыть чат — знает приложение
+          (промт КАРМАНА #176, разрез 4). */}
+      <AiChatLauncherProvider openAiChat={openAiChatWith}>
       <Page uiTheme={resolvedTheme}>
         {renderReleaseWelcomeModal()}
         {renderFullSyncModal()}
@@ -7589,6 +7595,7 @@ export function App() {
             одно: утильный двигатель ремонт не начинает. */}
         <ScrapStageBlockHost />
       </Page>
+      </AiChatLauncherProvider>
       </DesktopFilesProvider>
     </ErrorBoundary>
   );

@@ -8,6 +8,8 @@ import {
 import { Button } from '../components/Button.js';
 import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
@@ -719,6 +721,9 @@ export function NomenclaturePage(props: {
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, padding: 8, overflow: 'hidden' }}>
             <PageToolbar>
+              {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+                  «ИИваныча» с вопросом, в котором едет контекст раздела «Номенклатура». */}
+              <AiSectionButton section="nomenclature" />
               {props.canEdit ? (
                 <Button
                   onClick={() => {

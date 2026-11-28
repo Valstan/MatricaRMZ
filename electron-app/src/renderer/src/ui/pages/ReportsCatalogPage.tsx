@@ -10,6 +10,8 @@ import type {
 import { REPORT_PRESET_THEMES, REPORT_THEMES, formatReportFiltersSummary } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { FAVORITE_STAR_GOLD } from '../components/FavoriteStarButton.js';
 import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
@@ -277,6 +279,11 @@ export function ReportsCatalogPage(props: {
 
   return (
     <div style={{ display: 'grid', gap: 10 }} onKeyDown={onCatalogKeyDown}>
+      {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+          «Иваныча» с вопросом, в котором едет контекст раздела «Отчёты». */}
+      <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+        <AiSectionButton section="reports" />
+      </div>
       {!activeTheme && !searching && (
         <SectionCard title="Избранное">
           {favoritePresets.length === 0 ? (

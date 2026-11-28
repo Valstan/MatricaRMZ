@@ -20,6 +20,7 @@ export function ServicesPage(props: {
       canView={props.canViewMasterData}
       noAccessText="Недостаточно прав для просмотра услуг."
       {...SERVICES_PRESET}
+      aiSection="services"
     />
   );
 }

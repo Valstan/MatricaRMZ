@@ -45,6 +45,8 @@ const PAGE = src('../../../renderer/src/ui/pages/ProductionProgramPage.tsx');
 const APP = src('../../../renderer/src/ui/App.tsx');
 const AI_CHAT = src('../../../renderer/src/ui/components/AiAgentChat.tsx');
 const SHARED_AGENT_TOOLS = src('../../../../../shared/src/domain/agentTools.ts');
+const SHARED_AI_SECTION_CONTEXT = src('../../../../../shared/src/domain/aiSectionContext.ts');
+const AI_SECTION_BUTTON = src('../../../renderer/src/ui/ai/AiSectionButton.tsx');
 
 /** Тексты отказа, которые принадлежат гейтам программы — их в реестре быть не должно. */
 const GATE_REFUSAL_TEXTS = [
@@ -148,12 +150,14 @@ describe('граница «нейросеть на клиенте» — стор
   });
 
   it('кнопка нейросети в ПП: контекст — в тексте вопроса, список — в существующем окне', () => {
-    // Кнопка рядом с «Добавить списком» (разрез 3).
-    expect(PAGE).toContain('data-pp-action="ai-add-by-numbers"');
+    // Кнопка рядом с «Добавить списком» (разрез 3). Разрез 4 перевёл её на ОБЩУЮ
+    // кнопку программы (`AiSectionButton`) — второй копии кнопки быть не должно.
+    expect(PAGE).toContain('ai-add-by-numbers');
+    expect(PAGE).toContain('AiSectionButton');
     // Контекст раздела собирает ДОМЕН, а не страница (иначе у каждого раздела
     // появилась бы своя формулировка).
-    expect(PAGE).toContain('productionProgramAiQuestion');
     expect(SHARED_AGENT_TOOLS).toContain('export function productionProgramAiQuestion');
+    expect(SHARED_AI_SECTION_CONTEXT).toContain('productionProgramAiQuestion');
     // Второго чата не заводим: открывается та же вкладка «ИИваныч», текст вопроса
     // ложится в поле ввода.
     expect(APP).toContain('openAiChatWith');
@@ -161,7 +165,8 @@ describe('граница «нейросеть на клиенте» — стор
     // Готовый список открывает СУЩЕСТВУЮЩЕЕ окно «Добавить списком» — не новое.
     expect(PAGE).toContain('agentActions.onPreparedAdd');
     expect(PAGE).toContain('setAddByNumbersOpen(true)');
-    // Кнопки нет там, где нет канала действий (планшет: локального модуля нет).
-    expect(PAGE).toContain('aiToolsAvailable');
+    // Кнопки нет там, где нет канала действий (планшет: локального модуля нет) —
+    // проверка общая для всех разделов.
+    expect(AI_SECTION_BUTTON).toContain('useAiToolsAvailable');
   });
 });

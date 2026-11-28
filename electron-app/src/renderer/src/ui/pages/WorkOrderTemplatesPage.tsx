@@ -8,6 +8,8 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
@@ -128,6 +130,9 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
               ))
             : null}
         </div>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Шаблоны нарядов». */}
+        <AiSectionButton section="work_order_templates" />
       </div>
 
       {!props.canEdit ? (

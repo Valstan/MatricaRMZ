@@ -8,6 +8,8 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { searchModeEmptyText } from '../components/SearchModeHint.js';
@@ -281,6 +283,9 @@ export function RepairFundAuditPage(props: {
             Ряд собран общим PageToolbar: свой flex-ряд не умеет переполнение, и кнопки
             уезжали бы за правый край окна. */}
         <PageToolbar>
+          {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+              «ИИваныча» с вопросом, в котором едет контекст раздела «Ревизия ремфонда». */}
+          <AiSectionButton section="repair_fund_audit" />
           <ToolbarPin>
             <div style={{ fontWeight: 700 }}>Детали в фонде</div>
           </ToolbarPin>

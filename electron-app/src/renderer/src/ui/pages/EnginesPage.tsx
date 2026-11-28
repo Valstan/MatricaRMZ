@@ -65,6 +65,8 @@ import { ProductionProgramAddEnginesDialog } from '../components/ProductionProgr
 import { useTagPrintQueue } from '../hooks/useTagPrintQueue.js';
 import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
@@ -1633,6 +1635,9 @@ export function EnginesPage(props: {
             +Списком
           </Button>
         )}
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Двигатели». */}
+        <AiSectionButton section="engines" />
         {/* Поиск и то, что им управляет, в меню не уезжают: без них список неуправляем.
             Ширину и раздвижение задаёт общее поле (ToolbarSearchField): при фокусе оно
             накладывается поверх кнопок, без фокуса — сжимается обратно. */}

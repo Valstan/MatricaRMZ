@@ -9,6 +9,8 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { MultiSeriesLineChart, type ChartSeries } from '../components/MultiSeriesLineChart.js';
 
@@ -147,6 +149,9 @@ export function WarehouseAnalyticsPage(): React.JSX.Element {
         <span style={{ color: '#888', fontSize: 13 }}>
           {showScrap ? 'Брак' : ENGINE_OUTPUT_METRIC_LABEL[metric]} по маркам · серии во времени
         </span>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «Иваныча» с вопросом, в котором едет контекст раздела. */}
+        <AiSectionButton section="warehouse_analytics" />
       </div>
 
       {/* Controls */}

@@ -61,6 +61,8 @@ import { ListPrintDialog } from '../components/ListPrintDialog.js';
 
 
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 
 
 import { RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -992,6 +994,9 @@ export function WorkSheetsPage(props: {
         <Button onClick={() => setBulkAddOpen(true)} title="Добавить этап на несколько двигателей сразу" data-bulk-stage-add-open>
           Добавить этап
         </Button>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Этапы ремонта». */}
+        <AiSectionButton section="work_sheets" />
         <ToolbarPin>
           <ToolbarSearchField value={ui.query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по этапам работ…" />
         </ToolbarPin>

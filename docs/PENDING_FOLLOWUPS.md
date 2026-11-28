@@ -125,7 +125,7 @@
 - [⏳ Промты проекта из КАРМАНА (D-190): #137–#168 сделаны кодом; ждут полевой приёмки 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
 - [⏳ Окно приветствия: логотип от владельца и приёмка трёх оформлений глазами 🗓 since:2026-11-26](pending/okno-privedetviya-logo-i-tri-oformleniya.md)
 - [⏳ MiniMax-воркер на проде: воркер живой; ждём первый ответ от MiniMax — пул Кармана пуст даже после сброса суток 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
-- [⏳ Локальный MiniMax на клиенте: ждём комнату «Кармана», рантайм в CI и смоук; разрез 4 — в работе 🗓 since:2026-11-23](pending/lokalnyy-minimax-na-kliente-privyka-i-runtaym.md)
+- [⏳ Локальный MiniMax на клиенте: комната «Кармана», рантайм в CI; разрез 4 — сделан 🗓 since:2026-11-23](pending/lokalnyy-minimax-na-kliente-privyka-i-runtaym.md)
 - [⏳ Планшетная версия «Матрицы РМЗ»: код готов (промт #142, PR #2046), APK выложен — осталась приёмка глазами владельца 🗓 since:2026-11-23](pending/planshetnaya-versiya-matritsy-rmz-na-planshete.md)
 - [⏳ Планшет — доступ как на компьютере (#111/#113/#115): выдача и снятие раздела починены — осталась приёмка глазами владельца 🗓 since:2026-11-24](pending/planshet-celhovye-razdely-obem-porta.md)
 - [⏳ Дубли сотрудников: остаток — штатка с ПДО и приёмка на парке (запрет по полному ключу сделан) 🗓 since:2026-11-09](pending/dubli-sotrudnikov-ostatok-zapret-po-polnomu-klyuchu-shtatka-s-pdo.md)

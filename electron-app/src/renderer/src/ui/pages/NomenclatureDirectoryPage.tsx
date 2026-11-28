@@ -9,6 +9,8 @@ import {
 import { Button } from '../components/Button.js';
 import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
@@ -59,6 +61,14 @@ export function NomenclatureDirectoryPage(props: {
    * «Сохранить» в карточке. Без пропа — легаси-путь (немедленное создание по пресету).
    */
   onCreateDeferred?: () => void;
+  /**
+   * Ключ раздела для кнопки «Нейросеть» (промт КАРМАНА #176, разрез 4).
+   *
+   * Страницу справочника делят разделы «Детали» и «Инструменты» (и «Товары»/«Услуги»
+   * в номенклатуре) — контекст вопроса зависит от раздела, поэтому его передаёт
+   * обёртка раздела, а не сама страница.
+   */
+  aiSection?: string;
 }) {
   const [rows, setRows] = useState<WarehouseNomenclatureListItem[]>([]);
   // Признак «деталь уводит двигатель в утиль» (метка на карточке детали).
@@ -686,6 +696,9 @@ export function NomenclatureDirectoryPage(props: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
       <PageToolbar>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): раздел передаёт обёртка
+            («Детали», «Инструменты»), поэтому контекст вопроса — правильный. */}
+        {props.aiSection ? <AiSectionButton section={props.aiSection} /> : null}
         {props.canCreate && props.onCreateDeferred ? (
           <Button onClick={() => props.onCreateDeferred?.()}>{props.createButtonText}</Button>
         ) : props.canCreate ? (

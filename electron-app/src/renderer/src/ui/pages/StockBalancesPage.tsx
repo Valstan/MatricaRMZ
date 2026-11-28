@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { WarehouseMovementListItem, WarehouseStockListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { SearchModeToggle } from '../components/SearchModeToggle.js';
 import { searchModeEmptyText } from '../components/SearchModeHint.js';
@@ -380,6 +382,9 @@ export function StockBalancesPage(props: {
           <Button variant="ghost" onClick={() => void refreshRefs()}>
             Обновить справочники
           </Button>
+          {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+              «ИИваныча» с вопросом, в котором едет контекст раздела «Остатки». */}
+          <AiSectionButton section="stock_balances" />
         </div>
       </div>
 
