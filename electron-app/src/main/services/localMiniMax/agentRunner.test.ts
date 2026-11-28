@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -19,6 +19,42 @@ import { profileDirs } from './agentProfile.js';
 // окружение (свои каталоги, чистка мёртвого прокси, потолок кучи) и разбор ответа.
 
 describe('запуск локального агента', () => {
+  it('shim npm с двухзаменным путём («%dp0%») разбирается до JS-входа', () => {
+    // Shim npm на Windows: SET dp0=%~dp0, потом "%dp0%\node_modules\…\cli.js".
+    // Если разбор знает только «%~dp0», вход не найден, и клиент запускает .cmd
+    // как исполняемый файл ⇒ spawn EINVAL, агент не стартовал (живой прогон 28.11.2026).
+    const dir = mkdtempSync(join(tmpdir(), 'mrz-shim-'));
+    try {
+      const pkgDir = join(dir, 'node_modules', '@minimax-ai', 'code');
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(join(pkgDir, 'cli.js'), '// вход', 'utf8');
+      const shim = join(dir, 'mcode.cmd');
+      writeFileSync(
+        shim,
+        [
+          '@ECHO off',
+          ':find_dp0',
+          'SET dp0=%~dp0',
+          'EXIT /b',
+          ':start',
+          '"%dp0%\\node_modules\\@minimax-ai\\code\\cli.js"',
+          '',
+        ].join('\r\n'),
+        'utf8',
+      );
+
+      const entry = resolveMcodeEntry(shim);
+      expect(entry.endsWith('cli.js')).toBe(true);
+      expect(entry).toContain('@minimax-ai');
+
+      const cmd = resolveAgentCommand({ mcodePath: shim, nodePath: process.execPath, args: ['exec'] });
+      expect(cmd.command).toBe(process.execPath);
+      expect(cmd.args[0]).toBe(entry);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('аргументы mcode exec: разрешения выключены, ответ пишется в файл', () => {
     const args = buildAgentArgs({
       answerFile: 'answer.txt',
