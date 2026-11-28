@@ -10,6 +10,7 @@ import { Input } from './Input.js';
 import { ListCount } from './ListCount.js';
 import { PopupLayer } from './PopupLayer.js';
 import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
+import { ScanSettingsDialog } from './ScanSettingsDialog.js';
 import { SendFileToColleagueDialog } from './SendFileToColleagueDialog.js';
 import { useConfirm } from './ConfirmContext.js';
 import { useDesktopFiles } from './DesktopFilesContext.js';
@@ -220,10 +221,9 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   // файл» открывает выбор источника, а не две отдельные кнопки — оператору не
   // надо знать, где сканер, он просто говорит «со сканера».
   const [addChoiceOpen, setAddChoiceOpen] = useState(false);
-  // Окно скана: подсказка «положите документ в сканер и нажмите „Сканировать“».
+  // Окно скана (промт КАРМАНА #178): настройки съёмки (режим, разрешение, размер),
+  // полоса прогресса, имя файла и кнопка «Сохранить скан в программе».
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
-  // Идёт съём кадра: кнопку «Сканировать» в это время жать нельзя.
-  const [scanBusy, setScanBusy] = useState(false);
 
   // ── Действия над отмеченными файлами (промт КАРМАНА #160) ─────────────────
   //
@@ -400,58 +400,28 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   }
 
   /**
-   * Скан документа (промт КАРМАНА #148).
+   * Скан документа (промт КАРМАНА #148, настройки — #178).
    *
-   * Сценарий без настроек: оператор жмёт «Сканировать», программа снимает кадр
-   * со сканера сама (WIA — штатный слой драйверов Windows, модель сканера не важна),
-   * потом предлагает имя файла и ждёт, пока оператор его поправит.
-   *
+   * Окно скана само снимает кадр и кладёт его в папку объекта под именем
+   * оператора; панель после этого грузит файл тем же путём, что и файл с диска.
    * Отказ называет причину, а не молчит: на планшете канала нет вовсе — мост
    * отвечает, почему (см. android-app/src/core/tabletDomains.ts), и оператор видит
    * это как «сканер тут не предусмотрен», а не как поломку программы.
    */
   async function runScan() {
-    if (!props.canUpload || scanBusy) return;
-    setScanBusy(true);
-    setBusy('Сканируем документ...');
+    if (!props.canUpload) return;
+    setScanDialogOpen(true);
+  }
+
+  /** Кадр уехал в объект: грузим его тем же путём, что и файл с диска. */
+  async function finishScan(file: { path: string; fileName: string }) {
+    setScanDialogOpen(false);
+    setBusy('Загрузка скана...');
     try {
-      const shot = await window.matrica.scan.document({ label: objectLabel });
-      if (!shot.ok) {
-        // На планшете канала нет вовсе — мост отвечает почему. Говорим это
-        // словами оператора, а не служебной приставкой «канал не заведён».
-        setBusy(isAndroid ? `Скан на планшете недоступен: ${humanReason(shot.error)}` : `Скан не получился: ${shot.error}`);
-        setTimeout(() => setBusy(''), 9000);
-        return;
-      }
-      setScanDialogOpen(false);
-      setBusy('Скан готов — проверьте имя файла.');
-      // Имя предлагает программа по правилу «карточка + скан + время», но оператор
-      // правит его сам: текст выделен целиком, печатать можно сразу.
-      const chosen = await uploadFlow.promptName(shot.fileName, {
-        autoSelect: true,
-        lead: 'Программа назвала файл по правилу «карточка + скан + время». Напишите своё — текст выделен.',
-      });
-      if (!chosen) {
-        // Оператор отказался — убираем кадр, чтобы в папке объекта не осталось мусора.
-        await window.matrica.scan.discard({ path: shot.path }).catch(() => undefined);
-        setBusy('Сканирование отменено');
-        setTimeout(() => setBusy(''), 1800);
-        return;
-      }
-      // Кладём кадр в папку объекта под ИМЕНЕМ оператора — тем же путём, что и файл
-      // с диска. Только после этого он уходит на сервер обычной загрузкой.
-      const placed = await window.matrica.scan.place({ path: shot.path, fileName: chosen, label: objectLabel });
-      if (!placed.ok) {
-        setBusy(`Скан не попал в объект: ${placed.error}`);
-        setTimeout(() => setBusy(''), 9000);
-        return;
-      }
-      await uploadTasks([{ path: placed.path, fileName: placed.fileName }]);
+      await uploadTasks([{ path: file.path, fileName: file.fileName }]);
     } catch (e) {
-      setBusy(`Скан не получился: ${e instanceof Error ? e.message : String(e)}`);
+      setBusy(`Скан не загрузился: ${e instanceof Error ? e.message : String(e)}`);
       setTimeout(() => setBusy(''), 9000);
-    } finally {
-      setScanBusy(false);
     }
   }
 
@@ -1346,31 +1316,21 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           </div>
         </div>
       )}
-      {/* Окно скана (промт КАРМАНА #148). Сценарий БЕЗ НАСТРОЕК: программа
-          говорит, что делать, и ждёт оператора — тот кладёт документ в сканер и
-          жмёт «Сканировать». Никаких «выберите устройство», «разрешение» и
-          «драйвер» оператор не видит: WIA сама находит сканер в системе. */}
+      {/* Окно скана (промт КАРМАНА #178): настройки съёмки (режим, разрешение,
+          размер), полоса прогресса по этапам, имя файла и кнопка «Сохранить скан
+          в программе». Окно одно на все места, где есть «Со сканера»: карточка
+          двигателя, договор, контрагент, модуль вложений. */}
       {scanDialogOpen && props.canUpload && !isAndroid && (
-        <div
-          data-attachments-scan
-          style={{ marginTop: 10, padding: 12, border: '1px solid #e5e7eb', borderRadius: 12, background: '#f8fafc' }}
-        >
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Сканирование документа</div>
-          <div style={{ fontSize: 13, color: '#334155' }}>
-            Как это работает: положите документ в сканер и нажмите «Сканировать».
-          </div>
-          <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
-            Формат — JPG, качество 80 %. Программа сама предложит имя файла — его можно будет изменить.
-          </div>
-          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Button disabled={scanBusy} onClick={() => void runScan()}>
-              Сканировать
-            </Button>
-            <Button variant="ghost" onClick={() => setScanDialogOpen(false)}>
-              Отмена
-            </Button>
-          </div>
-        </div>
+        <ScanSettingsDialog
+          open={scanDialogOpen}
+          objectLabel={objectLabel}
+          onCancel={() => setScanDialogOpen(false)}
+          onSaved={(file) => void finishScan(file)}
+          onError={(message) => {
+            setBusy(isAndroid ? `Скан на планшете недоступен: ${humanReason(message)}` : `Скан не получился: ${message}`);
+            setTimeout(() => setBusy(''), 9000);
+          }}
+        />
       )}
       {printDialogOpen && (
         <div style={{ marginTop: 10, padding: 12, border: '1px solid #e5e7eb', borderRadius: 12, background: '#f8fafc' }}>

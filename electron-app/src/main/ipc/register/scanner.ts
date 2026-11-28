@@ -1,21 +1,29 @@
-import { ipcMain, app } from 'electron';
+import { BrowserWindow, ipcMain, app } from 'electron';
+
+import { SCAN_MODE_CHOICES, SCAN_RESOLUTION_CHOICES, SCAN_SIZE_CHOICES, type ScanSettings } from '@matricarmz/shared';
 
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { rememberIssuedPath } from '../pathOriginRegistry.js';
 
 import { filesDownloadDirGet } from '../../services/fileService.js';
-import { captureScan, discardScan, placeScan } from '../../services/scannerService.js';
+import { captureScan, discardScan, placeScan, probeScanCapabilities } from '../../services/scannerService.js';
 
-// Сканер документов (промт КАРМАНА #148).
+// Сканер документов (промт КАРМАНА #148, настройки съёмки — #178).
 //
 // Каналы в main: WIA — это COM-объект Windows, в renderer его нет, и по правилам
 // проекта нативные возможности живут в main-процессе.
 //
-// Три канала — по трём шагам сценария:
+// Четыре канала — по шагам сценария:
+//   * `scan:capabilities` — что умеет сканер (разрешения, режимы, размер стекла):
+//     окно настроек показывает оператору настоящие числа, а не обещания;
 //   * `scan:document` — снять документ (кадр во временной папке, имя предложено);
 //   * `scan:place`    — положить кадр в папку объекта под именем оператора;
 //   * `scan:discard`  — убрать кадр, который оператор не стал прикладывать.
+//
+// Прогресс съёма летит событием `scan:progress` — по образцу `sync:progress` и
+// `search:progress`. Честный, без выдуманных процентов: WIA отдаёт кадр целиком,
+// поэтому полоса идёт по этапам «ищем сканер → снимаем → сохраняем».
 //
 // Право — то же, что у загрузки файла (`files.upload`): скан это вложение, и
 // обойти право на загрузку через новый канал нельзя. Право на просмотр файлов
@@ -23,20 +31,75 @@ import { captureScan, discardScan, placeScan } from '../../services/scannerServi
 //
 // Отказ называет причину: «сканер не найден», «не смог снять документ» —
 // оператор должен понимать, что делать, а не гадать, «прав не хватает или прибор».
+
+/**
+ * Настройки приходят из renderer — им нельзя доверять: принимаем только те
+ * значения, которые знает домен, остальное — в умолчание.
+ */
+function readScanSettings(raw: unknown): ScanSettings {
+  const source = (raw ?? {}) as Record<string, unknown>;
+  const mode = SCAN_MODE_CHOICES.find((m) => m === source.mode);
+  const size = SCAN_SIZE_CHOICES.find((s) => s === source.size);
+  const resolution = SCAN_RESOLUTION_CHOICES.find((r) => r === source.resolution);
+  return {
+    mode: mode ?? 'color',
+    size: size ?? 'max',
+    resolution: resolution ?? 'max',
+  };
+}
+
+/** Отдать событие прогресса во все окна — окно скана могло открыться в любом из них. */
+function broadcastScanProgress(payload: unknown): void {
+  try {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed()) continue;
+      win.webContents.send('scan:progress', payload);
+    }
+  } catch {
+    // окно могло закрыться — прогресс оператору уже не нужен
+  }
+}
+
 export function registerScannerIpc(ctx: IpcContext) {
-  ipcMain.handle('scan:document', async (_e, args: { label?: string }) => {
+  /**
+   * Что умеет сканер.
+   *
+   * Зовётся при открытии окна скана: окно показывает оператору «максимум сканера:
+   * N dpi» и список режимов по правде. Если сканера нет — отказ с названной
+   * причиной, а не пустое окно.
+   */
+  ipcMain.handle('scan:capabilities', async () => {
+    const gate = await requirePermOrResult(ctx, 'files.upload');
+    if (!gate.ok) return gate;
+
+    const result = await probeScanCapabilities();
+    if (!result.ok) return { ok: false as const, error: result.error };
+    return { ok: true as const, capabilities: result.capabilities };
+  });
+
+  ipcMain.handle('scan:document', async (_e, args: { label?: string; settings?: ScanSettings }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'files.upload');
     if (!gate.ok) return gate;
 
     const label = String(args?.label ?? '').trim() || 'Карточка';
-    const result = await captureScan({ label });
+    const settings = readScanSettings(args?.settings);
+    const result = await captureScan({
+      label,
+      settings,
+      onProgress: (event) => broadcastScanProgress(event),
+    });
     if (!result.ok) return { ok: false as const, error: result.error };
 
     // Кадр пока во временной папке — он ещё не вложение. Право на загрузку
     // проверяется здесь же, чтобы скан нельзя было снять «в обход» и потом
     // положить в объект под чужой подписью.
-    return { ok: true as const, path: result.path, fileName: result.fileName };
+    return {
+      ok: true as const,
+      path: result.path,
+      fileName: result.fileName,
+      actual: result.actual ?? null,
+    };
   });
 
   ipcMain.handle('scan:place', async (_e, args: { path: string; fileName: string; label?: string }) => {

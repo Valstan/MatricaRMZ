@@ -20,6 +20,12 @@ import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { ContractPayments } from '../domain/payments.js';
 import type { MenuTabId } from '../domain/uiSections.js';
 import type { ScrapCriterionPartInfo } from '../domain/scrapCriterion.js';
+import type {
+  ScanActual,
+  ScanCapabilities,
+  ScanProgressEvent,
+  ScanSettings,
+} from '../domain/scanDocument.js';
 import type { StuckPendingSummary } from '../domain/stuckPending.js';
 import type { PendingExportSummary } from '../domain/pendingExport.js';
 import type {
@@ -1388,14 +1394,29 @@ export type MatricaApi = {
      */
     qrScan: () => Promise<{ ok: true; text: string } | { ok: false; error: string; cancelled?: boolean }>;
     /**
-     * Снять документ со сканера (промт КАРМАНА #148). Способ захвата — WIA
-     * (Windows Image Acquisition), поэтому сканер виден без настроек и без привязки
-     * к модели: у МФУ и у отдельного сканера один и тот же путь «драйвер → WIA →
-     * кадр».
+     * Что умеет сканер (промт КАРМАНА #178).
+     *
+     * Окно настроек спрашивает это при открытии и показывает оператору настоящие
+     * числа — «максимум сканера: N dpi», какие режимы сканер отдаёт сам, — а не
+     * обещание. Сканера нет — приходит отказ с названной причиной.
+     */
+    capabilities: () => Promise<
+      { ok: true; capabilities: ScanCapabilities } | { ok: false; error: string }
+    >;
+    /**
+     * Снять документ со сканера (промт КАРМАНА #148, настройки — #178). Способ
+     * захвата — WIA (Windows Image Acquisition), поэтому сканер виден без настроек
+     * и без привязки к модели: у МФУ и у отдельного сканера один и тот же путь
+     * «драйвер → WIA → кадр».
      *
      * `label` — человеческое имя карточки объекта: по нему и по штампу времени
      * строится имя файла (например «Двигатель 41-26 - скан 26.11.2026 14-32-07.jpg»).
+     * `settings` — режим, разрешение и размер, которые выбрал оператор в окне.
      * Формат — JPG, качество 80 %.
+     *
+     * `actual` — что получилось на самом деле: фактическое разрешение, режим и
+     * размер кадра в пикселях. Сканер может не уметь запрошенного (300 dpi или
+     * цвет) — тогда оператор должен видеть правду, а не обещание.
      *
      * Кадр возвращается во ВРЕМЕННУЮ папку: сначала оператор называет файл
      * (`scan.place` кладёт его в папку объекта под этим именем), потом он уходит на
@@ -1404,8 +1425,8 @@ export type MatricaApi = {
      * Планшет: канала нет — там нет ни сканера, ни драйвера WIA; отказ приходит
      * с названной причиной.
      */
-    document: (args: { label?: string }) => Promise<
-      { ok: true; path: string; fileName: string } | { ok: false; error: string }
+    document: (args: { label?: string; settings?: ScanSettings }) => Promise<
+      { ok: true; path: string; fileName: string; actual: ScanActual | null } | { ok: false; error: string }
     >;
     /**
      * Положить снятый кадр в папку файлов объекта под именем, которое дал оператор.
@@ -1418,6 +1439,13 @@ export type MatricaApi = {
     >;
     /** Убрать кадр, который оператор не стал прикладывать. */
     discard: (args: { path: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    /**
+     * Прогресс съёма: этапы «ищем сканер → снимаем → сохраняем».
+     *
+     * Честный, без выдуманных процентов: WIA отдаёт кадр целиком, поэтому полоса
+     * идёт по этапам, а подпись называет текущий этап словами.
+     */
+    onProgress: (handler: (event: ScanProgressEvent) => void) => () => void;
   };
   activity: {
     report: (args: { activeDate: string; activeMs: number }) => void;

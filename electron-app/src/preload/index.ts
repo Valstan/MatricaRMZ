@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import type { CardExportSpec, ChatDeepLinkPayload, EngineBulkIntakeApplyInput, FileSearchFolderSearchScope, FileSearchFolderSource, FileSearchSource, FolderIndexProgress, ListExportFormat, ListExportSpec, PartMetadata, SearchProgressEvent } from '@matricarmz/shared';
+import type { CardExportSpec, ChatDeepLinkPayload, EngineBulkIntakeApplyInput, FileSearchFolderSearchScope, FileSearchFolderSource, FileSearchSource, FolderIndexProgress, ListExportFormat, ListExportSpec, PartMetadata, ScanProgressEvent, ScanSettings, SearchProgressEvent } from '@matricarmz/shared';
 import type { MailAttachmentSpec } from '../main/services/mailService.js';
 
 // Нативный сканер QR ставит сюда планшет (android-app/src/platform/qrScan.ts) до
@@ -63,10 +63,19 @@ const matricaApi = {
     },
     // Сканер документов: канал живёт в main (WIA — Windows), на планшете мост
     // отвечает отказом с названной причиной (см. android-app/src/core/tabletDomains.ts).
-    document: async (args: { label?: string }) => ipcRenderer.invoke('scan:document', args),
+    // Что умеет сканер — спрашивается при открытии окна настроек (промт #178).
+    capabilities: async () => ipcRenderer.invoke('scan:capabilities'),
+    document: async (args: { label?: string; settings?: ScanSettings }) =>
+      ipcRenderer.invoke('scan:document', args),
     place: async (args: { path: string; fileName: string; label?: string }) =>
       ipcRenderer.invoke('scan:place', args),
     discard: async (args: { path: string }) => ipcRenderer.invoke('scan:discard', args),
+    /** Прогресс съёма: этапы «ищем сканер → снимаем → сохраняем». */
+    onProgress: (handler: (event: ScanProgressEvent) => void) => {
+      const wrapped = (_e: unknown, payload: ScanProgressEvent) => handler(payload);
+      ipcRenderer.on('scan:progress', wrapped);
+      return () => ipcRenderer.removeListener('scan:progress', wrapped);
+    },
   },
   activity: {
     report: (args: { activeDate: string; activeMs: number }) => ipcRenderer.send('activity:report', args),
