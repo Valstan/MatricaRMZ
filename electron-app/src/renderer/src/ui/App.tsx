@@ -25,7 +25,7 @@ import type {
   SupplyRequestPayload,
   SectionMembershipSource,
 } from '@matricarmz/shared';
-import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew, parseReleaseWelcomeLine, pendingExportReasonText, stuckAgeMinutes } from '@matricarmz/shared';
+import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew, parseReleaseWelcomeLine, pendingExportReasonText } from '@matricarmz/shared';
 import {
   ACCESS_SECTION_CATALOG,
   formatAppVersionLabel,
@@ -907,13 +907,6 @@ export function App() {
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
   const [fatalOpen, setFatalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
-  // Отчёт администратору о застрявшей очереди (кнопка в баннере): «отправляю…» и
-  // ответ — что вышло (ушло / уже отправляли / почему не вышло).
-  const [stuckReportBusy, setStuckReportBusy] = useState(false);
-  const [stuckReportNote, setStuckReportNote] = useState('');
-  // Текст отчёта для копирования: когда канал перехватили (антивирус), отчёт не ушёл —
-  // но он не должен пропасть: оператор копирует текст и отдаёт администратору иначе.
-  const [stuckReportText, setStuckReportText] = useState<string | null>(null);
   // Двухклик-подтверждение «Отбросить» у rejected-строки (09.10.2026): снос локальной
   // работы — осознанное действие, а не случайный клик по баннеру.
   const [dropConfirmId, setDropConfirmId] = useState<string | null>(null);
@@ -952,48 +945,6 @@ export function App() {
       setPendingExportNote('Отчёт скопирован — отправьте его администратору и приложите файл.');
     } catch (e) {
       setPendingExportNote(`Не удалось собрать отчёт: ${clipOperatorError(String(e))}`);
-    }
-  }
-
-  async function reportStuckPending() {
-    if (stuckReportBusy) return;
-    setStuckReportBusy(true);
-    setStuckReportNote('');
-    setStuckReportText(null);
-    try {
-      const r = await window.matrica.sync.reportStuckPending();
-      if (!r?.ok) {
-        // Причину обрезаем: текст ошибки может прийти из любого места, а в баннер
-        // оператора длинная строка не читается (инцидент 23.11.2026 — страница
-        // антивируса на 170 КБ уехала прямо в чат владельцу).
-        const error = clipOperatorError(r?.error ?? 'неизвестно');
-        setStuckReportNote(`Не отправилось: ${error}`);
-        setStuckReportText(r.reportText ?? null);
-        notifyOperator(`Не удалось сообщить администратору: ${error}`, 'error');
-        return;
-      }
-      if (r.alerted) {
-        setStuckReportNote('Отчёт отправлен администратору.');
-        notifyOperator('Отчёт об застрявшей очереди отправлен администратору.', 'reminder');
-        return;
-      }
-      // Аларм по этой машине мог уйти минуту назад (окно против спама) — это не ошибка.
-      const reason = r.reason ?? 'Аларм уже отправляли.';
-      setStuckReportNote(reason);
-      notifyOperator(reason, 'reminder');
-    } catch (e) {
-      const text = String(e);
-      setStuckReportNote(`Не отправилось: ${text}`);
-      notifyOperator(`Не удалось сообщить администратору: ${text}`, 'error');
-    } finally {
-      setStuckReportBusy(false);
-      // Статус — сразу: кнопка могла обнаружить, что очередь уже уехала (проба в
-      // момент нажатия), и баннер обязан погаснуть, а не жить по старому снимку.
-      try {
-        setSyncStatus(await window.matrica.sync.status());
-      } catch {
-        // ignore
-      }
     }
   }
 
@@ -7419,62 +7370,6 @@ export function App() {
               Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
             </div>
           )}
-          {(() => {
-            const stuck = syncStatus?.stuckPending;
-            if (!stuck || !(stuck.count > 0)) return null;
-            const ageMin = stuckAgeMinutes(stuck.oldestPendingAt, Date.now());
-            return (
-              <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid #fca5a5", background: "#fef2f2", color: "#991b1b" }}>
-                <div>
-                  {`Записей не отправлено на сервер: ${stuck.count}. Самая старая ждёт ${ageMin} мин. (порог — ${stuck.thresholdMinutes} мин).`}
-                </div>
-                <div style={{ fontSize: 12, marginTop: 4 }}>
-                  Пока они в очереди этой машины, их не видит никто. Починить очередь может только администратор.
-                </div>
-                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    data-stuck-pending-report
-                    disabled={stuckReportBusy}
-                    onClick={() => void reportStuckPending()}
-                    style={{
-                      background: "#991b1b",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: 8,
-                      padding: "4px 12px",
-                      cursor: stuckReportBusy ? "default" : "pointer",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {stuckReportBusy ? "Отправляю…" : "Нажмите здесь, чтобы сообщить администратору"}
-                  </button>
-                  {stuckReportNote ? <span style={{ fontSize: 12 }}>{stuckReportNote}</span> : null}
-                  {stuckReportText ? (
-                    <button
-                      type="button"
-                      data-stuck-pending-copy
-                      onClick={() => {
-                        void navigator.clipboard?.writeText(stuckReportText);
-                        notifyOperator('Отчёт скопирован — отправьте его администратору (например, в мессенджер).');
-                      }}
-                      style={{
-                        background: "#fff",
-                        color: "#991b1b",
-                        border: "1px solid #fca5a5",
-                        borderRadius: 8,
-                        padding: "4px 12px",
-                        cursor: "pointer",
-                        fontWeight: 700,
-                      }}
-                    >
-                      Скопировать отчёт
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })()}
           {(() => {
             const exportState = syncStatus?.pendingExport;
             if (!exportState || exportState.files.length === 0) return null;
