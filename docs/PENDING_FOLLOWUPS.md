@@ -55,7 +55,7 @@
 
 ## 🟡 Техдолг и отложенное
 - [🟡 Список двигателей: этап ремонта, ряд этапов и шаблоны фильтров — развилки владельца (промт #181) 🗓 since:2026-11-27](pending/spisok-dvigatelej-etap-remonta-i-shablony-filtrov.md)
-- [🟡 ПП: плашки и полный экран — развилки владельца (промт #179) 🗓 since:2026-11-28](pending/proizvodstvennye-programmy-plashki.md)
+- [🟡 ПП: плашки и полный экран — полевая приёмка глазами оператора (промт #179) 🗓 since:2026-11-28](pending/proizvodstvennye-programmy-plashki.md)
 - [🟡 Сторож моста preload сверяет разделы, но не аргументы — поле теряется молча 🗓 since:2026-11-27](pending/storozh-mosta-preload-sveryaet-tolko-razdely.md)
 - [🟡 Поиск по папкам: карта индекса дерева — шесть развилок владельца (промт #180) 🗓 since:2026-11-27](pending/resheniya-vladeltsa-indeks-papki-poisk-po-fajlam.md)
 - [🟡 Утиль и этапы ремонта: деталь ушла в утиль, а учёт говорит «в ремонтном фонде» — обратное движение заводим 🗓 since:2026-11-27](pending/vozvrat-detali-iz-util-raskhozhdenie.md)
@@ -64,7 +64,7 @@
 
 - [🟡 Класс «застрявшая очередь»: правки выходят в 3.149.0, ждём полевой приёмки 🗓 since:2026-11-26](pending/trevoga-ochered-zastryla-otchet-po-ustarevshey-probe.md)
 - [🟡 Шум журнала: телеметрия интерфейса и повторные пуши — решения владельца 🗓 since:2026-11-26](pending/shum-zhurnala-telemetriya-i-povtory.md)
-- [🟡 Сканер: решения владельца 🗓 since:2026-11-26](pending/skaner-otkrytye-resheniya.md)
+- [🟡 Сканер: решения владельца закрыты 28.11 — остались полевые приёмки 🗓 since:2026-11-26](pending/skaner-otkrytye-resheniya.md)
 - [🟡 «В МАКС на телефон» из вложений: канал не подключён 🗓 since:2026-11-26](pending/vygruzka-v-maks-na-telefon.md)
 - [🟡 Управляющие кнопки вправо: остаток обхода — подвалы модалок (промт #141) 🗓 since:2026-11-25](pending/knopki-vpravo-obhod-renderer.md)
 - [🟡 Совет специалистов: три решения владельца (состав, обязательность, место протоколов) 🗓 since:2026-11-25](pending/sovet-specialistov-tri-resheniya-vladeltsa.md)
@@ -124,7 +124,7 @@
 - [⏳ Промты проекта из КАРМАНА (D-190): #137–#168 сделаны кодом; ждут полевой приёмки 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
 - [⏳ Окно приветствия: логотип от владельца и приёмка трёх оформлений глазами 🗓 since:2026-11-26](pending/okno-privedetviya-logo-i-tri-oformleniya.md)
 - [⏳ MiniMax-воркер на проде: воркер живой; ждём первый ответ от MiniMax — пул Кармана пуст даже после сброса суток 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
-- [⏳ Локальный MiniMax на клиенте: код выпущен (v3.142.0), ждём комнату «Кармана», рантайм в CI и смоук на живой машине 🗓 since:2026-11-23](pending/lokalnyy-minimax-na-kliente-privyka-i-runtaym.md)
+- [⏳ Локальный MiniMax на клиенте: ждём комнату «Кармана», рантайм в CI и смоук; разрез 4 — в работе 🗓 since:2026-11-23](pending/lokalnyy-minimax-na-kliente-privyka-i-runtaym.md)
 - [⏳ Планшетная версия «Матрицы РМЗ»: код готов (промт #142, PR #2046), APK выложен — осталась приёмка глазами владельца 🗓 since:2026-11-23](pending/planshetnaya-versiya-matritsy-rmz-na-planshete.md)
 - [⏳ Планшет — доступ как на компьютере (#111/#113/#115): выдача и снятие раздела починены — осталась приёмка глазами владельца 🗓 since:2026-11-24](pending/planshet-celhovye-razdely-obem-porta.md)
 - [⏳ Дубли сотрудников: остаток — штатка с ПДО и приёмка на парке (запрет по полному ключу сделан) 🗓 since:2026-11-09](pending/dubli-sotrudnikov-ostatok-zapret-po-polnomu-klyuchu-shtatka-s-pdo.md)
