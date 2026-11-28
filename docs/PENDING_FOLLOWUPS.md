@@ -117,6 +117,7 @@
 
 ## ⏳ Ждёт внешнего окна / события
 
+- [⏳ Нейросеть в ПП: кнопка — ждёт полосу 3 🗓 since:2026-11-28](pending/neyroset-v-pp-knopka.md)
 - [⏳ Прод-бэкфилл цехов программ: ждёт решения владельца (рантайм не пускает к прод-БД) 🗓 since:2026-11-24](pending/pp-backfill-workshop-na-prode-reshenie-vladeltsa.md)
 - [⏳ Данные оператора: дверь починена, клиент 3.135.0 роняет pull — остались снимок, обновление ≥3.136.0 и приёмка 🗓 since:2026-11-23](pending/dannie-operatora-ne-uhodyat-na-server.md)
 - [⏳ Строки списка деталей застряли в отправке: правка в v3.147.0, ждём полевую приёмку 🗓 since:2026-11-24](pending/stroki-spiska-detaley-zastryali-v-otpravke.md)

@@ -32,7 +32,8 @@ const NODE_MAX_OLD_SPACE_MB = 512;
 export const AGENT_SYSTEM_PROMPT = [
   'Ты — ИИваныч, помощник завода «Матрица РМЗ». Отвечаешь оператору на русском.',
   'Данные завода лежат в локальной базе: читай их инструментами matrica-db (db_schema, db_table, db_query).',
-  'Инструменты только на чтение — записи в базу нет и не нужно.',
+  'matrica-db — только чтение: записи в базу нет и не нужно.',
+  'Действия программы — инструментами matrica-actions: их выполняет приложение от имени оператора, с его правами и в его журнале. Отказ действия — это отказ, а не «сделано».',
   'Отвечай по фактам из базы: цифры, названия, остатки, сроки. Не выдумывай.',
   'Формат: короткий ответ по существу, можно списком. Без вступлений вроде «конечно» и без service-фраз.',
 ].join('\n');
@@ -50,6 +51,8 @@ export type AgentRunRequest = {
   question: string;
   /** Имя MCP-моста к базе (ключ в .mcp.json) и команда запуска моста. */
   dbMcp?: { name: string; command: string; args: string[]; env: Record<string, string> } | null;
+  /** Имя MCP-моста действий (ключ в .mcp.json) и команда запуска моста. */
+  actionsMcp?: { name: string; command: string; args: string[]; env: Record<string, string> } | null;
   timeoutMs?: number;
   maxSteps?: number;
   model?: string;
@@ -138,22 +141,24 @@ export function resolveAgentCommand(params: {
   return { command: entry, args: params.args };
 }
 
-/** Конфиг MCP проекта: рантайм MiniMax Code читает `.mcp.json` из рабочего каталога. */
-export function buildMcpConfig(dbMcp: AgentRunRequest['dbMcp']): string {
-  if (!dbMcp) return JSON.stringify({ mcpServers: {} }, null, 2);
-  return JSON.stringify(
-    {
-      mcpServers: {
-        [dbMcp.name]: {
-          command: dbMcp.command,
-          args: dbMcp.args,
-          env: dbMcp.env,
-        },
-      },
-    },
-    null,
-    2,
-  );
+/**
+ * Конфиг MCP проекта: рантайм MiniMax Code читает `.mcp.json` из рабочего каталога.
+ *
+ * ДВА СЕРВЕРА, А НЕ ОДИН. «matrica-db» — чтение реплики (read-only), «matrica-actions» —
+ * действия программы (отдельный канал со своим токеном). Смешивать их нельзя: мост к
+ * базе read-only по замыслу, и действия не должны проходить по нему (решение
+ * владельца, промт КАРМАНА #176).
+ */
+export function buildMcpConfig(
+  dbMcp: AgentRunRequest['dbMcp'],
+  actionsMcp?: AgentRunRequest['actionsMcp'],
+): string {
+  const servers: Record<string, { command: string; args: string[]; env: Record<string, string> }> = {};
+  if (dbMcp) servers[dbMcp.name] = { command: dbMcp.command, args: dbMcp.args, env: dbMcp.env };
+  if (actionsMcp) {
+    servers[actionsMcp.name] = { command: actionsMcp.command, args: actionsMcp.args, env: actionsMcp.env };
+  }
+  return JSON.stringify({ mcpServers: servers }, null, 2);
 }
 
 /**
@@ -239,7 +244,7 @@ export async function runAgent(req: AgentRunRequest): Promise<AgentRunResult> {
   const logFile = join(req.profile.dataDir, 'mcode.log');
   writeFileSync(systemPromptFile, AGENT_SYSTEM_PROMPT, 'utf8');
   writeFileSync(payloadFile, req.question, 'utf8');
-  writeFileSync(join(workspaceDir, '.mcp.json'), buildMcpConfig(req.dbMcp), 'utf8');
+  writeFileSync(join(workspaceDir, '.mcp.json'), buildMcpConfig(req.dbMcp, req.actionsMcp), 'utf8');
 
   const args = buildAgentArgs({ answerFile, systemPromptFile, payloadFile, timeoutMs, maxSteps, model });
   const env = buildAgentEnv(req.profile, logFile);

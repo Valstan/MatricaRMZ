@@ -29,6 +29,7 @@ import { loadLocalMiniMaxConfig, type LocalMiniMaxConfig } from './config.js';
 import { callDeepSeek } from './deepseekClient.js';
 import { KarmanPoolClient } from './karmanPool.js';
 import type { LocalDbBridge } from './dbBridge.js';
+import type { ActionBridge } from './actionBridge.js';
 
 /** Звено цепочки, которым посчитан ответ на клиенте. */
 export type LocalAnswerSource = 'local_minimax' | 'deepseek_client';
@@ -43,6 +44,8 @@ export type LocalMiniMaxEngineDeps = {
   run?: typeof runAgent;
   deepseek?: typeof callDeepSeek;
   bridge?: LocalDbBridge | null;
+  /** Канал действий агента (отдельный канал: мост к базе остаётся read-only). */
+  actionBridge?: ActionBridge | null;
   now?: () => number;
   /** Идентификатор клиента в аудите «Кармана» — «Карман» клиентов внутри комнаты не различает. */
   area?: string;
@@ -237,6 +240,19 @@ export async function answerQuestionLocally(
         env: { MATRICA_DB_PIPE: deps.bridge.pipePath, MATRICA_DB_TOKEN: deps.bridge.token },
       }
     : null;
+  // Действия агента — отдельный MCP-сервер и отдельный канал: чтение базы и
+  // действия программы не смешиваются (решение владельца, промт КАРМАНА #176).
+  const actionsMcp = deps.actionBridge
+    ? {
+        name: 'matrica-actions',
+        command: runtime.nodePath,
+        args: [runtime.actionsMcpPath],
+        env: {
+          MATRICA_ACTIONS_PIPE: deps.actionBridge.pipePath,
+          MATRICA_ACTIONS_TOKEN: deps.actionBridge.token,
+        },
+      }
+    : null;
 
   const runOnce = () =>
     run({
@@ -246,6 +262,7 @@ export async function answerQuestionLocally(
       workspaceDir: config.workspaceDir,
       question,
       dbMcp,
+      actionsMcp,
     });
 
   let attempt = await runOnce();

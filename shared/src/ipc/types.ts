@@ -4540,6 +4540,21 @@ export type MatricaApi = {
     /** Кто считает вопрос: этот компьютер или сервер. */
     localStatus: () => Promise<{ ok: true; status: import('../domain/aiChatSchedule.js').AiChatLocalStatus }>;
   };
+  /**
+   * Действия агента (промт КАРМАНА #176, разрез 2): подготовленный список номеров
+   * для окна «Добавить двигатели списком».
+   */
+  agentActions: {
+    /** Пачка подготовленных номеров (take — забрать и забыть). */
+    preparedAdd: (args?: { programId?: string | null; take?: boolean }) => Promise<{
+      ok: true;
+      batch: import('../domain/agentTools.js').AgentPreparedAddBatch | null;
+    }>;
+    /** Событие: список номеров готов (окно может открыться по нему). */
+    onPreparedAdd: (
+      handler: (batch: import('../domain/agentTools.js').AgentPreparedAddBatch | null) => void,
+    ) => () => void;
+  };
   /** Часы компьютера против часов сервера + перезапуск программы. */
   system: {
     clockStatus: () => Promise<

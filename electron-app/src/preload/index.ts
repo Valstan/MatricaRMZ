@@ -1483,6 +1483,21 @@ const matricaApi = {
     /** Состояние локального звена: считает этот компьютер или сервер. */
     localStatus: async () => ipcRenderer.invoke('aiChat:localStatus'),
   },
+  /**
+   * Действия агента (промт КАРМАНА #176, разрез 2): подготовленный список номеров
+   * для окна «Добавить двигатели списком».
+   */
+  agentActions: {
+    /** Пачка подготовленных номеров (take — забрать и забыть). */
+    preparedAdd: async (args?: { programId?: string | null; take?: boolean }) =>
+      ipcRenderer.invoke('agentActions:preparedAdd', args ?? {}),
+    /** Событие: список номеров готов (окно может открыться по нему). */
+    onPreparedAdd: (handler: (batch: any) => void) => {
+      const wrapped = (_e: Electron.IpcRendererEvent, payload: any) => handler(payload);
+      ipcRenderer.on('agentActions:preparedAdd', wrapped);
+      return () => ipcRenderer.removeListener('agentActions:preparedAdd', wrapped);
+    },
+  },
   aiAgent: {
     // Синхронный AI-контур (ai:assist / ai:conversations:*) снесён 2026-07-25 —
     // пользовательский чат работает через асинхронную очередь aiChat (v2026.719.1555).
