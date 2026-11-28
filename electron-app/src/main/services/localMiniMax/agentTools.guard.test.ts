@@ -41,6 +41,10 @@ const SHARED_AUDIT_OBJECT = src('../../../../../shared/src/domain/auditObject.ts
 const SHARED_AUDIT_ACTION = src('../../../../../shared/src/labels/auditAction.ts');
 const SHARED_ADD_BY_NUMBERS = src('../../../../../shared/src/domain/productionProgramAddByNumbers.ts');
 const DIALOG = src('../../../renderer/src/ui/components/ProductionProgramAddEnginesByNumbersDialog.tsx');
+const PAGE = src('../../../renderer/src/ui/pages/ProductionProgramPage.tsx');
+const APP = src('../../../renderer/src/ui/App.tsx');
+const AI_CHAT = src('../../../renderer/src/ui/components/AiAgentChat.tsx');
+const SHARED_AGENT_TOOLS = src('../../../../../shared/src/domain/agentTools.ts');
 
 /** Тексты отказа, которые принадлежат гейтам программы — их в реестре быть не должно. */
 const GATE_REFUSAL_TEXTS = [
@@ -141,5 +145,23 @@ describe('граница «нейросеть на клиенте» — стор
     // И действие агента не переписывает правило: оно готовит список, а добавляет
     // оператор через существующее окно.
     expect(TOOL).not.toContain('productionProgramAddByNumbersRows');
+  });
+
+  it('кнопка нейросети в ПП: контекст — в тексте вопроса, список — в существующем окне', () => {
+    // Кнопка рядом с «Добавить списком» (разрез 3).
+    expect(PAGE).toContain('data-pp-action="ai-add-by-numbers"');
+    // Контекст раздела собирает ДОМЕН, а не страница (иначе у каждого раздела
+    // появилась бы своя формулировка).
+    expect(PAGE).toContain('productionProgramAiQuestion');
+    expect(SHARED_AGENT_TOOLS).toContain('export function productionProgramAiQuestion');
+    // Второго чата не заводим: открывается та же вкладка «ИИваныч», текст вопроса
+    // ложится в поле ввода.
+    expect(APP).toContain('openAiChatWith');
+    expect(AI_CHAT).toContain('prefillText');
+    // Готовый список открывает СУЩЕСТВУЮЩЕЕ окно «Добавить списком» — не новое.
+    expect(PAGE).toContain('agentActions.onPreparedAdd');
+    expect(PAGE).toContain('setAddByNumbersOpen(true)');
+    // Кнопки нет там, где нет канала действий (планшет: локального модуля нет).
+    expect(PAGE).toContain('aiToolsAvailable');
   });
 });
