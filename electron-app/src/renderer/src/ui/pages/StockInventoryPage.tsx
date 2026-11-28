@@ -286,8 +286,8 @@ export function StockInventoryPage(props: {
         </label>
         {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
         {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
-            «ИИваныча» с вопросом, в котором едет контекст раздела «Инвентаризация». */}
-        <div>
+            «Иваныча» с вопросом, в котором едет контекст раздела «Инвентаризация». */}
+        <div style={{ gridColumn: '1 / -1' }}>
           <AiSectionButton section="stock_inventory" />
         </div>
         {props.canEdit ? (
