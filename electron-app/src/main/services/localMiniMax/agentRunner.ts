@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 
 import type { AgentProfile } from './agentProfile.js';
+import { TOKEN_REGION } from './agentProfile.js';
 
 export const AGENT_MODEL = 'minimax/MiniMax-M3.1-Flash';
 export const AGENT_MAX_STEPS = 8;
@@ -88,7 +89,14 @@ export function resolveMcodeEntry(mcodePath: string): string {
   return readShimTarget(mcodePath) ?? mcodePath;
 }
 
-/** Путь на JS-вход внутри shim npm: `"%~dp0\\..\\@minimax-ai\\code\\bin\\mcode.js"`. */
+/**
+ * Путь на JS-вход внутри shim npm.
+ *
+ * Shim npm на Windows ссылается на пакет ДВУХЗАМЕННЫМ путём: сначала `SET dp0=%~dp0`,
+ * потом уже `"%dp0%\node_modules\…\cli.js"`. Разбор знает только `%~dp0` — и путь
+ * `%dp0%\…` не подставлялся, вход не находился, и клиент запускал `.cmd` как
+ * исполняемый файл ⇒ `spawn EINVAL`, агент не стартовал (живой прогон 28.11.2026).
+ */
 function readShimTarget(cmdPath: string): string | null {
   let text = '';
   try {
@@ -99,7 +107,12 @@ function readShimTarget(cmdPath: string): string | null {
   const dir = dirname(cmdPath);
   const quoted = text.match(/"[^"]+"/g) ?? [];
   for (const raw of quoted) {
-    const value = raw.slice(1, -1).replace(/%~dp0/g, dir).trim();
+    // `%~dp0` — каталог шима, `%dp0%` — та же величина через переменную shim'а.
+    const value = raw
+      .slice(1, -1)
+      .replace(/%~dp0/g, dir)
+      .replace(/%dp0%/g, dir)
+      .trim();
     if (!value) continue;
     // Путь внутри shim написан обратными слэшами (стиль Windows) — на POSIX их
     // надо превратить в прямые, иначе resolve получит несуществующий путь.
@@ -206,7 +219,9 @@ export function buildAgentEnv(profile: AgentProfile, logFile: string): NodeJS.Pr
   env.MINIMAX_DATA_DIR = profile.dataDir;
   env.MAVIS_DATA_DIR = profile.dataDir;
   env.MCODE_LOG_FILE = logFile;
-  env.MCODE_REGION = 'prod';
+  // Регион аккаунта: 'cn' или 'en'. Рантайм ищет вход по нему — если тут 'prod',
+  // рантайм возьмёт свой регион и входа не увидит («Sign in to MiniMax»).
+  env.MCODE_REGION = TOKEN_REGION;
   env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} --dns-result-order=ipv4first --max-old-space-size=${NODE_MAX_OLD_SPACE_MB}`.trim();
   return env;
 }

@@ -91,11 +91,23 @@ const AUTH_FAILURE_MARKERS = [
   'stored oauth credential record is invalid',
   'credential record is invalid',
   'credentialrecordcorrupt',
+  // Рантайм пишет «не залогинен» в stderr прогона, а не в сообщение результата:
+  // без этого признака клиент не брал бы свежий аккаунт, а молчал бы «агент упал».
+  'sign in to minimax',
+  'auth.login_required',
 ];
 
-function isAuthFailure(message: string): boolean {
-  const lower = message.toLowerCase();
-  return AUTH_FAILURE_MARKERS.some((marker) => lower.includes(marker));
+/**
+ * Отказ во входе — и в сообщении результата, и в stderr прогона.
+ *
+ * Рантайм отвечает «Sign in to MiniMax» в stderr, а результат прогона несёт общий текст
+ * («локальный агент не вернул результат»). Смотреть только на сообщение — значит не
+ * увидеть отказ во входе и не взять свежий аккаунт (живой прогон 28.11.2026).
+ */
+function isAuthFailure(attempt: { message?: string; details?: unknown }): boolean {
+  const stderr = String((attempt?.details as { stderr?: unknown } | undefined)?.stderr ?? '');
+  const text = `${attempt?.message ?? ''} ${stderr}`.toLowerCase();
+  return AUTH_FAILURE_MARKERS.some((marker) => text.includes(marker));
 }
 
 /** Причина пустоты пула → код причины для оператора; иначе null. */
@@ -270,7 +282,7 @@ export async function answerQuestionLocally(
   let emptyCause: AiChatLocalCause | null = null;
   const accountId = credential.credential.accountId;
 
-  if (!attempt.ok && isAuthFailure(attempt.message)) {
+  if (!attempt.ok && isAuthFailure(attempt)) {
     const pool = poolOf(config, deps);
     // 1. Продлеваем СВОЙ аккаунт: это не съедает ёмкость пула.
     if (accountId) {
@@ -289,7 +301,7 @@ export async function answerQuestionLocally(
     }
     // 2. Не помогло — берём СВЕЖИЙ аккаунт у пула и доводим задание (промт #176, п. 3).
     //    Ограничения: не крутимся на том же аккаунте, успеваем в бюджет ожидания.
-    if (!attempt.ok && isAuthFailure(attempt.message) && nowMs() - now < LOCAL_ANSWER_BUDGET_MS) {
+    if (!attempt.ok && isAuthFailure(attempt) && nowMs() - now < LOCAL_ANSWER_BUDGET_MS) {
       const offer = await pool.available();
       if (!offer.ok) {
         console.warn('[local-minimax] свежий аккаунт не взят:', offer.reason, offer.message);
@@ -310,7 +322,7 @@ export async function answerQuestionLocally(
     }
     // Отказавший вход в профиле не оставляем: следующий вопрос не должен
     // переиспользовать мёртвый токен (иначе клиент до перезапуска молчит).
-    if (!attempt.ok && isAuthFailure(attempt.message)) {
+    if (!attempt.ok && isAuthFailure(attempt)) {
       clearCredential(profile);
     }
   }

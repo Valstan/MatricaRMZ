@@ -435,8 +435,45 @@ describe('локальное звено ИИваныча', () => {
     expect(outcome.ok).toBe(false);
   });
 
-  it('отказавший вход не остаётся в профиле — следующий вопрос его не переиспользует', async () => {
+  it('отказ во входе, написанный рантаймом в stderr, виден как отказ во входе', async () => {
+    // Рантайм отвечает «Sign in to MiniMax» в stderr прогона, а результат несёт общий
+    // текст. Если это не увидеть, клиент не берёт свежий аккаунт (живой прогон 28.11.2026).
     const cfg = config();
+    let runs = 0;
+    let availableCalls = 0;
+    const pool = fakePool({
+      renew: async () => ({ ok: false as const, reason: 'not_found' as const, message: 'продлить не вышло' }),
+      available: async () => {
+        availableCalls += 1;
+        // Первый вызов — текущий аккаунт, второй — СВЕЖИЙ (тот же крутить бессмысленно).
+        const id = availableCalls === 1 ? 77 : 78;
+        return {
+          ok: true as const,
+          value: { account: { id, title: 'аккаунт' }, reason: null, accessToken: `access-${id}`, expiresAtMs: Date.now() + 1000 },
+        };
+      },
+    });
+
+    await answerQuestionLocally('вопрос', {
+      config: cfg,
+      pool,
+      run: async () => {
+        runs += 1;
+        return {
+          ok: false as const,
+          reason: 'no_result',
+          message: 'локальный агент не вернул результат',
+          details: { exitCode: 3, stderr: 'mcode exec failed: Sign in to MiniMax to use Agent features.' },
+        };
+      },
+    });
+
+    // Первый прогон — отказ во входе; дальше клиент берёт свежий аккаунт и повторяет.
+    expect(runs).toBeGreaterThanOrEqual(2);
+    expect(availableCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  it('отказавший вход не остаётся в профиле — следующий вопрос его не переиспользует', async () => {    const cfg = config();
     await answerQuestionLocally('вопрос', {
       config: cfg,
       pool: fakePool({
