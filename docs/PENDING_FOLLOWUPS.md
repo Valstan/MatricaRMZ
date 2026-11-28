@@ -54,10 +54,11 @@
 ---
 
 ## 🟡 Техдолг и отложенное
-- [🟡 Список двигателей: этап ремонта, ряд этапов и шаблоны фильтров — развилки владельца (промт #181) 🗓 since:2026-11-27](pending/spisok-dvigatelej-etap-remonta-i-shablony-filtrov.md)
+- [🟡 Корзина промтов: развилки (промт #183) 🗓 since:2026-11-28](pending/korzina-promtov.md)
+- [🟡 Список двигателей: этап и шаблоны фильтров — развилки владельца (промт #181) 🗓 since:2026-11-27](pending/spisok-dvigatelej-etap-remonta-i-shablony-filtrov.md)
 - [🟡 ПП: плашки и полный экран — полевая приёмка глазами оператора (промт #179) 🗓 since:2026-11-28](pending/proizvodstvennye-programmy-plashki.md)
 - [🟡 Сторож моста preload сверяет разделы, но не аргументы — поле теряется молча 🗓 since:2026-11-27](pending/storozh-mosta-preload-sveryaet-tolko-razdely.md)
-- [🟡 Поиск по папкам: карта индекса дерева — шесть развилок владельца (промт #180) 🗓 since:2026-11-27](pending/resheniya-vladeltsa-indeks-papki-poisk-po-fajlam.md)
+- [🟡 Поиск по папкам: шесть развилок владельца (промт #180) 🗓 since:2026-11-27](pending/resheniya-vladeltsa-indeks-papki-poisk-po-fajlam.md)
 - [🟡 Утиль и этапы ремонта: деталь ушла в утиль, а учёт говорит «в ремонтном фонде» — обратное движение заводим 🗓 since:2026-11-27](pending/vozvrat-detali-iz-util-raskhozhdenie.md)
 - [🟡 Вид «ГОЗ / гражданка»: проставить пачкой — действие сделано, наполнить парк — за оператором 🗓 since:2026-11-26](pending/prostat-vid-pachkoy-zakazchikam-i-dogovoram.md)
 - [🟡 Печать картинок: проверить диалог печати Chromium на живой машине парка 🗓 since:2026-11-26](pending/pechat-kartinok-dialog-pechati-na-parke.md)

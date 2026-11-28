@@ -30,6 +30,7 @@ import { startAuditStatisticsScheduler } from './services/statisticsAuditService
 import { startForcedUpdateJob } from './services/forcedUpdateService.js';
 import { startCriticalEventsTelegramService } from './services/criticalEventsTelegramService.js';
 import { startCriticalEventsMaxService } from './services/criticalEventsMaxService.js';
+import { startCriticalEventsKarmanService } from './services/criticalEventsKarmanService.js';
 import { ensureMonitoringRoom } from './services/chatMessageService.js';
 import { ensureBaseMasterdata } from './services/baseMasterdataService.js';
 import { ensureSyncSchemaGuard } from './services/sync/syncSchemaGuard.js';
@@ -138,6 +139,10 @@ async function bootstrap() {
     // МАКС — второй внешний канал тревог (в чат администратора, Telegram и МАКС).
     // Без токена бота и адресата модуль — честный no-op.
     startCriticalEventsMaxService();
+    // Корзина промтов КАРМАНА: критические сообщения об ошибках уходят разработчику
+    // сами (промт КАРМАНА #183) — оператору их показывать не надо. Без секрета
+    // канала (`PROMPTS_INGEST_SECRET`) модуль — честный no-op.
+    startCriticalEventsKarmanService();
     // Комната «Мониторинг завода» в чате программы: тревоги падают в неё, а не в личку
     // администратора. Заводится один раз при старте, чтобы в неё можно было позвать
     // заместителя ДО первой аварии.
