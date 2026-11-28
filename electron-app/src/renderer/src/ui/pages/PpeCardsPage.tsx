@@ -27,6 +27,8 @@ import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListLassoLayer } from '../components/ListLassoLayer.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
@@ -566,6 +568,9 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
   return (
     <div data-list-root="true" style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <PageToolbar>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Карточки СИЗ». */}
+        <AiSectionButton section="ppe_cards" />
         <ToolbarPin>
           <ToolbarSearchField
             value={query}

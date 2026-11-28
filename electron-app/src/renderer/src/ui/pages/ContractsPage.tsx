@@ -4,6 +4,8 @@ import { Button } from '../components/Button.js';
 import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { ContractNumberText } from '../components/ContractNumberText.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
@@ -1119,6 +1121,9 @@ export function ContractsPage(props: {
   return (
     <div data-list-root="true" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <PageToolbar>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Контракты». */}
+        <AiSectionButton section="contracts" />
         {props.canCreate && (
           <Button
             onClick={async () => {

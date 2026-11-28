@@ -14,6 +14,7 @@ export function PartsPage(props: {
       {...(props.onOpenNomenclatureCatalog ? { onOpenNomenclatureCatalog: props.onOpenNomenclatureCatalog } : {})}
       canCreate={props.canCreate}
       {...PARTS_PRESET}
+      aiSection="parts"
     />
   );
 }

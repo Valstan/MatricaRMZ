@@ -16,6 +16,7 @@ export function ToolsPage(props: {
       {...(props.onOpenNomenclatureCatalog ? { onOpenNomenclatureCatalog: props.onOpenNomenclatureCatalog } : {})}
       canCreate={props.canCreate}
       {...TOOLS_PRESET}
+      aiSection="tools"
       secondaryAction={
         <Button variant="ghost" onClick={props.onOpenProperties}>
           Справочник свойств

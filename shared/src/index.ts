@@ -102,6 +102,8 @@ export * from './domain/productionProgram.js';
 export * from './domain/productionProgramAddByNumbers.js';
 // Клиентские инструменты агента: контракт подготовленного списка и тексты отказов.
 export * from './domain/agentTools.js';
+// Контекст раздела для нейросети: вопрос кнопки «Нейросеть» (промт КАРМАНА #176, разрез 4).
+export * from './domain/aiSectionContext.js';
 // Подписи печатных форм — общий слой (слоты, правки, порядок печати).
 export * from './domain/printSignatures.js';
 // Шаблон подписей производственной программы (промт КАРМАНА #120): выбор шаблона
