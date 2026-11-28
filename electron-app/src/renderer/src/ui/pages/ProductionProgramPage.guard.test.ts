@@ -19,6 +19,10 @@ const PREVIEW = src('../components/ProductionProgramPrintPreview.tsx');
 const SIGNATURE_EDITOR = src('../components/PrintSignatureBlockEditor.tsx');
 const PRINT_HTML = src('../utils/productionProgramPrintHtml.ts');
 const ADD_BY_NUMBERS = src('../components/ProductionProgramAddEnginesByNumbersDialog.tsx');
+// Правила «Добавить списком» живут в домене (промт КАРМАНА #176, разрез 2): модалка
+// — экран, а правило (разбор номера, поиск карточки, дубль, «Требует данных») зовёт
+// домен. Сторож смотрит туда — и туда же, где правило теперь.
+const ADD_BY_NUMBERS_DOMAIN = src('../../../../../../shared/src/domain/productionProgramAddByNumbers.ts');
 const LIST_ACTIONS = src('../utils/listContextActions.ts');
 const APP = src('../App.tsx');
 const CSS = src('../global.css');
@@ -488,12 +492,15 @@ describe('колонка «Этап» в производственной про
  */
 describe('производственная программа — добавление списком и работа со строками', () => {
   it('разбор номеров — общий с пакетным приёмом, свой парсер не заводим', () => {
-    expect(ADD_BY_NUMBERS).toContain('parseEngineBulkIntake');
-    expect(ADD_BY_NUMBERS).toContain('productionProgramEngineMatch');
+    expect(ADD_BY_NUMBERS_DOMAIN).toContain('parseEngineBulkIntake');
+    expect(ADD_BY_NUMBERS_DOMAIN).toContain('productionProgramEngineMatch');
+    // Модалка правило зовёт, а не содержит сама — иначе у человека и у агента
+    // разошлись бы две копии (промт КАРМАНА #176, разрез 2).
+    expect(ADD_BY_NUMBERS).toContain('productionProgramAddByNumbersReport');
   });
 
   it('по каждому номеру видна проблема, у строки есть галочка, кнопка — одна внизу', () => {
-    expect(ADD_BY_NUMBERS).toContain('productionProgramEngineProblem');
+    expect(ADD_BY_NUMBERS_DOMAIN).toContain('productionProgramEngineProblem');
     expect(ADD_BY_NUMBERS).toContain('type="checkbox"');
     expect(ADD_BY_NUMBERS).toContain('Добавить в производственную программу');
     // Причина видна рядом с номером, а не в тексте ошибки.
@@ -502,7 +509,7 @@ describe('производственная программа — добавле
 
   it('проблемная строка живёт в блоке «Требует данных», причина — в примечании', () => {
     expect(ADD_BY_NUMBERS).toContain('PRODUCTION_PROGRAM_PENDING_GROUP_LABEL');
-    expect(ADD_BY_NUMBERS).toContain('note: row.reason');
+    expect(ADD_BY_NUMBERS_DOMAIN).toContain('note: row.reason');
     expect(SHARED_DOMAIN).toContain("export const PRODUCTION_PROGRAM_PENDING_GROUP_LABEL = 'Требует данных';");
     // Никаких новых таблиц и атрибутов: временный блок = существующая группа.
     expect(SHARED_DOMAIN).not.toContain('production_program_pending');
@@ -555,7 +562,7 @@ describe('производственная программа — добавле
   it('строка без шапки группы на сервер не уходит — она ждёт в блоке', () => {
     // Сервер отвергает весь набор строк, если шапка группы пустая (замена набора
     // полная) — значит, пустая подпись уехать не должна никогда.
-    expect(ADD_BY_NUMBERS).toContain('PRODUCTION_PROGRAM_NO_CONTRACT_NUMBER_NOTE');
+    expect(ADD_BY_NUMBERS_DOMAIN).toContain('PRODUCTION_PROGRAM_NO_CONTRACT_NUMBER_NOTE');
     expect(ADD_BY_NUMBERS).toContain('contractLabelOf');
     // Подпись группы — от страницы: её снимок в модалке отставал от страницы.
     expect(PAGE).toContain('contractLabelOf={(engine) => contractLabelById.get(String(engine.contractId ?? \'\')) ?? \'\'}');

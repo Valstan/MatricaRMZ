@@ -125,6 +125,16 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     presetId: string,
     opts?: { filters?: Record<string, unknown> | null; disabled?: string[]; label?: string },
   ) => void;
+  /**
+   * Текст, подложенный кнопкой раздела (промт КАРМАНА #176, разрез 3).
+   *
+   * Оператор дописывает к нему номера (или прикладывает файл) и отправляет. Контекст
+   * раздела едет именно в тексте вопроса — единственном поле, которое доезжает и до
+   * сервера, и до локального агента.
+   */
+  prefillText?: string | null;
+  /** Подложенный текст взят — окно его убирает, чтобы он не вернулся при перерисовке. */
+  onPrefillConsumed?: () => void;
 }>((props, ref) => {
   // props.visible — «панель отрисована», useTabVisible — «её вкладка сейчас активна».
   const tabVisible = useTabVisible();
@@ -249,6 +259,16 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [items.length]);
+
+  // Текст от кнопки раздела ложится в поле ввода: оператор дописывает номера и
+  // отправляет. Взяли — окно его убирает (иначе он вернулся бы при перерисовке).
+  const { prefillText, onPrefillConsumed } = props;
+  useEffect(() => {
+    const prefill = String(prefillText ?? '').trim();
+    if (!prefill) return;
+    setText(prefill);
+    onPrefillConsumed?.();
+  }, [prefillText, onPrefillConsumed]);
 
   useImperativeHandle(ref, () => ({ refresh: () => void refresh() }), [refresh]);
 

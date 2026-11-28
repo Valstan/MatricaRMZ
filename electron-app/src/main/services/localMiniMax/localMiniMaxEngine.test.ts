@@ -38,6 +38,7 @@ function config(overrides: Partial<LocalMiniMaxConfig> = {}): LocalMiniMaxConfig
       nodePath: 'node.exe',
       mcodePath: 'mcode.cmd',
       dbMcpPath: 'matrica-db-mcp.mjs',
+      actionsMcpPath: 'matrica-actions-mcp.mjs',
     },
     profileDir: join(root, 'profile'),
     workspaceDir: join(root, 'workspace'),
@@ -81,6 +82,30 @@ describe('локальное звено ИИваныча', () => {
     expect(outcome).toEqual({ ok: true, source: 'local_minimax', answer: 'ответ локального агента' });
   });
 
+  it('агенту едут ДВА сервера: чтение базы и действия — раздельно', async () => {
+    // Мост к базе read-only по замыслу, а действия идут отдельным каналом со своим
+    // токеном (промт КАРМАНА #176). Смешать их нельзя — это ломало бы границу.
+    let seen: { dbMcp?: unknown; actionsMcp?: unknown } = {};
+    const outcome = await answerQuestionLocally('вопрос', {
+      config: config(),
+      pool: fakePool(),
+      bridge: { pipePath: 'db-pipe', token: 'db-token', close: () => {} },
+      actionBridge: { pipePath: 'actions-pipe', token: 'actions-token', close: () => {} },
+      run: async (req) => {
+        seen = { dbMcp: req.dbMcp, actionsMcp: req.actionsMcp };
+        return { ok: true as const, answer: 'ответ', details: {} };
+      },
+    });
+    expect(outcome.ok).toBe(true);
+    expect((seen.dbMcp as { name: string }).name).toBe('matrica-db');
+    expect((seen.actionsMcp as { name: string }).name).toBe('matrica-actions');
+    // Токены — разные: у каждого канала свой.
+    expect((seen.actionsMcp as { env: Record<string, string> }).env.MATRICA_ACTIONS_TOKEN).toBe(
+      'actions-token',
+    );
+    expect((seen.dbMcp as { env: Record<string, string> }).env.MATRICA_DB_TOKEN).toBe('db-token');
+  });
+
   it('пул пуст — «аккаунты кончились», а не «ИИваныч думает»', async () => {
     const cfg = config();
     const outcome = await answerQuestionLocally('вопрос', {
@@ -110,6 +135,7 @@ describe('локальное звено ИИваныча', () => {
           nodePath: 'node.exe',
           mcodePath: 'mcode.cmd',
           dbMcpPath: 'matrica-db-mcp.mjs',
+          actionsMcpPath: 'matrica-actions-mcp.mjs',
         },
       }),
       pool: fakePool(),

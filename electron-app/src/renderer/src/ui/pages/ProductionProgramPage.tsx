@@ -28,6 +28,7 @@ import {
   productionProgramRowTone,
   productionProgramSignatureTemplateSlots,
   productionProgramStageOptions,
+  productionProgramAiQuestion,
   resolveProductionProgramSignatureSlots,
   serializePrintSignatureSlots,
   type EngineListItem,
@@ -147,6 +148,18 @@ type Props = {
    * искать карточку в списке двигателей вручную.
    */
   onOpenEngine?: (engineId: string) => void;
+  /**
+   * Открыть панель ИИваныча с готовым вопросом (промт КАРМАНА #176, разрез 3).
+   *
+   * Кнопка нейросети рядом с «Добавить списком»: оператор дописывает к вопросу
+   * номера (или прикладывает файл), агент готовит список, и окно «Добавить двигатели
+   * списком» открывается с готовыми номерами. Второго чата не заводим — открывается
+   * та же вкладка «ИИваныч», а контекст раздела едет в тексте вопроса.
+   *
+   * На планшете кнопки нет: там нет локального модуля агента, а значит нет и канала
+   * действий (шим `android-app/src/shims/localMiniMaxService.ts`).
+   */
+  onOpenAiChat?: (question: string) => void;
 };
 
 /**
@@ -1124,6 +1137,48 @@ export function ProductionProgramPage(props: Props) {
   );
 
   const selected = useMemo(() => programs.find((p) => p.id === selectedId) ?? null, [programs, selectedId]);
+
+  /**
+   * Кнопка нейросети есть только там, где есть КАНАЛ ДЕЙСТВИЙ.
+   *
+   * Канал живёт в локальном модуле агента (его рантайм на машине оператора). На
+   * планшете модуля нет (шим отвечает «не настроен»), и кнопка, которая открыла бы
+   * чат без единого действия, была бы враньём. Проверка — та же, что у строки статуса
+   * в панели ИИваныча.
+   */
+  const [aiToolsAvailable, setAiToolsAvailable] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await window.matrica.aiChat.localStatus();
+        if (alive && res.ok) setAiToolsAvailable(res.status.configured === true);
+      } catch {
+        if (alive) setAiToolsAvailable(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /**
+   * Нейросеть подготовила список — открываем окно «Добавить двигатели списком».
+   *
+   * Само окно забирает готовый список при открытии (`takePreparedAdd`), поэтому здесь
+   * достаточно его открыть. Пачка чужой программы не трогаем: она дождётся своего
+   * окна (в main пачка лежит, пока её не заберут).
+   */
+  useEffect(() => {
+    const off = window.matrica.agentActions.onPreparedAdd((batch) => {
+      if (!batch) return;
+      const wanted = String(batch.programId ?? '').trim();
+      const current = String(selectedId ?? '').trim();
+      if (wanted && wanted !== current) return;
+      setAddByNumbersOpen(true);
+    });
+    return off;
+  }, [selectedId]);
 
   /**
    * Открыта ли программа (на весь экран) или мы в списке программ.
@@ -2865,6 +2920,24 @@ export function ProductionProgramPage(props: Props) {
                     >
                       Добавить списком
                     </Button>
+                    {/* Нейросеть рядом с «Добавить списком» (промт КАРМАНА #176,
+                        разрез 3): оператор пишет номера (или кладёт файл), агент
+                        готовит список, и это же окно открывается с готовыми номерами.
+                        Кнопки нет там, где нет канала действий (планшет). */}
+                    {props.onOpenAiChat && aiToolsAvailable ? (
+                      <Button
+                        variant="ghost"
+                        onClick={() =>
+                          props.onOpenAiChat?.(
+                            productionProgramAiQuestion({ programTitle: selected?.title ?? '' }),
+                          )
+                        }
+                        data-pp-action="ai-add-by-numbers"
+                        title="Нейросеть: спросить про план и подготовить список двигателей"
+                      >
+                        Нейросеть
+                      </Button>
+                    ) : null}
                   </div>
                   {hint ? (
                     <div style={{ fontSize: 12, color: 'var(--subtle)', flex: '1 1 100%' }}>{hint.text}</div>

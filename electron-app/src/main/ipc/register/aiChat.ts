@@ -46,6 +46,7 @@ export function registerAiChatIpc(ctx: IpcContext) {
         id: res.id,
         questionText,
         runSync: () => void ctx.mgr.runOnce().catch(() => undefined),
+        ctx,
       });
     }
     return res;

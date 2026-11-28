@@ -22,6 +22,7 @@ import { registerChecklistsIpc } from './register/checklists.js';
 import { registerChatIpc } from './register/chat.js';
 import { registerAiAgentIpc } from './register/aiAgent.js';
 import { registerAiChatIpc } from './register/aiChat.js';
+import { registerAgentActionsIpc } from './register/agentActions.js';
 import { registerChangesIpc } from './register/changes.js';
 import { registerEnginesOpsAuditIpc } from './register/enginesOpsAudit.js';
 import { registerClientOpsIpc } from './register/clientOps.js';
@@ -251,6 +252,7 @@ export function registerIpc(
   registerNotesIpc(ctx);
   registerAiAgentIpc(ctx);
   registerAiChatIpc(ctx);
+  registerAgentActionsIpc(ctx);
   registerChecklistsIpc(ctx);
   registerSupplyRequestsIpc(ctx);
   registerWorkOrdersIpc(ctx);

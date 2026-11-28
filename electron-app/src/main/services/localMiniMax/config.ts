@@ -34,6 +34,8 @@ export type LocalMiniMaxRuntime = {
   mcodePath: string;
   /** MCP-мост к локальной реплике (stdio-сервер, запускает сам mcode). */
   dbMcpPath: string;
+  /** MCP-мост действий агента (stdio-сервер, запускает сам mcode). */
+  actionsMcpPath: string;
 };
 
 export type LocalMiniMaxConfig = {
@@ -97,6 +99,16 @@ function dbMcpPath(): string {
   return candidates.find((path) => existsSync(path)) ?? candidates[0]!;
 }
 
+/** Мост действий агента: отдельный сервер, отдельный канал (промт КАРМАНА #176). */
+function actionsMcpPath(): string {
+  const candidates = [
+    join(resourcesDir(), 'local-minimax', 'app', 'matrica-actions-mcp.mjs'),
+    join(process.cwd(), 'electron-app', 'resources', 'local-minimax', 'matrica-actions-mcp.mjs'),
+    join(process.cwd(), 'resources', 'local-minimax', 'matrica-actions-mcp.mjs'),
+  ];
+  return candidates.find((path) => existsSync(path)) ?? candidates[0]!;
+}
+
 function firstNonEmpty(...values: (string | undefined | null)[]): string {
   for (const value of values) {
     const trimmed = typeof value === 'string' ? value.trim() : '';
@@ -133,6 +145,7 @@ export function loadLocalMiniMaxConfig(): LocalMiniMaxConfig {
   // shim npm (.cmd) Node не исполняет — ищем настоящий JS-вход (или .exe).
   const mcodePath = resolveMcodeEntry(runtimePath(baseDir, bundle.mcode, 'bin/mcode.cmd'));
   const bridgePath = dbMcpPath();
+  const actionsPath = actionsMcpPath();
 
   const missing: string[] = [];
   if (!karmanUrl) missing.push('адрес «Кармана»');
@@ -140,6 +153,7 @@ export function loadLocalMiniMaxConfig(): LocalMiniMaxConfig {
   if (!existsSync(nodePath)) missing.push('рантайм Node.js');
   if (!existsSync(mcodePath)) missing.push('рантайм MiniMax Code');
   if (!existsSync(bridgePath)) missing.push('мост к базе');
+  if (!existsSync(actionsPath)) missing.push('мост действий');
 
   if (missing.length > 0) {
     return {
@@ -157,7 +171,16 @@ export function loadLocalMiniMaxConfig(): LocalMiniMaxConfig {
   return {
     configured: true,
     reason: 'локальный модуль готов',
-    runtime: { karmanUrl, karmanToken, project, deepseekApiKey, nodePath, mcodePath, dbMcpPath: bridgePath },
+    runtime: {
+      karmanUrl,
+      karmanToken,
+      project,
+      deepseekApiKey,
+      nodePath,
+      mcodePath,
+      dbMcpPath: bridgePath,
+      actionsMcpPath: actionsPath,
+    },
     profileDir,
     workspaceDir,
   };

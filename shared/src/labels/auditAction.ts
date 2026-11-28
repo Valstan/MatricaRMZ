@@ -72,6 +72,10 @@ const EXACT_ACTION_BY_CODE: Record<string, string> = {
   'ui.report_open': 'Открыл отчёт',
   'ui.report_build': 'Построил отчёт',
   'work_order.number_change': 'Сменил номер наряда',
+  // Действия нейросети (промт КАРМАНА #176): семейство `agent.<домен>.<операция>`.
+  // Действие выполняет приложение от имени оператора, а команда дана нейросетью —
+  // подпись обязана это говорить, иначе в журнале будет ложь «оператор нажал кнопку».
+  'agent.production_program.prepare_add_by_numbers': 'Подготовил список двигателей для добавления',
 };
 
 const CREATE_BY_SECTION: Record<string, string> = {
@@ -196,6 +200,13 @@ function describeAuditActionText(row: AuditActionRow): string {
 
   if (action === 'app.session.start') return 'Зашел в систему';
   if (action === 'app.session.stop') return 'Вышел из системы';
+  // Действия нейросети — ОДНО правило на семейство `agent.*`: подпись конкретного
+  // действия берётся из точного списка, а на все прочие — общая фраза. Своя копия
+  // правила на каждое действие разошлась бы с журналом тихо (ADR-0011).
+  if (action.startsWith('agent.')) {
+    const base = EXACT_ACTION_BY_CODE[action] ?? 'Выполнил действие по команде нейросети';
+    return targetLabel ? `${base} ${targetLabel}` : base;
+  }
   if (EXACT_ACTION_BY_CODE[action]) return formatBySection(EXACT_ACTION_BY_CODE[action]!);
 
   if (action === 'supply_request.transition') {

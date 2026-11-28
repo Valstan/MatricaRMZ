@@ -1194,6 +1194,9 @@ export function App() {
   const aiChatRef = useRef<AiAgentChatHandle | null>(null);
   const [aiLastEvent, setAiLastEvent] = useState<AiAgentEvent | null>(null);
   const [aiRecentEvents, setAiRecentEvents] = useState<AiAgentEvent[]>([]);
+  // Текст, подложенный кнопкой раздела в панель ИИваныча (промт КАРМАНА #176,
+  // разрез 3): контекст раздела едет в тексте вопроса.
+  const [aiPrefill, setAiPrefill] = useState<string | null>(null);
   const [uiPrefs, setUiPrefs] = useState<{
     theme: 'auto' | 'light' | 'dark' | 'warm';
     decor: 'strict' | 'fancy';
@@ -6126,6 +6129,7 @@ export function App() {
             canEditStages={caps.canEditWorkSheets}
             canEditSignatureTemplates={caps.canEditProductionProgramSignatureTemplates}
             onOpenEngine={(id: string) => void openEngine(id)}
+            onOpenAiChat={openAiChatWith}
           />
         )}
         {t === 'work_sheet' && selectedWorkSheetId && (
@@ -7263,6 +7267,21 @@ export function App() {
     </div>
   );
 
+  /**
+   * Открыть панель ИИваныча с готовым текстом вопроса (кнопка нейросети в разделе,
+   * промт КАРМАНА #176, разрез 3).
+   *
+   * Второго чата не заводим: открывается ТА ЖЕ вкладка «ИИваныч», а контекст раздела
+   * едет в тексте вопроса — единственном поле, которое доезжает и до сервера, и до
+   * локального агента.
+   */
+  const openAiChatWith = useCallback((question: string) => {
+    const text = String(question ?? '').trim();
+    if (!text) return;
+    setAiPrefill(text);
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'ai_chat', label: 'ИИваныч', focus: true });
+  }, []);
+
   const renderAiChatTabContent = () => (
     <AiAgentChat
       ref={aiChatRef}
@@ -7270,6 +7289,8 @@ export function App() {
       context={aiContext}
       lastEvent={aiLastEvent}
       recentEvents={aiRecentEvents}
+      prefillText={aiPrefill}
+      onPrefillConsumed={() => setAiPrefill(null)}
       onOpenReport={(
         presetId,
         opts?: { filters?: Record<string, unknown> | null; disabled?: string[]; label?: string },
