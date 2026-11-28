@@ -87,6 +87,13 @@ import {
   buildProductionProgramClipboardText,
   buildProductionProgramExportSpec,
 } from '../utils/productionProgramExport.js';
+import {
+  productionProgramLayout,
+  productionProgramPeriodLine,
+  productionProgramStripLabel,
+  sortProductionProgramsByFreshness,
+  type ProductionProgramLocalEdit,
+} from '../utils/productionProgramLayout.js';
 
 /**
  * Производственная программа (ПП) — страница модуля.
@@ -339,9 +346,45 @@ function programStateLabel(state: string | null | undefined): string {
 }
 
 export function ProductionProgramPage(props: Props) {
-  const [programs, setPrograms] = useState<ProductionProgramDto[]>([]);
+  /**
+   * Программы как приехали из реплики (в том порядке, в каком отдал сервер).
+   *
+   * Порядок плашек — дело экрана (промт КАРМАНА #179): `programs` ниже отсортирован
+   * по свежести правки, а сырой список лежит здесь.
+   */
+  const [allPrograms, setAllPrograms] = useState<ProductionProgramDto[]>([]);
   const [lines, setLines] = useState<ProductionProgramLineDto[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /**
+   * Мы в списке программ (программа не открыта на весь экран).
+   *
+   * Отдельный флаг, а не «пустой выбранный id»: возврат к списку не должен
+   * выбрасывать правку (строки и пометка «не сохранено» живут в своих картах).
+   */
+  const [listMode, setListMode] = useState(false);
+  /**
+   * Список программ развёрнут карточками (в режиме списка) или сжат в полоски.
+   *
+   * Это выбор оператора: он переживает открытие программы (промт #179, п.6).
+   */
+  const [listExpanded, setListExpanded] = useState(true);
+  /**
+   * Развёрнутый список плавает ПОВЕРХ открытой программы.
+   *
+   * Отдельное состояние от `listExpanded` намеренно: программа открыта — значит
+   * оператор хочет видеть программу, и список не должен накрывать её сам.
+   * Панель открывает тот же переключатель, но только по явному действию.
+   */
+  const [listPanelOpen, setListPanelOpen] = useState(false);
+
+  /**
+   * Клиентские метки правок: программа → когда её тронул оператор и какое
+   * серверное время было тогда.
+   *
+   * Правка, которая ещё не уехала на сервер, иначе осталась бы внизу списка
+   * до прихода зеркала (серверное `updatedAt` ещё старый).
+   */
+  const [localEdits, setLocalEdits] = useState<Record<string, ProductionProgramLocalEdit>>({});
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [status, setStatus] = useState<string>('');
   const [error, setError] = useState<string>('');
@@ -394,6 +437,16 @@ export function ProductionProgramPage(props: Props) {
   const [mailSelection, setMailSelection] = useState<{ subject: string; summary: string[]; body: string } | null>(null);
   /** Вид договора по его id — кэш на сессию: перепроверка спрашивает его каждый проход. */
   const contractKindCacheRef = useRef<Map<string, 'military' | 'civil' | null>>(new Map());
+  /** Программы из последней реплики — по ним читаем серверное время для метки правки. */
+  const allProgramsRef = useRef<ProductionProgramDto[]>([]);
+  /**
+   * Счётчик «программу открыли снова».
+   *
+   * Возврат к списку не сбрасывает выбранную программу, поэтому при повторном
+   * открытии id не меняется — а строки плана должны пересобраться. Счётчик
+   * делает это явно: эффект по строкам перезапускается даже с тем же id.
+   */
+  const [openToken, setOpenToken] = useState(0);
 
   // ── Правка плана: грязный экран, автосохранение и защита от отстающего зеркала ──
   // Баг владельца 19.11.2026: двигатель, добавленный в производственную программу,
@@ -442,6 +495,17 @@ export function ProductionProgramPage(props: Props) {
   const markUnsaved = useCallback((programId: string) => {
     unsavedRef.current.add(programId);
     setUnsavedProgramIds((prev) => (prev.includes(programId) ? prev : [...prev, programId]));
+    // Клиентская метка свежести (промт КАРМАНА #179): пока правка не уехала,
+    // серверное время программы старое, и плашка осталась бы внизу списка.
+    // База метки — серверное время ДО правки: как только зеркало покажет другое
+    // время, зеркало догнало правку и метка больше не нужна.
+    setLocalEdits((prev) => {
+      const serverUpdatedAt =
+        prev[programId]?.serverUpdatedAt ??
+        allProgramsRef.current.find((p) => p.id === programId)?.updatedAt ??
+        0;
+      return { ...prev, [programId]: { at: Date.now(), serverUpdatedAt } };
+    });
   }, []);
 
   /** Правка уехала — пометку снимаем. */
@@ -824,52 +888,68 @@ export function ProductionProgramPage(props: Props) {
     setError('');
     // Шапку, которую правят на экране, реплика не затирает: зеркало отстаёт на
     // минуту, и без этого правка «Название/Цех/Период/Статус» исчезала бы сама.
-    setPrograms(
-      res.rows.map((p) => {
-        const override = headerOverrideRef.current.get(p.id);
-        if (!override) return p;
-        // Зеркало догоняет правку ПО ПОЛЯМ: как только оно показало наше поле,
-        // поле отпускается и дальше ведёт сама реплика.
-        //
-        // Раньше сравнение перечисляло поля поимённо и подписей в списке не
-        // было: как только остальные поля совпали, оверрайд снимался целиком,
-        // и правка подписей пропадала с экрана до прихода зеркала — «подписи то
-        // появляются, то исчезают» (класс M118: сравнение «тот же список» по
-        // полям, в которые забыли добавить новое).
-        const pending: Partial<ProgramHeaderFields> = {};
-        if (override.title !== undefined && p.title !== override.title) pending.title = override.title;
-        if (override.shop !== undefined && p.shop !== override.shop) pending.shop = override.shop;
-        if (override.workshopId !== undefined && (p.workshopId ?? null) !== override.workshopId) {
-          pending.workshopId = override.workshopId;
+    const nextPrograms = res.rows.map((p) => {
+      const override = headerOverrideRef.current.get(p.id);
+      if (!override) return p;
+      // Зеркало догоняет правку ПО ПОЛЯМ: как только оно показало наше поле,
+      // поле отпускается и дальше ведёт сама реплика.
+      //
+      // Раньше сравнение перечисляло поля поимённо и подписей в списке не
+      // было: как только остальные поля совпали, оверрайд снимался целиком,
+      // и правка подписей пропадала с экрана до прихода зеркала — «подписи то
+      // появляются, то исчезают» (класс M118: сравнение «тот же список» по
+      // полям, в которые забыли добавить новое).
+      const pending: Partial<ProgramHeaderFields> = {};
+      if (override.title !== undefined && p.title !== override.title) pending.title = override.title;
+      if (override.shop !== undefined && p.shop !== override.shop) pending.shop = override.shop;
+      if (override.workshopId !== undefined && (p.workshopId ?? null) !== override.workshopId) {
+        pending.workshopId = override.workshopId;
+      }
+      if (override.periodStart !== undefined && p.periodStart !== override.periodStart) {
+        pending.periodStart = override.periodStart;
+      }
+      if (override.periodEnd !== undefined && p.periodEnd !== override.periodEnd) {
+        pending.periodEnd = override.periodEnd;
+      }
+      if (override.status !== undefined && p.status !== override.status) pending.status = override.status;
+      if (override.signatureSlots !== undefined && (p.signatureSlots ?? null) !== override.signatureSlots) {
+        pending.signatureSlots = override.signatureSlots;
+      }
+      if (
+        override.signatureTemplateId !== undefined &&
+        (p.signatureTemplateId ?? null) !== override.signatureTemplateId
+      ) {
+        pending.signatureTemplateId = override.signatureTemplateId;
+      }
+      if (Object.keys(pending).length === 0) {
+        // Зеркало показало нашу шапку — дальше реплика ведёт сама.
+        headerOverrideRef.current.delete(p.id);
+        return p;
+      }
+      headerOverrideRef.current.set(p.id, pending);
+      return { ...p, ...pending };
+    });
+    allProgramsRef.current = nextPrograms;
+    setAllPrograms(nextPrograms);
+    // Клиентские метки правок: зеркало догнало правку (серверное время другое) —
+    // метка больше не нужна, порядок плашек снова по серверному времени.
+    setLocalEdits((prev) => {
+      let changed = false;
+      const kept: Record<string, ProductionProgramLocalEdit> = {};
+      for (const [pid, mark] of Object.entries(prev)) {
+        const program = nextPrograms.find((p) => p.id === pid);
+        if (program && program.updatedAt === mark.serverUpdatedAt) {
+          kept[pid] = mark;
+        } else {
+          changed = true;
         }
-        if (override.periodStart !== undefined && p.periodStart !== override.periodStart) {
-          pending.periodStart = override.periodStart;
-        }
-        if (override.periodEnd !== undefined && p.periodEnd !== override.periodEnd) {
-          pending.periodEnd = override.periodEnd;
-        }
-        if (override.status !== undefined && p.status !== override.status) pending.status = override.status;
-        if (override.signatureSlots !== undefined && (p.signatureSlots ?? null) !== override.signatureSlots) {
-          pending.signatureSlots = override.signatureSlots;
-        }
-        if (
-          override.signatureTemplateId !== undefined &&
-          (p.signatureTemplateId ?? null) !== override.signatureTemplateId
-        ) {
-          pending.signatureTemplateId = override.signatureTemplateId;
-        }
-        if (Object.keys(pending).length === 0) {
-          // Зеркало показало нашу шапку — дальше реплика ведёт сама.
-          headerOverrideRef.current.delete(p.id);
-          return p;
-        }
-        headerOverrideRef.current.set(p.id, pending);
-        return { ...p, ...pending };
-      }),
-    );
+      }
+      return changed ? kept : prev;
+    });
     setLines(res.lines);
     linesRef.current = res.lines;
-    setSelectedId((prev) => prev ?? (res.rows[0]?.id ?? null));
+    // Открываем самую свежую программу — ту, что наверху списка (промт #179).
+    setSelectedId((prev) => prev ?? (sortProductionProgramsByFreshness(nextPrograms)[0]?.id ?? null));
   }, []);
 
   useEffect(() => {
@@ -1029,7 +1109,69 @@ export function ProductionProgramPage(props: Props) {
     };
   }, [props.engines]);
 
+  /**
+   * Плашки — по свежести правки (промт КАРМАНА #179, п.1).
+   *
+   * Чем позже в программу вносили изменения, тем выше её плашка. Правка,
+   * которая ещё в руках оператора, берёт время с клиента: серверное время
+   * программы до прихода зеркала старое, и по нему свежая правка осталась бы
+   * внизу. Порядок тотальный (см. `sortProductionProgramsByFreshness`), поэтому
+   * при живом обновлении реплики список не «прыгает».
+   */
+  const programs = useMemo(
+    () => sortProductionProgramsByFreshness(allPrograms, new Map(Object.entries(localEdits))),
+    [allPrograms, localEdits],
+  );
+
   const selected = useMemo(() => programs.find((p) => p.id === selectedId) ?? null, [programs, selectedId]);
+
+  /**
+   * Открыта ли программа (на весь экран) или мы в списке программ.
+   *
+   * Режим задаёт вид списка по умолчанию: программа открыта — рельс сжат в
+   * вертикальные полоски, список открыт — карточки. Явный выбор оператора
+   * («развернуть/свернуть») переживает открытие программы.
+   */
+  const programOpen = !!selected && !listMode;
+  /**
+   * Показывать ли список развёрнутым (карточками).
+   *
+   * В режиме программы это панель поверх программы, в режиме списка — карточки
+   * в рельсе. Рельс при открытой программе сжат всегда (промт #179, п.5).
+   */
+  const listCards = programOpen ? listPanelOpen : listExpanded;
+  /** Раскладка экрана: программа открыта — занимает максимум ширины. */
+  const layout = useMemo(
+    () => productionProgramLayout({ programOpen, listCards }),
+    [programOpen, listCards],
+  );
+
+  /**
+   * Переключатель «развернуть/свернуть список».
+   *
+   * Переключает то, что оператор видит: карточки (название, период, цех,
+   * статус, сводка) или сжатые полоски с периодом. В режиме программы
+   * развёрнутый список плавает поверх неё — ширину программа не отдаёт.
+   */
+  const toggleListView = () => {
+    if (programOpen) {
+      setListPanelOpen(!listPanelOpen);
+      return;
+    }
+    setListExpanded(!listExpanded);
+  };
+
+  /**
+   * Вернуться к списку производственных программ.
+   *
+   * Правку это не съедает: программа остаётся выбранной, её строки и пометка
+   * «не сохранено» живут на месте, а отложенное сохранение уходит на сервер
+   * СЕЙЧАС (не по таймеру) — иначе возврат мог бы оставить правку в очереди.
+   */
+  const backToProgramList = () => {
+    flushPendingSaves();
+    setListMode(true);
+  };
 
   // Строки выбранного плана — локальная копия для правки; сохранение уходит на сервер.
   useEffect(() => {
@@ -1089,7 +1231,9 @@ export function ProductionProgramPage(props: Props) {
     rowsRef.current = next;
     localRowsRef.current.set(selectedId, next);
     setRows(next);
-  }, [lines, selectedId]);
+    // openToken — повторное открытие той же программы (возврат к списку не
+    // сбрасывает выбор): строки должны пересобраться, даже если id тот же.
+  }, [lines, selectedId, openToken]);
 
   // Уход со страницы не должен терять правку: отложенное автосохранение уходит
   // сразу, а не ждёт таймер на размонтированной странице.
@@ -1565,7 +1709,7 @@ export function ProductionProgramPage(props: Props) {
    */
   const setHeader = (patch: Partial<ProgramHeaderFields>) => {
     if (!selectedId || !selected) return;
-    setPrograms((prev) => prev.map((p) => (p.id === selectedId ? { ...p, ...patch } : p)));
+    setAllPrograms((prev) => prev.map((p) => (p.id === selectedId ? { ...p, ...patch } : p)));
     const next = { ...selected, ...patch };
     const header: ProgramHeaderFields = {
       title: String(next.title ?? ''),
@@ -1612,6 +1756,13 @@ export function ProductionProgramPage(props: Props) {
   /** Смена программы: вид периода — по её датам. */
   const selectProgram = (id: string) => {
     setSelectedId(id);
+    // Программа открывается на весь экран (промт КАРМАНА #179, п.2).
+    setListMode(false);
+    // Развёрнутый список (панель поверх программы) закрывается: оператор выбрал
+    // программу — он хочет видеть её, а не список.
+    setListPanelOpen(false);
+    // Программу открыли снова — строки пересобираются, даже если id тот же.
+    setOpenToken((n) => n + 1);
     setPeriodKindOverride(null);
     setPickerContract('');
     setPickerEngine('');
@@ -1720,7 +1871,7 @@ export function ProductionProgramPage(props: Props) {
       // Убираем программу из списка сразу: снятие приходит на клиент с задержкой
       // (публикатор зеркала + pull), а до неё программа ещё жила в реплике — и
       // повторный клик «Удалить» отвечал «программа не найдена».
-      setPrograms((prev) => prev.filter((p) => p.id !== programId));
+      setAllPrograms((prev) => prev.filter((p) => p.id !== programId));
       setLines((prev) => prev.filter((l) => l.programId !== programId));
       setSelectedId((prev) => (prev === programId ? null : prev));
       // Снятая программа — её несохранённая правка больше не нужна.
@@ -2183,97 +2334,256 @@ export function ProductionProgramPage(props: Props) {
     </label>
   );
 
+  /**
+   * Плашка программы — карточкой: название, период, цех, статус и сводка
+   * выполнения (промт КАРМАНА #179, п.6 — развёрнутый вид списка).
+   */
+  const renderProgramCard = (p: ProductionProgramDto) => {
+    const tone = PROGRAM_STATUS_TONES[p.status] ?? PROGRAM_STATUS_TONES.draft!;
+    const count = lines.filter((l) => l.programId === p.id).length;
+    const active = p.id === selectedId;
+    const summary = summaryByProgram.get(p.id);
+    const unsaved = unsavedProgramIds.includes(p.id);
+    return (
+      <button
+        key={p.id}
+        type="button"
+        onClick={() => selectProgram(p.id)}
+        data-pp-tile="card"
+        style={{
+          textAlign: 'left',
+          display: 'grid',
+          gap: 4,
+          padding: '8px 10px',
+          borderRadius: 8,
+          border: `1px solid ${active ? tone.border : 'var(--border)'}`,
+          background: active ? tone.bg : 'transparent',
+          cursor: 'pointer',
+          minWidth: 0,
+        }}
+      >
+        <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
+        <div className="ui-muted" style={{ fontSize: 12 }}>
+          {formatProductionProgramPeriod({ start: p.periodStart, end: p.periodEnd })}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span
+            style={{
+              fontSize: 11,
+              padding: '1px 6px',
+              borderRadius: 999,
+              border: `1px solid ${tone.border}`,
+              background: tone.bg,
+              color: tone.text,
+            }}
+          >
+            {PROGRAM_STATUS_LABELS[p.status] ?? p.status}
+          </span>
+          <span className="ui-muted" style={{ fontSize: 12 }}>
+            {p.shop} · {count} двиг.
+          </span>
+          {/* Правка, которая ещё не уехала, помечена: возвращение к списку её
+              не съедает — об этом должен знать и оператор. */}
+          {unsaved ? <span style={{ fontSize: 11, color: 'var(--danger)' }}>правка не сохранена</span> : null}
+        </div>
+        {/* Выполнение плана — по живой карточке двигателя (владелец 10.11.2026):
+            сколько собрано, сколько в срок, сколько выпало из сроков. */}
+        {summary && summary.total > 0 ? (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 11 }}>
+            <span style={{ color: '#166534' }}>Собрано {summary.done} из {summary.total}</span>
+            <span className="ui-muted">В срок {summary.onTime}</span>
+            {summary.overdue > 0 ? (
+              <span style={{ color: 'var(--danger)' }}>Просрочено {summary.overdue}</span>
+            ) : null}
+          </div>
+        ) : null}
+      </button>
+    );
+  };
+
+  /**
+   * Плашка программы — вертикальной полоской: только период (промт #179, п.5).
+   *
+   * Название на полоске не помещается и вертикально не читается — по периоду и
+   * так видно, какая это программа. Статус остаётся цветом рамки и точкой,
+   * подробности — в подсказке.
+   */
+  const renderProgramStrip = (p: ProductionProgramDto) => {
+    const tone = PROGRAM_STATUS_TONES[p.status] ?? PROGRAM_STATUS_TONES.draft!;
+    const active = p.id === selectedId;
+    const count = lines.filter((l) => l.programId === p.id).length;
+    const summary = summaryByProgram.get(p.id);
+    const unsaved = unsavedProgramIds.includes(p.id);
+    const stripLabel = productionProgramStripLabel({ start: p.periodStart, end: p.periodEnd });
+    const periodText = formatProductionProgramPeriod({ start: p.periodStart, end: p.periodEnd });
+    return (
+      <button
+        key={p.id}
+        type="button"
+        onClick={() => selectProgram(p.id)}
+        data-pp-tile="strip"
+        title={[
+          p.title,
+          periodText,
+          PROGRAM_STATUS_LABELS[p.status] ?? p.status,
+          p.shop,
+          `${count} двиг.`,
+          summary && summary.total > 0 ? `Собрано ${summary.done} из ${summary.total}` : '',
+          unsaved ? 'правка не сохранена' : '',
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 6,
+          padding: '8px 4px',
+          minHeight: 96,
+          width: '100%',
+          borderRadius: 8,
+          border: `1px solid ${active ? tone.border : 'var(--border)'}`,
+          background: active ? tone.bg : 'transparent',
+          cursor: 'pointer',
+          minWidth: 0,
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{ width: 8, height: 8, borderRadius: 999, background: tone.border, flex: '0 0 auto' }}
+        />
+        <span
+          data-pp-strip-label="true"
+          style={{
+            writingMode: 'vertical-rl',
+            transform: 'rotate(180deg)',
+            whiteSpace: 'pre-line',
+            fontSize: 12,
+            lineHeight: 1.15,
+            color: active ? tone.text : 'inherit',
+          }}
+        >
+          {stripLabel}
+        </span>
+        {unsaved ? (
+          <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: 'var(--danger)' }} />
+        ) : null}
+      </button>
+    );
+  };
+
   return (
     <div
       className="production-program-page"
       style={{
         display: 'grid',
         gap: 12,
-        gridTemplateColumns: 'minmax(260px, 340px) minmax(0, 1fr)',
+        // Раскладка — из правил (промт КАРМАНА #179): открытая программа занимает
+        // максимум экрана, а рельс плашек уходит в узкую полосу.
+        gridTemplateColumns: `${layout.listColumn} ${layout.programColumn}`,
         width: '100%',
         minWidth: 0,
         alignItems: 'start',
       }}
     >
-      {/* ЛЕВАЯ ЧАСТЬ — плашки производственных программ */}
-      <SectionCard
-        title="Производственные программы"
-        actions={
-          props.canEdit ? (
-            <Button onClick={() => void createProgram()} disabled={busy}>
-              Новый план
+      {/* ЛЕВАЯ ЧАСТЬ — рельс плашек производственных программ */}
+      {layout.railView === 'cards' ? (
+        <SectionCard
+          title="Производственные программы"
+          actions={
+            props.canEdit ? (
+              <Button onClick={() => void createProgram()} disabled={busy}>
+                Новый план
+              </Button>
+            ) : null
+          }
+        >
+          <div style={{ display: 'grid', gap: 8 }}>
+            {/* Переключатель списка — рядом с плашками, а не в шапке карточки:
+                в шапке он отбирал бы место у названия раздела. */}
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleListView}
+                data-pp-action="toggle-list"
+                title={listCards ? 'Свернуть список программ' : 'Развернуть список программ'}
+              >
+                {listCards ? 'Свернуть список' : 'Развернуть список'}
+              </Button>
+            </div>
+            {programs.length === 0 ? (
+              <div className="ui-muted" style={{ fontSize: 12 }}>
+                Планов пока нет
+              </div>
+            ) : null}
+            {programs.map((p) => renderProgramCard(p))}
+          </div>
+        </SectionCard>
+      ) : (
+        /* Сжатый рельс: вертикальные полоски с периодом (программа открыта —
+           полоски всегда, в списке — по переключателю). Полосок может быть
+           много — рельс прокручивается, а не растягивает экран. */
+        <div
+          style={{
+            display: 'grid',
+            gap: 6,
+            justifyItems: 'center',
+            alignContent: 'start',
+            minWidth: 0,
+            maxHeight: 'calc(100vh - 140px)',
+            overflowY: 'auto',
+            // По ширине рельс не прокручивается: лишний пиксель — обрезать, а не
+            // показывать горизонтальную полосу прокрутки в узкой полосе.
+            overflowX: 'hidden',
+          }}
+        >
+          {programOpen ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={backToProgramList}
+              data-pp-action="back-to-list"
+              title="Вернуться к списку производственных программ"
+              style={{ fontSize: 11, padding: '2px 4px', minWidth: 0, whiteSpace: 'nowrap' }}
+            >
+              К списку
             </Button>
-          ) : null
-        }
-      >
-        <div style={{ display: 'grid', gap: 8 }}>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleListView}
+            data-pp-action="toggle-list"
+            title={listCards ? 'Свернуть список программ' : 'Развернуть список программ'}
+            style={{ fontSize: 11, padding: '2px 4px', minWidth: 0, whiteSpace: 'nowrap' }}
+          >
+            {listCards ? 'Свернуть' : 'Развернуть'}
+          </Button>
+          {props.canEdit ? (
+            <Button
+              size="sm"
+              onClick={() => void createProgram()}
+              disabled={busy}
+              title="Новый план"
+              data-pp-action="new-program"
+              style={{ fontSize: 12, padding: '2px 6px', minWidth: 0 }}
+            >
+              +
+            </Button>
+          ) : null}
           {programs.length === 0 ? (
-            <div className="ui-muted" style={{ fontSize: 12 }}>
-              Планов пока нет
+            <div className="ui-muted" style={{ fontSize: 11, textAlign: 'center' }}>
+              Планов нет
             </div>
           ) : null}
-          {programs.map((p) => {
-            const tone = PROGRAM_STATUS_TONES[p.status] ?? PROGRAM_STATUS_TONES.draft!;
-            const count = lines.filter((l) => l.programId === p.id).length;
-            const active = p.id === selectedId;
-            const summary = summaryByProgram.get(p.id);
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => selectProgram(p.id)}
-                style={{
-                  textAlign: 'left',
-                  display: 'grid',
-                  gap: 4,
-                  padding: '8px 10px',
-                  borderRadius: 8,
-                  border: `1px solid ${active ? tone.border : 'var(--border)'}`,
-                  background: active ? tone.bg : 'transparent',
-                  cursor: 'pointer',
-                  minWidth: 0,
-                }}
-              >
-                <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
-                <div className="ui-muted" style={{ fontSize: 12 }}>
-                  {formatProductionProgramPeriod({ start: p.periodStart, end: p.periodEnd })}
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      padding: '1px 6px',
-                      borderRadius: 999,
-                      border: `1px solid ${tone.border}`,
-                      background: tone.bg,
-                      color: tone.text,
-                    }}
-                  >
-                    {PROGRAM_STATUS_LABELS[p.status] ?? p.status}
-                  </span>
-                  <span className="ui-muted" style={{ fontSize: 12 }}>
-                    {p.shop} · {count} двиг.
-                  </span>
-                </div>
-                {/* Выполнение плана — по живой карточке двигателя (владелец 10.11.2026):
-                    сколько собрано, сколько в срок, сколько выпало из сроков. */}
-                {summary && summary.total > 0 ? (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 11 }}>
-                    <span style={{ color: '#166534' }}>Собрано {summary.done} из {summary.total}</span>
-                    <span className="ui-muted">В срок {summary.onTime}</span>
-                    {summary.overdue > 0 ? (
-                      <span style={{ color: 'var(--danger)' }}>Просрочено {summary.overdue}</span>
-                    ) : null}
-                  </div>
-                ) : null}
-              </button>
-            );
-          })}
+          {programs.map((p) => renderProgramStrip(p))}
         </div>
-      </SectionCard>
+      )}
 
       {/* ПРАВАЯ ЧАСТЬ — настройка открытой программы */}
-      <div style={{ display: 'grid', gap: 12, minWidth: 0 }}>
+      <div style={{ display: 'grid', gap: 12, minWidth: 0, position: 'relative' }}>
+
         {error ? (
           <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>
         ) : null}
@@ -2287,13 +2597,44 @@ export function ProductionProgramPage(props: Props) {
             Правка не сохранена — уходит на сервер сама. Если не уходит — смотрите ошибку выше.
           </div>
         ) : null}
-        {!selected ? (
+        {!selected || listMode ? (
           <SectionCard title="Программа">
             <div className="ui-muted">Выберите программу слева или создайте новую.</div>
           </SectionCard>
         ) : (
           <>
             <SectionCard title="Программа">
+              {/* Шапка программы — крупной строкой (промт КАРМАНА #179, п.3):
+                  полное название, как оно заведено, и период действия (вид
+                  периода и обе даты). Раньше название жило в поле шапки, а период
+                  был мелкой подписью в углу — на большой программе это не видно. */}
+              <div data-pp-program-head="true" style={{ marginBottom: 10, minWidth: 0 }}>
+                <div
+                  data-pp-program-title="true"
+                  title={selected.title}
+                  style={{
+                    fontSize: 20,
+                    fontWeight: 700,
+                    lineHeight: 1.25,
+                    // Название не переносится и не обрезается: не влезает — прокрутка.
+                    whiteSpace: 'nowrap',
+                    overflowX: 'auto',
+                    minWidth: 0,
+                  }}
+                >
+                  {selected.title}
+                </div>
+                <div
+                  data-pp-program-period="true"
+                  style={{ fontSize: 14, color: 'var(--subtle)', whiteSpace: 'nowrap', marginTop: 2 }}
+                >
+                  {productionProgramPeriodLine(
+                    { start: selected.periodStart, end: selected.periodEnd },
+                    PRODUCTION_PROGRAM_PERIOD_LABELS[periodKind] ?? '',
+                  )}
+                </div>
+              </div>
+
               {/* Ряд управляющих кнопок модуля (промты КАРМАНА #50/#51): сохранить, печать,
                   Word, Excel, почта, буфер. Тот же ряд, что в списках: что не поместилось —
                   уезжает в меню «⋯». Права не расширяем: печать и выгрузка доступны всем,
@@ -2856,6 +3197,30 @@ export function ProductionProgramPage(props: Props) {
             </SectionCard>
           </>
         )}
+
+        {/* Развёрнутый список программ — ПОВЕРХ программы (промт КАРМАНА #179,
+            п.6). Панель плавает, а не отбирает ширину: программа остаётся на всю
+            ширину, и оператор видит список, когда сам его запросил. */}
+        {layout.listPanelOpen ? (
+          <div
+            data-pp-list-panel="true"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 6,
+              overflow: 'auto',
+              background: 'var(--card-panel-bg, var(--surface, #fff))',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: 10,
+              boxShadow: '0 12px 32px rgba(15, 23, 42, 0.22)',
+            }}
+          >
+            <div style={{ display: 'grid', gap: 8 }}>
+              {programs.map((p) => renderProgramCard(p))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Превью печатной формы — промежуточный этап между «Печать» и принтером. */}
