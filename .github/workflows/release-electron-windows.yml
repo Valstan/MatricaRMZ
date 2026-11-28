@@ -70,6 +70,27 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: pwsh -File scripts/signing/ci-sign-artifacts.ps1 -Mode Watchdog -Target electron-app/build/watchdog/matricarmz-watchdog.exe
 
+      # Local MiniMax runtime (D-243/D-244): Node.js and the MiniMax Code package travel
+      # inside the installer; the client-room config (Karman token) comes from repo
+      # secrets. Without the secrets the build does NOT fail: the runtime ships without a
+      # login and the client honestly says "local module not configured" and counts on the
+      # server. The park must not lose releases over a missing secret.
+      - name: Stage local MiniMax runtime
+        env:
+          KARMAN_URL: ${{ secrets.KARMAN_URL }}
+          KARMAN_CLIENT_TOKEN: ${{ secrets.KARMAN_CLIENT_TOKEN }}
+          DEEPSEEK_CLIENT_KEY: ${{ secrets.DEEPSEEK_CLIENT_KEY }}
+        run: node scripts/ci/stage-local-minimax-runtime.mjs
+
+      # The runtime is staged before electron-builder and shipped as ready-made files, so
+      # electron-builder does NOT sign it. Sign it separately — an unsigned .exe/.node is
+      # removed by Kaspersky on the park (M94).
+      - name: Sign local MiniMax runtime
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: pwsh -File scripts/signing/ci-sign-artifacts.ps1 -Mode Runtime -Target electron-app/build/local-minimax
+
       - name: Install dependencies
         run: pnpm install
 

@@ -18,6 +18,11 @@
                        лету (M94). Подпись Authenticode делает сам PowerShell — signtool
                        для .ps1 не годится (это не PE).
 
+      -Mode Runtime    подпись рантайма локального звена MiniMax (Node.js и файлы пакета
+                       MiniMax Code). Он собран ДО electron-builder и едет в extraResources
+                       как готовые файлы — подписываем отдельно, иначе неподписанный
+                       .exe/.node Касперский съедает на парке (M94).
+
       -Mode Verify     проверка: каждый артефакт подписан и подписан НАШИМ ключом.
 
     Ключевые свойства, ради которых скрипт написан отдельным:
@@ -50,7 +55,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Electron', 'Watchdog', 'Scripts', 'Verify')]
+    [ValidateSet('Electron', 'Watchdog', 'Scripts', 'Runtime', 'Verify')]
     [string]$Mode = 'Verify',
     [string]$ReleaseDir,
     [string]$Target,
@@ -321,6 +326,40 @@ switch ($Mode) {
         }
         Write-Info "Подписано скриптов: $($signed.Count)"
         $res = @{ Mode = 'Scripts'; Signed = $true; Count = $signed.Count; Thumbprint = $check.Thumbprint }
+        if ($Json) { $res | ConvertTo-Json -Depth 4 }
+    }
+
+    'Runtime' {
+        # Рантайм локального звена MiniMax (Node.js + файлы пакета MiniMax Code) собран
+        # ДО electron-builder и едет в extraResources как готовые файлы — electron-builder
+        # их не подписывает. Подписываем сами: неподписанный .exe/.node Касперский съедает
+        # на парке (M94).
+        if (-not $Target) { throw 'Нужен -Target (каталог рантайма electron-app/build/local-minimax).' }
+        if (-not $env:CSC_LINK) {
+            Write-Warn2 'CSC_LINK не задан — рантайм останется неподписанным (Касперский может его удалить на парке).'
+            $res = @{ Mode = 'Runtime'; Signed = $false; Reason = 'CSC_LINK не задан' }
+            if ($Json) { $res | ConvertTo-Json -Depth 4 }
+            break
+        }
+        $check = Test-PfxUsable -PfxFile $pfx -Pwd $pwd
+        if (-not $check.Ok) { throw "Сертификат подписи непригоден: $($check.Reason)" }
+
+        # Только Windows-файлы: .node/.dll для macOS и Linux — не PE, signtool их не подпишет.
+        $files = @(Get-SignTargets -Path $Target -Extensions @('.exe', '.dll', '.node') |
+            Where-Object { $_ -notmatch '\\darwin\\' -and $_ -notmatch '\\linux\\' })
+        if ($files.Count -eq 0) {
+            throw "По пути $Target не найдено ни одного Windows-файла (.exe/.dll/.node) — подписывать нечего."
+        }
+        $signed = @()
+        foreach ($f in $files) {
+            $out = & $signTool sign /f $pfx /p $pwd /fd sha256 /tr $TimestampUrl /td sha256 $f 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+                throw "Не удалось подписать $f : $out"
+            }
+            $signed += $f
+        }
+        Write-Info "Подписано файлов рантайма: $($signed.Count)"
+        $res = @{ Mode = 'Runtime'; Signed = $true; Count = $signed.Count; Thumbprint = $check.Thumbprint }
         if ($Json) { $res | ConvertTo-Json -Depth 4 }
     }
 
