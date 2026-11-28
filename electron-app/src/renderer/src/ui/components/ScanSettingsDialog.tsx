@@ -15,7 +15,6 @@ import {
   type ScanCapabilities,
   type ScanMode,
   type ScanProgressEvent,
-  type ScanResolutionChoice,
   type ScanSettings,
   type ScanSize,
 } from '@matricarmz/shared';
@@ -170,17 +169,17 @@ export function ScanSettingsDialog(props: {
     setFileName(proposedName);
   }, [props.open, proposedName]);
 
-  const supportedResolutions = capabilities?.supportedResolutions ?? [];
   const maxResolution = capabilities?.maxResolution ?? 0;
   /** Отдельный выбор «максимум сканера» нужен, только если он отличается от 150 и 300. */
   const maxChoiceVisible = maxResolution > 0 && maxResolution !== 150 && maxResolution !== 300;
 
   /** Разрешение, которое получится на самом деле (сканер может не уметь запрошенное). */
   const plannedResolution = useMemo(() => {
+    const supported = capabilities?.supportedResolutions ?? [];
     if (settings.resolution === 'max') return maxResolution > 0 ? maxResolution : 300;
-    if (supportedResolutions.length === 0) return settings.resolution;
-    return resolveScanResolution(settings.resolution, supportedResolutions);
-  }, [settings.resolution, maxResolution, supportedResolutions]);
+    if (supported.length === 0) return settings.resolution;
+    return resolveScanResolution(settings.resolution, supported);
+  }, [settings.resolution, maxResolution, capabilities]);
 
   const plannedCaption = useMemo(
     () =>
