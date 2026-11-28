@@ -22,6 +22,7 @@ const PRELOAD = src('../../../../preload/index.ts');
 const IPC = src('../../../../main/ipc/register/files.ts');
 const SCANNER_IPC = src('../../../../main/ipc/register/scanner.ts');
 const SCANNER_SERVICE = src('../../../../main/services/scannerService.ts');
+const SCAN_DIALOG = src('./ScanSettingsDialog.tsx');
 const RENAME_DIALOG = src('./FileRenameUploadDialog.tsx');
 const UPLOAD_FLOW = src('../hooks/useFileUploadFlow.tsx');
 const ACTION_MENU = src('./FileActionsMenu.tsx');
@@ -220,26 +221,31 @@ describe('сканирование документа в объект (пром�
   });
 
   it('подсказка говорит оператору, что делать, и ждёт его', () => {
-    expect(PANEL).toContain('положите документ в сканер и нажмите');
-    expect(PANEL).toContain('Сканировать');
-    // Окно скана открывается, а скан сам по себе не запускается — жмёт оператор.
+    // Окно скана с настройками живёт отдельным компонентом (промт КАРМАНА #178),
+    // но открывает его именно панель вложений — она одна на все карточки.
+    expect(SCAN_DIALOG).toContain('положите документ в сканер и нажмите');
+    expect(SCAN_DIALOG).toContain('Сканировать');
     expect(PANEL).toContain('setScanDialogOpen(true)');
+    expect(PANEL).toContain('<ScanSettingsDialog');
   });
 
-  it('имя предлагается автоматически, но текст выделен — печатать можно сразу', () => {
-    expect(PANEL).toContain('uploadFlow.promptName(shot.fileName');
-    expect(PANEL).toContain('autoSelect: true');
-    // Выделение — в самом окне имени: input.select() выделяет предложенный текст.
+  it('имя файла правится прямо в окне скана, а не в отдельном диалоге', () => {
+    // Промт #178: «имя редактируется прямо в окне». Отдельного окна имени для скана
+    // больше нет — оно было отдельным диалогом и путало оператора.
+    expect(SCAN_DIALOG).toContain('buildScanFileName');
+    expect(SCAN_DIALOG).toContain('Стереть резинку');
+    expect(PANEL).not.toContain('uploadFlow.promptName(shot.fileName');
+    // Окно имени осталось для файла с диска и для съёмки с камеры.
     expect(RENAME_DIALOG).toContain('input.select()');
-    // Окно имени — то же, что у файла с диска: отдельного окна для скана нет.
     expect(UPLOAD_FLOW).toContain('FileRenameUploadDialog');
     expect(UPLOAD_FLOW).toContain('async function promptName(');
   });
 
-  it('скан идёт в объект тем же путём, что и файл с диска', () => {    // Общий шаг загрузки и записи в карточку — один на оба источника. Свой путь
+  it('скан идёт в объект тем же путём, что и файл с диска', () => {
+    // Общий шаг загрузки и записи в карточку — один на оба источника. Свой путь
     // у скана означал бы, что синк его не утащит.
     expect(PANEL).toContain('async function uploadTasks(');
-    expect(PANEL).toContain('await uploadTasks([{ path: placed.path, fileName: placed.fileName }])');
+    expect(PANEL).toContain('await uploadTasks([{ path: file.path, fileName: file.fileName }])');
     expect(PANEL).toContain('await uploadTasks(uploads)');
   });
 
@@ -266,7 +272,8 @@ describe('сканирование документа в объект (пром�
   });
 
   it('отменённый скан не оставляет мусора в папке объекта', () => {
-    expect(PANEL).toContain('window.matrica.scan.discard');
+    // Убирает кадр, который оператор не сохранил, — окно скана.
+    expect(SCAN_DIALOG).toContain('window.matrica.scan.discard');
   });
 });
 

@@ -64,7 +64,7 @@
 
 - [🟡 Класс «застрявшая очередь»: правки выходят в 3.149.0, ждём полевой приёмки 🗓 since:2026-11-26](pending/trevoga-ochered-zastryla-otchet-po-ustarevshey-probe.md)
 - [🟡 Шум журнала: телеметрия интерфейса и повторные пуши — решения владельца 🗓 since:2026-11-26](pending/shum-zhurnala-telemetriya-i-povtory.md)
-- [🟡 Сканер документов: решения владельца (промт #148) 🗓 since:2026-11-26](pending/skaner-otkrytye-resheniya.md)
+- [🟡 Сканер: решения владельца 🗓 since:2026-11-26](pending/skaner-otkrytye-resheniya.md)
 - [🟡 «В МАКС на телефон» из вложений: канал не подключён 🗓 since:2026-11-26](pending/vygruzka-v-maks-na-telefon.md)
 - [🟡 Управляющие кнопки вправо: остаток обхода — подвалы модалок (промт #141) 🗓 since:2026-11-25](pending/knopki-vpravo-obhod-renderer.md)
 - [🟡 Совет специалистов: три решения владельца (состав, обязательность, место протоколов) 🗓 since:2026-11-25](pending/sovet-specialistov-tri-resheniya-vladeltsa.md)
