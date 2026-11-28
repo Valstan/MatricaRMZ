@@ -11,6 +11,7 @@ import { pollWhenVisible } from '../utils/pollWhenVisible.js';
 import { TAB_SHORTCUT_META, resolveQuickStartTile, type PinnedTile } from '../utils/favoriteShortcut.js';
 import { useTabVisibleRef } from '../shell/TabVisibilityContext.js';
 import { ShortcutIcon } from '../components/ShortcutIcon.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { POPUP_Z_INDEX, PopupLayer } from '../components/PopupLayer.js';
 
 type RecentVisitEntry = {
@@ -356,6 +357,11 @@ export function HistoryPage(props: {
         gap: 14,
       }}
     >
+      {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+          «ИИваныча» с вопросом, в котором едет контекст раздела «Мой круг». */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <AiSectionButton section="history" />
+      </div>
       {contractAlerts.length > 0 && (
         <div
           style={{

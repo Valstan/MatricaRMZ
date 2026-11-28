@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ToolListItem, ToolMovementItem, WarehouseNomenclatureListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
@@ -334,6 +335,9 @@ export function SupplyToolMovementsPage(props: {
         >
           {nomenclatureLoading ? 'Загрузка…' : 'Обновить списки'}
         </Button>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Учёт инструментов». */}
+        <AiSectionButton section="tool_accounting" />
       </div>
 
       {(status || nomenclatureHookError) && (

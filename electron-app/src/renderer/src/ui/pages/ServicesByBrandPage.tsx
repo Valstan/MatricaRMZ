@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -252,6 +253,12 @@ export function ServicesByBrandPage(props: {
             Отвязать всех в списке
           </Button>
         ) : null}
+      </div>
+
+      {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+          «ИИваныча» с вопросом, в котором едет контекст раздела «Услуги по маркам». */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <AiSectionButton section="services_by_brand" />
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: 'var(--subtle)' }}>

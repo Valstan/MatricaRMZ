@@ -13,6 +13,7 @@ import {
 import type { AccessSection } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 
 type Row = {
@@ -396,6 +397,9 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Доступы по разделам</h2>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Доступы по разделам». */}
+        <AiSectionButton section="access_sections" />
         <div style={{ display: 'inline-flex', gap: 4 }}>
           <Button size="sm" variant={view === 'sections' ? 'primary' : 'ghost'} onClick={() => setView('sections')}>
             По разделам

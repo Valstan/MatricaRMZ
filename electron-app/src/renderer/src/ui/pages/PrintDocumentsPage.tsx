@@ -10,6 +10,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -126,6 +127,11 @@ export function PrintDocumentsPage(props: { canEdit: boolean }) {
   return (
     <div style={{ padding: 12 }}>
       <h2 style={{ marginTop: 0 }}>Документы и заявки</h2>
+      {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+          «ИИваныча» с вопросом, в котором едет контекст раздела «Документы и заявки». */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+        <AiSectionButton section="print_documents" />
+      </div>
       <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 10 }}>
         Документы создаются по печатным формам и передаются другому оператору: он видит их
         в «Пришли ко мне», открывает в программе, печатает, выводит в Word или Excel — и

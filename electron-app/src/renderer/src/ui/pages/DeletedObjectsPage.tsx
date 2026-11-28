@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { DELETED_RETENTION_TEXT } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { formatMoscowLongDateTime } from '../utils/dateUtils.js';
@@ -153,6 +154,9 @@ export function DeletedObjectsPage() {
         <Button onClick={load} disabled={loading}>
           {loading ? 'Обновление...' : 'Обновить'}
         </Button>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Удалённое». */}
+        <AiSectionButton section="deleted" />
       </div>
 
       {status && (

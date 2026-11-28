@@ -11,6 +11,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { FormField } from '../components/FormField.js';
 import { Input } from '../components/Input.js';
@@ -303,6 +304,9 @@ export function PpeVacationSchedulePage(props: { canEdit: boolean }) {
     <div style={{ padding: 12, display: 'grid', gap: 10 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 700, fontSize: 16 }}>График отпусков</span>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «График отпусков». */}
+        <AiSectionButton section="ppe_vacations" />
         <Button variant="ghost" onClick={() => setYear((y) => y - 1)} disabled={busy}>
           ‹
         </Button>

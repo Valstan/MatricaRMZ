@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AI_SECTION_CONTEXT,
   aiSectionContextSections,
+  aiSectionForPreset,
   aiSectionKey,
   aiSectionQuestion,
   aiSectionTitle,
@@ -78,6 +79,66 @@ describe('контекст раздела для нейросети', () => {
       'counterparties',
       'requests',
       'work_orders',
+    ] as const) {
+      expect(AI_SECTION_CONTEXT[key], `раздел ${key} без контекста`).toBeTruthy();
+    }
+  });
+
+  it('отчёт-пресет знает свой раздел, остальные пресеты — «Отчёты»', () => {
+    // Отдельные разделы меню, открывающиеся страницей пресета.
+    expect(aiSectionForPreset('engines_now_at_plant')).toBe('now_at_plant');
+    expect(aiSectionForPreset('assembly_forecast_7d')).toBe('assembly_forecast');
+    // Старые алиасы пресета ведут в тот же раздел (правило — в домене).
+    expect(aiSectionForPreset('engine_factory_stages')).toBe('now_at_plant');
+    expect(aiSectionForPreset('engines_at_plant')).toBe('now_at_plant');
+    // Остальные пресеты открываются из каталога «Отчёты».
+    expect(aiSectionForPreset('work_orders')).toBe('reports');
+    expect(aiSectionForPreset('такого_пресета_нет')).toBe('reports');
+  });
+
+  it('разделы, до которых дошла кнопка, есть в реестре со своим текстом', () => {
+    // Разделы, добавленные в разрезе 4 (кнопка во все разделы): реестр обязан знать
+    // каждый из них — иначе вопрос был бы общим («Помоги оператору по этому разделу»).
+    for (const key of [
+      'file_search',
+      'engine_rmz_numbers',
+      'now_at_plant',
+      'assembly_forecast',
+      'engine_brands',
+      'engine_brand_groups',
+      'engine_assembly_bom',
+      'repair_norms',
+      'services_by_brand',
+      'service_price_orders',
+      'tool_accounting',
+      'warehouse_locations',
+      'warehouses_admin',
+      'workshops',
+      'workshop_stats',
+      'masterdata',
+      'ppe_norms',
+      'ppe_groups',
+      'ppe_collective',
+      'ppe_import',
+      'ppe_stock',
+      'ppe_reports',
+      'ppe_vacations',
+      'children',
+      'organization',
+      'access_sections',
+      'print_forms',
+      'print_documents',
+      'custom_reports',
+      'report_templates',
+      'audit',
+      'changes',
+      'deleted',
+      'notes',
+      'drafts',
+      'settings',
+      'user_screens',
+      'history',
+      'empty_cards',
     ] as const) {
       expect(AI_SECTION_CONTEXT[key], `раздел ${key} без контекста`).toBeTruthy();
     }

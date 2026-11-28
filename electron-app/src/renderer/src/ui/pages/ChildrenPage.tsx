@@ -24,6 +24,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { FacetFilter } from '../components/FacetFilter.js';
 import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
 import { ListCount } from '../components/ListCount.js';
@@ -254,6 +255,9 @@ export function ChildrenPage(props: { canEdit: boolean; refreshKey?: number }) {
     <div style={{ padding: 4 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Дети сотрудников</h2>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Дети». */}
+        <AiSectionButton section="children" />
         {/* Панель фильтров открывается и сворачивается этой кнопкой (владелец 25.11.2026,
             промт КАРМАНА #151). У этого экрана нет верхней панели управляющих кнопок, поэтому
             кнопка — здесь: свёрнутая панель исчезает с экрана целиком. */}

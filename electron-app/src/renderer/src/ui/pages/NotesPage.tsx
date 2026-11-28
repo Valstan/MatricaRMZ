@@ -5,6 +5,7 @@ import type { NoteBlock, NoteItem, NoteShareItem } from '@matricarmz/shared';
 import { nextNoteReminderPoint, normalizeNoteReminderPoints } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
@@ -984,6 +985,9 @@ export function NotesPage(props: {
           <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
           <span style={{ fontSize: 12, color: theme.colors.muted }}>Показывать скрытые</span>
         </label>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Заметки». */}
+        <AiSectionButton section="notes" />
       </div>
       {reminderStats.soon > 0 || reminderStats.overdue > 0 ? (
         <div className={reminderStats.overdue > 0 ? 'notes-blink' : undefined} style={{ color: 'var(--danger)', fontSize: 12, fontWeight: 700 }}>

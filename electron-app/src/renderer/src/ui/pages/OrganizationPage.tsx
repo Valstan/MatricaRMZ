@@ -21,6 +21,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { FacetFilter } from '../components/FacetFilter.js';
 import { FacetPanelToggle } from '../components/FacetPanelToggle.js';
 import { Input } from '../components/Input.js';
@@ -161,6 +162,9 @@ export function OrganizationPage(props: { canEdit: boolean; refreshKey?: number 
     <div style={{ padding: 4, display: 'grid', gap: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Организационный модуль</h2>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Организационный». */}
+        <AiSectionButton section="organization" />
         {props.canEdit && (
           <>
             <Button

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 
 // Раздел «Черновики» (Phase 3c). Персистентный список несохранённых снимков оператора
@@ -123,6 +124,9 @@ export function DraftsPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Черновики</h2>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Черновики». */}
+        <AiSectionButton section="drafts" />
         <Button onClick={() => void load()} disabled={busy}>
           {busy ? 'Загрузка…' : 'Обновить'}
         </Button>

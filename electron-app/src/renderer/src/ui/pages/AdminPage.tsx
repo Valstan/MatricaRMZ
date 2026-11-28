@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { EntityReferenceTarget, IncomingLinkInfo } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { DeletionIntentDialog } from '../components/DeletionIntentDialog.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
@@ -1021,6 +1022,9 @@ export function MasterdataPage(props: {
               )}
               <Button variant="ghost" size="sm" onClick={() => void resyncAllMasterdata()}>Синхр.</Button>
               <Button variant="ghost" size="sm" onClick={() => void refreshTypes()}>Обн.</Button>
+              {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+                  «ИИваныча» с вопросом, в котором едет контекст раздела «Справочники». */}
+              <AiSectionButton section="masterdata" />
               {props.canEditMasterData && (
                 <Button
                   variant="ghost"

@@ -27,6 +27,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { FileActionsMenu, type FileActionId } from '../components/FileActionsMenu.js';
 import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
@@ -1107,6 +1108,9 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
           <Button variant="primary" onClick={() => void addFiles()} disabled={busy}>
             Добавить файлы
           </Button>
+          {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+              «ИИваныча» с вопросом, в котором едет контекст раздела «Поиск по файлам». */}
+          <AiSectionButton section="file_search" />
           <span style={{ color: 'var(--muted)', fontSize: 12 }}>
             {sources.length === 0 ? 'Файлы не выбраны' : `Файлов: ${sources.length}`}
           </span>

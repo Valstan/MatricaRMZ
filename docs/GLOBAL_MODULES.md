@@ -48,6 +48,7 @@
 | `electron-app/src/main/services/scannerService.ts` | **Сканер документов**: захват кадра со сканера (WIA), имя файла по правилу, укладка в папку объекта | 3 | Любая карточка с вложениями получает «Со сканера» без своих настроек; скан идёт тем же путём, что и файл с диска | Право на загрузку (оно остаётся серверным) |
 | `electron-app/src/main/services/photoPrint.ts` | **Печать картинок**: единый шаг печати (диалог печати ИЛИ системный мастер печати фотографий), проверка принтера, внятный отказ | 5 | Печать вложений карточки, мастер печати для вложений (`files:printWizard`), печать из панели вложений и печать из выдачи «Поиска по файлам» идут ОДНИМ кодом `printPhotos`; гейт `electron-app/src/main/services/photoPrint.test.ts` | Печатные бланки домена (у них своя модель — `shared/src/domain/printTemplate.ts`); PDF из картинок (это сборка, не печать) |
 | `electron-app/src/main/services/searchProgress.ts` | **Общий прогресс поиска**: событие в окно (`search:progress`) + отмена (`AbortController`) | 8 | Полоса одна на программу (`electron-app/src/renderer/src/ui/components/SearchProgressBar.tsx`), подписка одна; сторож `SearchProgressBar.guard.test.ts` | Потолки по времени/количеству и мгновенный поиск по спискам |
+| `electron-app/src/renderer/src/ui/ai/AiSectionButton.tsx` + `shared/src/domain/aiSectionContext.ts` | **Кнопка «Нейросеть» в разделах**: одна кнопка на всю программу; вопрос с контекстом раздела собирает домен | 40 | Каждая страница зовёт общую кнопку; сторож `electron-app/src/main/services/localMiniMax/aiSectionButtons.guard.test.ts` | Правила разделов и прав (`shared/src/domain/uiSections.ts`, `sectionAccess.ts`) |
 
 **Что НЕ является глобальным модулем:** тонкая обёртка над общим движком (не дубль, §«Дубли»), правила конкретной страницы, зеркала клиент/сервер (осознанное дублирование).
 
@@ -71,14 +72,7 @@
 
 ## Каталог действий по объекту
 
-Механизм «показывать только то, что умеет» в проекте **уже был** — для списков (`electron-app/src/renderer/src/ui/utils/listContextActions.ts`, поле `available`). Теперь он один на всю программу:
-
-- **знание** — `shared/src/domain/objectCapabilities.ts`: какой тип объекта что умеет (`OBJECT_CAPABILITIES`), кто с кем родственен (`OBJECT_KINSHIP`);
-- **сборка кнопок** — `electron-app/src/renderer/src/ui/utils/objectActions.ts`: `buildCardActions` даёт кнопку, только если объект умеет функцию, обработчик передан и есть право на правку;
-- **панель** — `electron-app/src/renderer/src/ui/components/CardActionBar.tsx`: принимает `actions` и рисует кнопки ИЗ КАТАЛОГА (legacy-пропы — как раньше, для ещё не переведённых карточек);
-- **объявление действия** — одно на списки и карточки: `ObjectActionDeclaration`; список объявляет `ListActionDeclaration` = тот же тип.
-
-Обратная связь (совет при разработке, не подсказка в рантайме): `suggestCapabilityAdditions(kind)` → «объект X не умеет A, а похожий объект Y умеет — можно ли добавить Y?».
+Механизм «показывать только то, что умеет» был в проекте и для списков (`electron-app/src/renderer/src/ui/utils/listContextActions.ts`, поле `available`); теперь он один на всю программу: **знание** — `shared/src/domain/objectCapabilities.ts` (что объект умеет), **сборка кнопок** — `electron-app/src/renderer/src/ui/utils/objectActions.ts` (`buildCardActions`: кнопка — только если объект умеет функцию, обработчик передан и есть право на правку), **панель** — `electron-app/src/renderer/src/ui/components/CardActionBar.tsx` (рисует кнопки ИЗ КАТАЛОГА; legacy-пропы сохранены для ещё не переведённых карточек), **объявление** — одно на списки и карточки (`ObjectActionDeclaration` / `ListActionDeclaration`). Совет при разработке: `suggestCapabilityAdditions(kind)` → «объект X не умеет A, а похожий Y умеет — добавить?».
 
 **Типы объектов и их возможности** (ключ домена ↔ реестр; гейт сверяет эту таблицу с `OBJECT_CAPABILITIES`, чтобы домен и реестр не разошлись):
 
@@ -102,9 +96,7 @@
 
 ### Перенос карточек на каталог
 
-Набор кнопок карточки задаёт домен (`OBJECT_CAPABILITIES`), а не рукописный список пропсов. Перенос карточек на каталог **завершён**: все 12 карточек с панелью `CardActionBar` — на каталоге (`WorkSheetDetailsPage.tsx`, `ContractDetailsPage.tsx`, `CounterpartyDetailsPage.tsx`, `EmployeeDetailsPage.tsx`, `EngineDetailsPage.tsx`, `EngineBrandDetailsPage.tsx`, `EngineAssemblyBomDetailsPage.tsx`, `SupplyRequestDetailsPage.tsx`, `ToolDetailsPage.tsx`, `ToolPropertyDetailsPage.tsx`, `SimpleMasterdataDetailsPage.tsx`, `WorkOrderDetailsPage.tsx`); **было 12 карточек с набором кнопок «руками» → стало 0.** Сторож `electron-app/src/renderer/src/ui/pages/cardActionCatalog.guard.test.ts` краснеет, если появится новая карточка, собирающая кнопки вручную.
-
-Перенос не меняет права: право на правку (`canEdit`) — часть условия появления кнопки, новые права не вводились. Legacy-пропы `CardActionBar` сохранены — карточка, переведённая позже, продолжит работать как раньше.
+Перенос карточек на каталог **завершён**: все 12 карточек с панелью `CardActionBar` — на каталоге (`WorkSheetDetailsPage.tsx`, `ContractDetailsPage.tsx`, `CounterpartyDetailsPage.tsx`, `EmployeeDetailsPage.tsx`, `EngineDetailsPage.tsx`, `EngineBrandDetailsPage.tsx`, `EngineAssemblyBomDetailsPage.tsx`, `SupplyRequestDetailsPage.tsx`, `ToolDetailsPage.tsx`, `ToolPropertyDetailsPage.tsx`, `SimpleMasterdataDetailsPage.tsx`, `WorkOrderDetailsPage.tsx`); **было 12 карточек с набором кнопок «руками» → стало 0.** Сторож `electron-app/src/renderer/src/ui/pages/cardActionCatalog.guard.test.ts` краснеет, если появится новая карточка, собирающая кнопки вручную. Права на перенос не менялись: `canEdit` — часть условия появления кнопки.
 
 ## Правило пополнения
 

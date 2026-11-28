@@ -9,6 +9,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
@@ -114,6 +115,11 @@ export function PrintFormsPage(props: { canEdit: boolean; canEditShared: boolean
   return (
     <div style={{ padding: 12 }}>
       <h2 style={{ marginTop: 0 }}>Печатные формы</h2>
+      {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+          «ИИваныча» с вопросом, в котором едет контекст раздела «Печатные формы». */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+        <AiSectionButton section="print_forms" />
+      </div>
       <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 10 }}>
         Шаблон описывает, что печатать: какие пункты оставить, какие картинки поставить и
         чьи подписи нужны. Шаблоны хранятся в БД — настройка едет за оператором на любую машину.

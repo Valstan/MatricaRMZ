@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 
 // Чистка пустых авто-созданных карточек/документов (запрос владельца 2026-06-29). Сервер
@@ -94,6 +95,9 @@ export function EmptyCardsCleanupPage(props: { canEdit: boolean }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Пустые карточки</h2>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Пустые карточки». */}
+        <AiSectionButton section="empty_cards" />
         <Button onClick={() => void analyze()} disabled={busy}>
           {busy ? 'Поиск…' : groups === null ? 'Найти пустые' : 'Повторить поиск'}
         </Button>

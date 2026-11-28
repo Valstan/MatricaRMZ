@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { describeAuditAction, type ChatDeepLinkPayload } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -287,6 +288,9 @@ export function SuperadminAuditPage() {
         <Button onClick={loadAll} disabled={loading}>
           {loading ? 'Обновление...' : 'Обновить'}
         </Button>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Журнал». */}
+        <AiSectionButton section="audit" />
         <div style={{ width: 160 }}>
           <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
           <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 2 }}>с даты</div>

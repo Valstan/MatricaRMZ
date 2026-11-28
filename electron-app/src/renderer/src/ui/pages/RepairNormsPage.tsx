@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { RepairNormSetDetails, RepairNormSetInput, RepairNormSetStatus, RepairNormSetSummary } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
@@ -148,6 +149,9 @@ export function RepairNormsPage(props: { canEdit: boolean }) {
           <Button size="sm" disabled={!props.canEdit} onClick={() => { setSelectedId(null); setDraft(emptyDraft()); setStatus(''); }}>
             Новый набор
           </Button>
+          {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+              «ИИваныча» с вопросом, в котором едет контекст раздела «Нормы ремонта». */}
+          <AiSectionButton section="repair_norms" />
         </div>
         {rows.map((row) => (
           <button

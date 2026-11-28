@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { looksLikeIdentifier, HUMAN_LABEL_OTHER, type AuthUserInfo, type ChangeRequestRow } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { searchModeEmptyText } from '../components/SearchModeHint.js';
@@ -359,7 +360,12 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <h2 style={{ margin: '8px 0', flex: '0 0 auto' }}>Изменения</h2>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '0 0 auto' }}>
+        <h2 style={{ margin: '8px 0' }}>Изменения</h2>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Изменения». */}
+        <AiSectionButton section="changes" />
+      </div>
       <div style={{ color: '#6b7280', marginBottom: 12, flex: '0 0 auto' }}>
         Здесь отображаются правки, которые требуют подтверждения. Применять/отклонять может только автор исходных данных или администратор.
       </div>
