@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 
 // Т2 (docs/plans/parts-articul-acts-2026-06.md): операторский модуль поиска и
@@ -181,6 +183,9 @@ export function PartsDedupePage(props: { canEdit: boolean }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Дубли номенклатуры</h2>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «Иваныча» с вопросом, в котором едет контекст раздела. */}
+        <AiSectionButton section="parts_dedupe" />
         <Button onClick={() => void analyze()} disabled={busy}>
           {busy ? 'Анализ…' : groups === null ? 'Найти дубли' : 'Повторить анализ'}
         </Button>

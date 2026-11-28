@@ -59,6 +59,10 @@ const SECTION_BUTTONS: ReadonlyArray<{ section: string; page: string }> = [
   { section: 'services', page: 'ServicesPage.tsx' },
   { section: 'employees', page: 'EmployeesPage.tsx' },
   { section: 'ppe_cards', page: 'PpeCardsPage.tsx' },
+  { section: 'timesheets', page: 'TimesheetsPage.tsx' },
+  { section: 'reports', page: 'ReportsCatalogPage.tsx' },
+  { section: 'parts_dedupe', page: 'PartsDedupePage.tsx' },
+  { section: 'warehouse_analytics', page: 'WarehouseAnalyticsPage.tsx' },
 ];
 
 describe('кнопка нейросети в разделах — сторож', () => {

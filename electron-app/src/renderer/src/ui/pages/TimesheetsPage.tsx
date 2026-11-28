@@ -3,6 +3,8 @@ import React, { useEffect, useState } from 'react';
 import type { TimesheetHeader } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+// Кнопка «Нейросеть» в разделе — одна на всю программу (промт КАРМАНА #176, разрез 4).
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -161,6 +163,9 @@ export function TimesheetsPage(props: { canCreate: boolean; canEdit: boolean; on
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Табель учёта рабочего времени</h2>
         {busy && <span style={{ color: busy.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 13 }}>{busy}</span>}
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «Иваныча» с вопросом, в котором едет контекст раздела «Табель». */}
+        <AiSectionButton section="timesheets" />
       </div>
 
       {/* Завести табель может каждый, кто работает в программе (владелец 13.11.2026). */}
