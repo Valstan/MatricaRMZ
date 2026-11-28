@@ -16,6 +16,7 @@ import {
   cascadeVisibleOptions,
   looksLikeIdentifier,
   resolveReportPresetId,
+  aiSectionForPreset,
   formatWorkOrdersStatusCountsLine,
   resolveReportPrintLayout,
   MAX_REPORT_PRINT_FONT_PX,
@@ -24,6 +25,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -1454,6 +1456,11 @@ function ReportPresetTablePage(props: Parameters<typeof ReportPresetPage>[0]) {
             <Button variant="ghost" onClick={() => void loadPresetMeta()} disabled={busy}>
               Обновить
             </Button>
+            {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+                «ИИваныча» с вопросом, в котором едет контекст раздела. Раздел пресета
+                определяет ДОМЕН (`aiSectionForPreset`): «Сейчас на заводе» и «Прогноз
+                сборки» — отдельные разделы меню, остальные пресеты — «Отчёты». */}
+            <AiSectionButton section={aiSectionForPreset(props.presetId)} />
           </div>
         }
       >

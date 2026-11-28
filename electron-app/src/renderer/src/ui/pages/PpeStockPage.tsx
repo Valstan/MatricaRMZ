@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { PPE_STOCK_WAREHOUSE_CODE, PPE_STOCK_WAREHOUSE_NAME, type WarehouseStockListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
@@ -181,6 +182,11 @@ export function PpeStockPage(props: { canPost?: boolean }) {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <SectionCard title="Склад СИЗ">
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Склад СИЗ». */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <AiSectionButton section="ppe_stock" />
+        </div>
         <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
           Отдельный склад спецодежды — чужие запчасти кладовщику не видны. Остатки приходят отчётом (выгрузка 1С
           «Остатки товаров»): загрузка правит остаток до значения отчёта, поэтому повтор того же отчёта остаток не

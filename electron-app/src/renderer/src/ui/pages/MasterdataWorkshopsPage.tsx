@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -229,6 +230,9 @@ export function MasterdataWorkshopsPage(props: { canManage: boolean; canEditRepa
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <h2 style={{ margin: 0 }}>Справочник цехов</h2>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Цеха». */}
+        <AiSectionButton section="workshops" />
         <Button variant="ghost" onClick={() => void refresh()}>Обновить</Button>
         <span style={{ color: 'var(--subtle)', fontSize: 12 }}>
           Используется в нарядах (workshopId), документах склада (workshop_id), warehouseId формата workshop_&lt;code&gt;.

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
@@ -368,6 +369,9 @@ export function EngineBrandsPage(props: {
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Марки двигателей». */}
+        <AiSectionButton section="engine_brands" />
       </div>
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}

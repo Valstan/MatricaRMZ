@@ -3,6 +3,7 @@ import type { ListBehaviorSettings, UiControlSettings, UiDisplayPrefs, UiPresetI
 import { DEFAULT_LIST_BEHAVIOR_SETTINGS, UI_PRESET_IDS, UI_PRESET_LABELS, formatClientLabel } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { useTabletDevice, UI_MODE_LABELS, type UiMode } from '../hooks/useUiMode.js';
@@ -648,6 +649,11 @@ export function SettingsPage(props: {
   return (
     <div style={{ padding: 20 }}>
       <h2 style={{ marginTop: 0, marginBottom: 14 }}>Настройки</h2>
+      {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+          «ИИваныча» с вопросом, в котором едет контекст раздела «Настройки». */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+        <AiSectionButton section="settings" />
+      </div>
 
       {status && (
         <div

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { FormField } from '../components/FormField.js';
 import { Input } from '../components/Input.js';
@@ -271,6 +272,11 @@ export function PpeCollectivePage(props: { canEdit: boolean; canIssue: boolean }
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 420px) 1fr', gap: 16, alignItems: 'start' }}>
       <SectionCard title="Коллективные выдачи">
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Коллективная выдача» СИЗ. */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <AiSectionButton section="ppe_collective" />
+        </div>
         {canEdit ? (
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <Button variant="primary" onClick={startNew} disabled={busy}>

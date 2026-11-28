@@ -14,6 +14,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { theme } from '../theme.js';
 import { formatReportCell } from '../utils/reportUtils.js';
@@ -327,6 +328,11 @@ export function CustomReportsPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, height: '100%', minHeight: 0 }}>
+      {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+          «ИИваныча» с вопросом, в котором едет контекст раздела «Мои отчёты». */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <AiSectionButton section="custom_reports" />
+      </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <select value={sourcePresetId} onChange={(e) => void selectSource(e.target.value)} style={selectStyle()}>
           <option value="">— источник данных —</option>

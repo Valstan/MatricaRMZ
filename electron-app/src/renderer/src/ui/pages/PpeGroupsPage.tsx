@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
@@ -179,6 +180,11 @@ export function PpeGroupsPage(props: { canEdit: boolean }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 380px) 1fr', gap: 16, alignItems: 'start' }}>
       <SectionCard title="Группы">
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Группы» СИЗ. */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <AiSectionButton section="ppe_groups" />
+        </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию" style={{ flex: 1 }} />
         </div>

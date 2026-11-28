@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { WorkshopStatsResult } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 
 const WINDOWS: { days: number; label: string }[] = [
@@ -69,6 +70,9 @@ export function WorkshopStatsPage(): React.JSX.Element {
     <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
         <h2 style={{ margin: '0 0 4px' }}>📊 Статистика цехов</h2>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Статистика цехов». */}
+        <AiSectionButton section="workshop_stats" />
         <div style={{ fontSize: 13, color: '#64748b' }}>
           Труд и прохождение двигателей по цехам — из нарядов. Выберите цех, чтобы увидеть маршруты прошедших через него двигателей.
         </div>

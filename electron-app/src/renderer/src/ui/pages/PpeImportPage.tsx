@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -171,6 +172,11 @@ export function PpeImportPage(props: { canEdit: boolean }) {
   return (
     <div style={{ display: 'grid', gap: 16, maxWidth: 1100 }}>
       <SectionCard title="Импорт СИЗ из Excel (ЗУП/1С)">
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Импорт СИЗ». */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <AiSectionButton section="ppe_import" />
+        </div>
         <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
           Файл выгрузки .xlsx: лист сотрудников ({EXPECTED_EMPLOYEES}) и, если есть, лист выдач ({EXPECTED_ISSUES}). Ничего не пишется, пока не
           нажато «Применить»; проверка действует 30 минут.

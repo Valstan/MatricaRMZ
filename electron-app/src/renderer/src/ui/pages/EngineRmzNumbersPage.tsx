@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { EngineRmzHistoryItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 // Кит списков (промт КАРМАНА #67): правила — из общего источника, меню — из объявления действий.
 import { useListSelection } from '../hooks/useListSelection.js';
@@ -191,6 +192,12 @@ export function EngineRmzNumbersPage(props: { onOpenEngine?: (engineId: string) 
           Сквозные программные номера карточек двигателей. Номер присваивается созданию карточки и не
           переиспользуется никогда: после удаления строка остаётся здесь — с причиной, автором и тем, что было в карточке.
         </div>
+      </div>
+
+      {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+          «ИИваныча» с вопросом, в котором едет контекст раздела «Номера РМЗ». */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <AiSectionButton section="engine_rmz_numbers" />
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>

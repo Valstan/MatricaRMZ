@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { buildPpeIssueCard, wearPeriodText, type PpeKind, type PpeWearKind } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { FormField } from '../components/FormField.js';
 import { FormGrid } from '../components/FormGrid.js';
@@ -390,6 +391,11 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 380px) 1fr', gap: 16, alignItems: 'start' }}>
       <SectionCard title="Наборы норм">
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Нормы выдачи». */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <AiSectionButton section="ppe_norms" />
+        </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию" style={{ flex: 1 }} />
           <select

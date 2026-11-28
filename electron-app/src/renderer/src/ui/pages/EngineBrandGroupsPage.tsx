@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -218,6 +219,9 @@ export function EngineBrandGroupsPage(props: {
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Группы марок». */}
+        <AiSectionButton section="engine_brand_groups" />
       </div>
 
       <div style={{ color: 'var(--subtle)', fontSize: 12 }}>

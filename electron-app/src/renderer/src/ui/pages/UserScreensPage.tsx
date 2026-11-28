@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { accessSectionMeta, type UiScreenListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { theme } from '../theme.js';
 
 function fmtDate(ms: number): string {
@@ -64,6 +65,9 @@ export function UserScreensPage(props: {
     <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10, height: '100%', overflow: 'auto' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <Button onClick={() => props.onEdit(null)}>Создать экран</Button>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Мои экраны». */}
+        <AiSectionButton section="user_screens" />
         <Button variant="ghost" onClick={() => void reload()}>
           Обновить
         </Button>

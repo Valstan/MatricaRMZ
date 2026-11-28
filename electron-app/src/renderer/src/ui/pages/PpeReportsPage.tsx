@@ -2,6 +2,7 @@ import React from 'react';
 import type { ReportPresetId } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { PpeJournalPage } from './PpeJournalPage.js';
 
@@ -24,6 +25,11 @@ const PPE_PRESETS: Array<{ id: ReportPresetId; title: string; hint: string }> = 
 export function PpeReportsPage(props: { onOpen: (presetId: ReportPresetId) => void }) {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
+      {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+          «ИИваныча» с вопросом, в котором едет контекст раздела «Отчёты СИЗ». */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <AiSectionButton section="ppe_reports" />
+      </div>
       <PpeJournalPage />
       <SectionCard title="Отчёты СИЗ">
         <div style={{ display: 'grid', gap: 8 }}>

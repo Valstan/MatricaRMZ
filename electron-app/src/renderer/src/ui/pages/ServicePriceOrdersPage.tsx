@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatServicePriceOrderLabel, type ServicePriceHistoryDto, type ServicePriceOrderDto } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { FormField } from '../components/FormField.js';
 import { FormGrid } from '../components/FormGrid.js';
@@ -313,6 +314,9 @@ export function ServicePriceOrdersPage(props: { canEdit: boolean; onOpenService?
               + Приказ
             </Button>
           ) : null}
+          {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+              «ИИваныча» с вопросом, в котором едет контекст раздела «Приказы о ценах». */}
+          <AiSectionButton section="service_price_orders" />
         </div>
         {filteredOrders.length === 0 ? (
           <div style={{ color: 'var(--muted)' }}>{orders.length === 0 ? 'Приказов пока нет.' : 'Ничего не найдено.'}</div>

@@ -12,6 +12,7 @@ import type {
 import { REPORT_PRESET_THEMES, REPORT_THEMES, formatReportFiltersSummary, reportHistorySignature } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
@@ -316,6 +317,11 @@ export function ReportTemplatesShowcasePage(props: {
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
+      {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+          «ИИваныча» с вопросом, в котором едет контекст раздела «Готовые отчёты». */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <AiSectionButton section="report_templates" />
+      </div>
       <SectionCard
         title="Готовые отчёты"
         actions={

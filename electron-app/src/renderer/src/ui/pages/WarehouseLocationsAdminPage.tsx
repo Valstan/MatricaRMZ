@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { AiSectionButton } from '../ai/AiSectionButton.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -197,6 +198,9 @@ export function WarehouseLocationsAdminPage(props: { canManage: boolean; onOpenW
         <span style={{ color: 'var(--subtle)', fontSize: 12 }}>
           Единый справочник складских локаций. Цеха автоматически синхронизируются из раздела «Цеха».
         </span>
+        {/* Нейросеть в разделе (промт КАРМАНА #176, разрез 4): открывает тот же чат
+            «ИИваныча» с вопросом, в котором едет контекст раздела «Склады и цеха». */}
+        <AiSectionButton section="warehouses_admin" />
       </div>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
