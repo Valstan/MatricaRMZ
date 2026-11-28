@@ -10,10 +10,13 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { AiChatLocalStatus } from '@matricarmz/shared';
 
 import { aiChatAnswerLocally, aiChatReleaseQuestion } from './aiChatService.js';
+import { startActionBridge, type ActionBridge } from './localMiniMax/actionBridge.js';
 import { createSqliteReader, startLocalDbBridge, type LocalDbBridge } from './localMiniMax/dbBridge.js';
 import { answerQuestionLocally, getLocalLinkStatus } from './localMiniMax/localMiniMaxEngine.js';
+import type { IpcContext } from '../ipc/ipcContext.js';
 
 let bridge: LocalDbBridge | null = null;
+let actionBridge: ActionBridge | null = null;
 
 /**
  * Мост «реплика → агент» поднимается один раз за сессию: канал одноразовый,
@@ -28,6 +31,19 @@ function ensureBridge(db: BetterSQLite3Database): LocalDbBridge | null {
   if (!client || typeof client.prepare !== 'function') return null;
   bridge = startLocalDbBridge(createSqliteReader(client));
   return bridge;
+}
+
+/**
+ * Канал действий агента — тоже один раз за сессию и тоже со своим токеном.
+ *
+ * Отдельно от моста к базе: мост read-only по замыслу («писать в реплику агент не
+ * может»), а действия идут другим каналом (решение владельца, промт КАРМАНА #176).
+ * Поднимается лениво — вместе с первым заданием, как и мост к базе.
+ */
+function ensureActionBridge(ctx: IpcContext): ActionBridge | null {
+  if (actionBridge) return actionBridge;
+  actionBridge = startActionBridge(ctx);
+  return actionBridge;
 }
 
 /** Статус локального звена для панели ИИваныча. */
@@ -47,8 +63,13 @@ export async function runLocalAnswer(params: {
   questionText: string;
   /** Пинк синка: без него ответ не уедет на сервер. */
   runSync: () => void;
+  /** Контекст программы: нужен гейту разделов для действий агента. */
+  ctx?: IpcContext;
 }): Promise<{ ok: boolean; source?: string; reason?: string }> {
-  const outcome = await answerQuestionLocally(params.questionText, { bridge: ensureBridge(params.db) });
+  const outcome = await answerQuestionLocally(params.questionText, {
+    bridge: ensureBridge(params.db),
+    actionBridge: params.ctx ? ensureActionBridge(params.ctx) : null,
+  });
   if (!outcome.ok) {
     const released = await aiChatReleaseQuestion(params.db, { id: params.id });
     if (released.ok) params.runSync();

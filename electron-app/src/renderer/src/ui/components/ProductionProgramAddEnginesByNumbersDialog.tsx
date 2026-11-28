@@ -1,23 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-  PRODUCTION_PROGRAM_NO_CONTRACT_NUMBER_NOTE,
   PRODUCTION_PROGRAM_PENDING_GROUP_LABEL,
-  looksLikeIdentifier,
   parseContractSections,
-  parseEngineBulkIntake,
-  productionProgramContractLabel,
-  productionProgramEngineHint,
+  productionProgramAddByNumbersEngineLabel,
+  productionProgramAddByNumbersReport,
+  productionProgramAddByNumbersRows,
   productionProgramEngineIndex,
-  productionProgramEngineMatch,
-  productionProgramEngineProblem,
-  productionProgramRowFromEngine,
   type EngineListItem,
-  type ProductionProgramLineDraftDto,
+  type ProductionProgramAddByNumbersContractInfo,
+  type ProductionProgramAddByNumbersReportRow,
+  type ProductionProgramAddByNumbersResult,
   type ProductionProgramLineDto,
 } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { takePreparedAdd, watchPreparedAdd } from '../services/agentPreparedAddService.js';
 
 /**
  * Модалка «Добавить двигатели списком» в производственную программу
@@ -27,6 +25,12 @@ import { Button } from './Button.js';
  * что с ним («нашёлся», «нет карточки», «нет договора», «нет контрагента», «нет
  * истории ремонта»), оператор ставит галочки и одной кнопкой внизу добавляет
  * выбранное.
+ *
+ * ПРАВИЛА ЖИВУТ В ДОМЕНЕ (`shared/src/domain/productionProgramAddByNumbers.ts`): разбор
+ * номера, поиск карточки, отказ по неоднозначности, проверка дублей и сборка строк.
+ * Модалка — экран: показывает отчёт и зовёт домен. Второй вызывающий (действие агента
+ * по промту КАРМАНА #176) зовёт тот же домен, поэтому правило дублей не расходится
+ * между «человеком» и «нейросетью».
  *
  * Куда попадает строка:
  *  · годный двигатель — в группу своего договора (общее доменное правило
@@ -40,46 +44,14 @@ import { Button } from './Button.js';
  * плана, чтобы не снести строку, добавленную другим оператором.
  */
 
-/** Вид договора — по разделам договора (то же, что на странице программы). */
-type ContractKind = 'military' | 'civil';
-
-type ContractInfo = { kind: ContractKind | null; number: string };
+/** Вид и номер договора — по одному запросу на договор (кэш на одну загрузку). */
+type ContractInfo = ProductionProgramAddByNumbersContractInfo;
 
 /** Что будет с номером — три состояния. */
-type RowKind = 'normal' | 'pending' | 'forbidden';
+type ReportRow = ProductionProgramAddByNumbersReportRow;
 
-type ReportRow = {
-  /** Номер как ввёл оператор (ключ строки отчёта). */
-  number: string;
-  /** Карточка, если нашлась. */
-  engine: EngineListItem | null;
-  kind: RowKind;
-  /** Причина словами: почему такой исход. */
-  reason: string;
-  /** Подсказка домена о состоянии двигателя (если отличается от причины). */
-  hint: string;
-  /** Подпись группы (организация и номер договора) — для отчёта. */
-  groupLabel: string;
-  contractKind: ContractKind | null;
-  /** Номер повторился в этом же списке. */
-  repeated: boolean;
-};
-
-export type ProductionProgramAddByNumbersResult = {
-  /** Строки, которые надо добавить в план. */
-  rows: Array<ProductionProgramLineDraftDto & { id: string }>;
-  /** Сколько строк добавлено. */
-  added: number;
-  /** Отказы: номер и причина. */
-  skipped: Array<{ label: string; reason: string }>;
-  /** Строки программы с сервера на момент чтения — страница мержит с ними правку. */
-  serverRows: ProductionProgramLineDto[];
-};
-
-function engineLabel(engine: EngineListItem | null, number: string): string {
-  if (!engine) return number;
-  return [engine.engineBrand, engine.engineNumber].filter(Boolean).join(' ').trim() || number;
-}
+/** Итог модалки живёт в домене — оттуда его и берёт страница плана. */
+export type { ProductionProgramAddByNumbersResult };
 
 export function ProductionProgramAddEnginesByNumbersDialog(props: {
   open: boolean;
@@ -116,7 +88,7 @@ export function ProductionProgramAddEnginesByNumbersDialog(props: {
   /** Вид и номер договора — по одному запросу на договор (кэш на одну загрузку). */
   const contractInfoOf = useCallback(async (contractId: string, cache: Map<string, ContractInfo>) => {
     if (cache.has(contractId)) return cache.get(contractId)!;
-    let kind: ContractKind | null = null;
+    let kind: ContractInfo['kind'] = null;
     let number = '';
     try {
       const res = await window.matrica.contracts.contract.get(contractId);
@@ -142,6 +114,14 @@ export function ProductionProgramAddEnginesByNumbersDialog(props: {
     setStatus('');
     setCheckedOverride({});
     void (async () => {
+      // Готовый список от нейросети (промт КАРМАНА #176): номера подставляются в
+      // поле, дальше оператор видит отчёт и добавляет — как сегодня.
+      watchPreparedAdd();
+      const prepared = await takePreparedAdd(props.programId);
+      if (alive && prepared) {
+        setText(prepared.text);
+        setStatus('Список подготовила нейросеть — проверьте номера и добавьте.');
+      }
       let list = props.engines;
       try {
         const fresh = await window.matrica.engines.list();
@@ -180,68 +160,17 @@ export function ProductionProgramAddEnginesByNumbersDialog(props: {
 
   const index = useMemo(() => productionProgramEngineIndex(engines), [engines]);
 
-  /** Отчёт по каждому номеру: нашёлся ли, что с ним и куда попадёт. */
-  const report = useMemo<ReportRow[]>(() => {
-    const parsed = parseEngineBulkIntake(text);
-    const repeated = new Set(parsed.repeated.map((n) => n.toLowerCase()));
-    const out: ReportRow[] = [];
-    for (const number of parsed.numbers) {
-      const match = productionProgramEngineMatch(index, number);
-      const engine = match.engine;
-      const hint = engine ? productionProgramEngineHint(engine) : null;
-      if (match.ambiguous) {
-        out.push({
-          number,
-          engine: null,
-          kind: 'forbidden',
-          reason: `Номер совпал с ${match.matches} карточками — выберите двигатель вручную`,
-          hint: '',
-          groupLabel: '',
-          contractKind: null,
-          repeated: repeated.has(number.toLowerCase()),
-        });
-        continue;
-      }
-      const problem = productionProgramEngineProblem(engine);
-      const contractId = String(engine?.contractId ?? '');
-      const info = contractInfos.get(contractId);
-      const rawNumber = String(engine?.contractName ?? '').trim();
-      const contractNumber = rawNumber && !looksLikeIdentifier(rawNumber) ? rawNumber : (info?.number ?? '');
-      const ownLabel = engine
-        ? productionProgramContractLabel({
-            organization: engine.customerName ?? null,
-            contractNumber,
-          })
-        : '';
-      // Подпись группы — от страницы (она знает номер договора и по строгой
-      // реплике, и по карточке); свой снимок модалки отставал.
-      const groupLabel = engine ? (contractLabelOf?.(engine) ?? ownLabel) : '';
-      const contractKind = info?.kind ?? null;
-      let kind: RowKind = 'normal';
-      let reason = problem.text;
-      if (problem.forbidden) {
-        kind = 'forbidden';
-      } else if (problem.blocking) {
-        kind = 'pending';
-      } else if (!groupLabel) {
-        // Договор есть, а шапку группы не из чего собрать (номер договора ещё не
-        // доехал зеркалом) — строка ждёт в блоке и уедет сама, когда номер появится.
-        kind = 'pending';
-        reason = PRODUCTION_PROGRAM_NO_CONTRACT_NUMBER_NOTE;
-      }
-      out.push({
-        number,
-        engine,
-        kind,
-        reason,
-        hint: hint && hint.text !== reason ? hint.text : '',
-        groupLabel,
-        contractKind,
-        repeated: repeated.has(number.toLowerCase()),
-      });
-    }
-    return out;
-  }, [text, index, contractInfos, contractLabelOf]);
+  /** Отчёт по каждому номеру: нашёлся ли, что с ним и куда попадёт. Правило — в домене. */
+  const report = useMemo<ReportRow[]>(
+    () =>
+      productionProgramAddByNumbersReport({
+        text,
+        index,
+        contractInfos,
+        ...(contractLabelOf ? { contractLabelOf } : {}),
+      }),
+    [text, index, contractInfos, contractLabelOf],
+  );
 
   const isChecked = (row: ReportRow): boolean => {
     const override = checkedOverride[row.number];
@@ -251,64 +180,18 @@ export function ProductionProgramAddEnginesByNumbersDialog(props: {
 
   const checkedRows = report.filter((row) => isChecked(row));
 
-  /** Двигатель уже есть в плане? (по карточке и по номеру — номер может быть без карточки) */
-  const alreadyInProgram = (row: ReportRow): boolean => {
-    const engineId = String(row.engine?.id ?? '');
-    if (engineId && serverRows.some((l) => String(l.engineId ?? '') === engineId)) return true;
-    const number = String(row.engine?.engineNumber ?? row.number).trim().toLowerCase();
-    return serverRows.some((l) => String(l.engineNumber ?? '').trim().toLowerCase() === number);
-  };
-
   const submit = async () => {
     if (checkedRows.length === 0) return;
     setBusy(true);
     setError('');
     setStatus('');
     try {
-      const rows: Array<ProductionProgramLineDraftDto & { id: string }> = [];
-      const skipped: Array<{ label: string; reason: string }> = [];
-      for (const row of checkedRows) {
-        const label = engineLabel(row.engine, row.number);
-        if (alreadyInProgram(row)) {
-          skipped.push({ label, reason: 'Уже есть в плане' });
-          continue;
-        }
-        if (row.kind === 'forbidden') {
-          skipped.push({ label, reason: row.reason });
-          continue;
-        }
-        if (row.kind === 'pending') {
-          // Проблемная строка: живёт в блоке «Требует данных» и сама уедет в свой
-          // договор, когда карточку починят. Причина едет в примечание — и в печать.
-          rows.push({
-            id: crypto.randomUUID(),
-            orderNo: 0,
-            contractId: null,
-            groupLabel: PRODUCTION_PROGRAM_PENDING_GROUP_LABEL,
-            contractKind: null,
-            engineId: row.engine ? String(row.engine.id) : null,
-            engineMark: String(row.engine?.engineBrand ?? ''),
-            engineNumber: String(row.engine?.engineNumber ?? row.number),
-            state: null,
-            shippingPlanAt: null,
-            factors: '',
-            note: row.reason,
-          });
-          continue;
-        }
-        if (!row.engine) {
-          skipped.push({ label, reason: row.reason });
-          continue;
-        }
-        rows.push(
-          productionProgramRowFromEngine({
-            id: crypto.randomUUID(),
-            engine: row.engine,
-            groupLabel: row.groupLabel,
-            contractKind: row.contractKind,
-          }),
-        );
-      }
+      // Сборка строк и проверка дублей — в домене: тот же путь, что у действия агента.
+      const { rows, skipped } = productionProgramAddByNumbersRows({
+        report: checkedRows,
+        serverRows,
+        makeId: () => crypto.randomUUID(),
+      });
       if (rows.length === 0) {
         setError('Ни одну из отмеченных строк добавить нельзя — смотрите причины в списке.');
         return;
@@ -423,7 +306,9 @@ export function ProductionProgramAddEnginesByNumbersDialog(props: {
                     aria-label={`Добавить двигатель ${row.number}`}
                     style={{ cursor: row.kind === 'forbidden' ? 'not-allowed' : 'pointer' }}
                   />
-                  <span style={{ fontWeight: 600 }}>{engineLabel(row.engine, row.number)}</span>
+                  <span style={{ fontWeight: 600 }}>
+                    {productionProgramAddByNumbersEngineLabel(row.engine, row.number)}
+                  </span>
                   <span className="ui-muted" style={{ fontSize: 12 }}>
                     {row.groupLabel || 'без договора'}
                   </span>

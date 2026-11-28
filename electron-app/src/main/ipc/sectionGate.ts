@@ -315,7 +315,35 @@ export function isWriteGatedChannel(channel: string): boolean {
   return WRITE_CHANNELS.has(channel) || ADMIN_WRITE_CHANNELS.has(channel);
 }
 
-export function createSectionIpcGate(ctx: IpcContext) {
+/**
+ * Гейт раздела — один на программу.
+ *
+ * Кэш membership'а живёт в самом гейте, поэтому гейт на один контекст создаётся ОДИН
+ * раз: и установка на IPC, и проверка доступа вне IPC (действия агента по промту
+ * КАРМАНА #176) берут один и тот же гейт — значит, раздел, уровень и ТЕКСТ ОТКАЗА
+ * у них совпадают, а не расходятся в двух копиях.
+ */
+const guards = new WeakMap<IpcContext, SectionGuard>();
+
+type SectionGuard = {
+  /** Обернуть handler канала section-гейтом (или вернуть как есть, если канал не гейтится). */
+  wrap: (channel: string, handler: (...a: any[]) => any) => (...a: any[]) => any;
+  /** Проверить доступ к разделу ВНЕ IPC: тот же гейт, тот же текст отказа. */
+  check: (
+    sectionId: AccessSection,
+    level: 'viewer' | 'editor',
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
+};
+
+function sectionGuardFor(ctx: IpcContext): SectionGuard {
+  const existing = guards.get(ctx);
+  if (existing) return existing;
+  const created = createSectionGuard(ctx);
+  guards.set(ctx, created);
+  return created;
+}
+
+function createSectionGuard(ctx: IpcContext): SectionGuard {
   // Membership-кэш: гейт стоит на каждом IPC-вызове, скан EAV на каждый — дорого.
   // Вместе со значением кэшируем ИСТОЧНИК: «реплика» или «замороженное EAV-зеркало».
   // Источник решает, что сказать оператору при отказе (см. refuseMessage).
@@ -461,7 +489,45 @@ export function createSectionIpcGate(ctx: IpcContext) {
       : `Нет доступа к разделу «${title}» — обратитесь к администратору`;
   }
 
-  return { wrap };
+  /**
+   * Проверить доступ к разделу ВНЕ IPC — тем же гейтом и тем же текстом отказа.
+   *
+   * Нужен действиям агента (промт КАРМАНА #176): они приходят по именованному каналу,
+   * мимо `ipcMain.handle`, и без этой проверки раздел проходил бы мимо гейта.
+   */
+  async function check(
+    sectionId: AccessSection,
+    level: 'viewer' | 'editor',
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (await isAllowed(sectionId, level)) return { ok: true };
+    const title = accessSectionMeta(sectionId)?.titleRu ?? sectionId;
+    return { ok: false, error: await refuseMessage(sectionId, level, title) };
+  }
+
+  return { wrap, check };
+}
+
+/** Гейт раздела для IPC-каналов. */
+export function createSectionIpcGate(ctx: IpcContext): SectionGuard {
+  return sectionGuardFor(ctx);
+}
+
+/**
+ * Проверка доступа к разделу ВНЕ IPC — единственный экспорт гейта наружу для
+ * действий агента (промт КАРМАНА #176, разрез 2).
+ *
+ * ПОЧЕМУ ОДИН ЭКСПОРТ. Гейт раздела отвечает за раздел, уровень и ТЕКСТ ОТКАЗА. Вторая
+ * копия этой проверки в действии агента разошлась бы с гейтом тихо: агент отказал бы
+ * «по-своему», а оператор увидел бы две разные формулировки одного и того же отказа.
+ * Поэтому агент зовёт ЭТОТ гейт, а обработчик инструмента дополнительно оборачивается
+ * тем же `wrap` под именем канала действия.
+ */
+export async function checkSectionAccess(
+  ctx: IpcContext,
+  sectionId: AccessSection,
+  level: 'viewer' | 'editor',
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  return sectionGuardFor(ctx).check(sectionId, level);
 }
 
 /**
